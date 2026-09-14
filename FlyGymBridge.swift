@@ -1792,6 +1792,39 @@ func runBridgeTest() {
     let rayScene = WorldViewerCoordinates.sceneComponents(fromMuJoCo: [0.25, -0.5, 0.75])
     let rayBack = WorldViewerCoordinates.mujocoComponents(fromScene: rayScene)
     check("V5 pick ray uses inverse viewport basis", zip(rayBack, [0.25, -0.5, 0.75]).allSatisfy { abs($0 - $1) < 1e-12 })
+
+    // V5.2 presentation-state ownership. LabSession remains authoritative for
+    // pause/timeline; the screen state mirrors that once and every panel renders
+    // from the same value instead of independently inferring phase/tick.
+    var v52State = LabViewState()
+    let v52Session = LabSessionSnapshot(
+        mode: .deterministic, phase: .paused, sessionID: "v52-state", epoch: 3,
+        simTick: 120, quantumTicks: FlyGymProtocolV4.experimentQuantumTicks,
+        outstandingStepSeq: nil, pauseControlSent: true,
+        lastBodyResultTick: 120, lastAppliedCommandTick: 100, lastError: nil)
+    v52State.sync(session: v52Session)
+    if let snapshotParsed { v52State.accept(snapshot: snapshotParsed, connectionGeneration: 9) }
+    check("V5.2 common state keeps session timeline authoritative",
+          v52State.timelineTick == 120 && v52State.snapshotTick == 40
+          && v52State.phaseBadge == "PAUSED"
+          && v52State.commonStatusLine.contains("tick 120 ms · PAUSED")
+          && v52State.sessionStatusLine.contains("paused · epoch 3 · tick 120 ms"))
+
+    let v52PickLine = #"{"type":"ray_pick_result","protocol_version":4,"session_id":"","epoch":0,"seq":90,"sim_tick":41,"world_revision":4,"source_snapshot_seq":2,"source_world_revision":3,"source_sim_tick":40,"ok":true,"hit":true,"target_id":"box_1","target_kind":"lab_object","distance_mm":1.0,"point_mm":[0,0,0],"normal_world":[0,0,1],"geom_id":1}"#
+    if let v52Pick = parseRayPickResultLine(Data(v52PickLine.utf8)) {
+        v52State.apply(pick: v52Pick)
+    }
+    check("V5.2 authoritative pick updates one shared object selection",
+          v52State.selectedObjectID == "box_1" && v52State.selectionSummary.contains("object box_1"))
+
+    let v52EmptySnapshotLine = #"{"type":"world_render_snapshot","protocol_version":4,"session_id":"","epoch":0,"request_seq":2,"sim_tick":42,"ok":true,"snapshot_seq":3,"world_revision":5,"fly":{"id":"fly","position_mm":[1,2,0.7],"orientation_quat_xyzw":[0,0,0,1]},"objects":[]}"#
+    if let v52Empty = parseWorldRenderSnapshotLine(Data(v52EmptySnapshotLine.utf8)) {
+        v52State.accept(snapshot: v52Empty, connectionGeneration: 9)
+    }
+    check("V5.2 shared selection is reconciled by authoritative snapshot",
+          v52State.selectedObjectID == nil && v52State.timelineTick == 120
+          && v52State.snapshotSeq == 3 && v52State.worldRevision == 5)
+
     // sensory map: standing contact is not gait; fresh real body is authoritative;
     // stale/missing real body falls back to the desktop procedural fly.
     var still = FlyGymBodyFeedback()

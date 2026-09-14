@@ -25,7 +25,7 @@ These checks confirm the committed V4 scheduling/session baseline before V5 work
 | 단계 ID | 요구 | 상태 | 변경 파일 | 실행 검사/로그 | 실패/다음 조치 |
 |---|---|---|---|---|---|
 | V5.1 | 현재 API 조사 및 viewport prototype | automated_verified | `LabProtocol.swift`, `FlyGymBridge.swift`, `WorldViewer.swift`, `LabWindow.swift`, `build.sh`, `flygym_bridge/{protocol,bridge,fly_body,lab_world}.py`, `flygym_bridge/test_v5.py` | focused V5 + Swift bridge/lab/V4 + Python V4/lab/bridge + real lab/vision PASS; real MuJoCo snapshot/pick probe PASS | fresh integrated GUI, keyboard-focus suitability, viewport FPS + pick ACK latency remain before `complete` |
-| V5.2 | 공통 화면 상태 소유권 | planned | 미정 | 미실행 | V5.1 renderer decision required |
+| V5.2 | 공통 화면 상태 소유권 | implementing | `LabViewState.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `build.sh` | build + Swift bridge/lab/V4 PASS; V5.2 state fixtures PASS | first slice owns mode/selection/timeline/pause/snapshot presentation in one state; central world + collapsible tool/activity panel composition and fresh GUI acceptance remain |
 | V5.3 | 관찰 camera | planned | 미정 | 미실행 | camera must stay read-only to simulation |
 | V5.4 | 실제 사용자 참여체 | planned | 미정 | 미실행 | backend geometry + eye visibility required |
 | V5.5 | WASD/look/E/Esc 및 focus handling | planned | 미정 | 미실행 | backend player contract required |
@@ -33,6 +33,18 @@ These checks confirm the committed V4 scheduling/session baseline before V5 work
 | V5.7 | 기존 activity card 연결 | planned | 미정 | 미실행 | reuse existing telemetry only; no new state model |
 
 No V6 terrain/environment editor, V7 neuron inspector, V8 module host, V9 checkpoint, or V11 desire/emotion model is pulled forward into this version.
+
+## V5.2 implementation start — common screen state
+
+The first V5.2 slice is now in the working tree. It deliberately does **not** create player physics or V5.3 camera behavior:
+
+- `LabViewState.swift` is the single presentation-state model for Lab mode, selected fly/object, timeline tick, pause/session phase and the currently displayed atomic snapshot identity. `LabSession` remains the authoritative owner of session/epoch/tick/pause ordering; V5.2 only mirrors that state for UI consistency.
+- `LabWindow` renders the common state bar and the existing Experiments session status from the same `LabViewState`, so pause/tick cannot be independently inferred by separate panels.
+- Authoritative `ray_pick_result` selection updates the shared object/fly selection. New atomic snapshots reconcile object selection if the selected object no longer exists.
+- The mode shell visibly owns `Observe / Participate / Edit`, but only **Observe** is enabled. Participate remains owned by V5.4/V5.5 and Edit by the later editor work; V5.2 does not pretend those contracts already exist.
+- The common state keeps the `LabSession` timeline tick authoritative even when the displayed render snapshot has a different source tick.
+
+Fresh focused checks after this first V5.2 slice: `./build.sh`, `--bridgetest`, `--labtest`, `--v4test`, and `git diff --check` all PASS. `--bridgetest` now includes V5.2 fixtures for pause/timeline consistency, shared authoritative object selection, and selection reconciliation after a newer snapshot.
 
 ## V5.1 implementation evidence — current working tree
 

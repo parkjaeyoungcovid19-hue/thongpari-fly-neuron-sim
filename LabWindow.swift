@@ -1,4 +1,4 @@
-// LabWindow.swift — AppKit Virtual Fly Lab V4 control/telemetry window.
+// LabWindow.swift — AppKit Virtual Fly Lab integrated control/telemetry window.
 
 import Cocoa
 
@@ -231,6 +231,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private let commandDiagnosticsLabel = NSTextField(wrappingLabelWithString: "Commands — no command sent yet")
     private let signalPathLabel = NSTextField(wrappingLabelWithString: "Signal path — waiting for telemetry…")
     private let sessionStatusLabel = NSTextField(wrappingLabelWithString: "Session — interactive")
+    private let viewStateLabel = NSTextField(wrappingLabelWithString: "View — OBSERVE · fly fly · object none · tick 0 ms · RUNNING")
+    private let viewModeControl = NSSegmentedControl(labels: ["Observe", "Participate", "Edit"],
+                                                     trackingMode: .selectOne,
+                                                     target: nil, action: nil)
     private let temperatureModeStatusLabel = NSTextField(wrappingLabelWithString: "Neural input: OFF — environment-only temperature is recorded without neural input.")
 
     private let objectID = NSTextField(string: "")
@@ -303,6 +307,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private var lastViewerConnectionGeneration: UInt64?
     private var lastViewerSessionID: String?
     private var lastViewerEpoch: Int?
+    private var viewState = LabViewState()
 
     init(coordinator: Coordinator, bridge: FlyGymBridge?) {
         self.coordinator = coordinator
@@ -310,7 +315,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 920, height: 760),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable],
                          backing: .buffered, defer: false)
-        w.title = "Thongpari Fly Neuron Sim — Virtual Fly Lab V5.1 Preview"
+        w.title = "Thongpari Fly Neuron Sim — Virtual Fly Lab V5.2 Preview"
         w.minSize = NSSize(width: 760, height: 600)
         super.init(window: w)
         w.delegate = self
@@ -384,6 +389,17 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         freshnessLabel.font = NSFont.monospacedSystemFont(ofSize: 10.5, weight: .medium)
         freshnessLabel.textColor = .secondaryLabelColor
         freshnessLabel.lineBreakMode = .byTruncatingMiddle
+        viewStateLabel.font = NSFont.monospacedSystemFont(ofSize: 11, weight: .medium)
+        viewStateLabel.textColor = .labelColor
+        viewStateLabel.lineBreakMode = .byTruncatingMiddle
+        viewModeControl.target = self
+        viewModeControl.action = #selector(viewModeChanged)
+        viewModeControl.selectedSegment = 0
+        // V5.2 establishes one mode owner now. Participate/Edit become active in
+        // their owning implementation steps; showing them disabled prevents the
+        // shell from pretending those physics/edit contracts already exist.
+        viewModeControl.setEnabled(false, forSegment: 1)
+        viewModeControl.setEnabled(false, forSegment: 2)
 
         let intro = NSTextField(wrappingLabelWithString:
             "Change the fly's environment or sensory input, then watch the whole-brain model respond. " +
@@ -406,6 +422,23 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         statusStack.edgeInsets = NSEdgeInsets(top: 4, left: 2, bottom: 6, right: 2)
         topStatusRow.widthAnchor.constraint(equalTo: statusStack.widthAnchor).isActive = true
 
+        let commonStateRow = NSStackView(views: [label("Mode"), viewModeControl, NSView(),
+                                                  button("Pause", #selector(pauseSession)),
+                                                  button("Resume", #selector(resumeSession))])
+        commonStateRow.orientation = .horizontal
+        commonStateRow.alignment = .centerY
+        commonStateRow.spacing = 8
+        commonStateRow.distribution = .fill
+        let commonStateStack = NSStackView(views: [commonStateRow, viewStateLabel])
+        commonStateStack.orientation = .vertical
+        commonStateStack.alignment = .leading
+        commonStateStack.spacing = 5
+        commonStateStack.edgeInsets = NSEdgeInsets(top: 7, left: 8, bottom: 7, right: 8)
+        commonStateStack.wantsLayer = true
+        commonStateStack.layer?.cornerRadius = 7
+        commonStateStack.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.55).cgColor
+        commonStateRow.widthAnchor.constraint(equalTo: commonStateStack.widthAnchor, constant: -16).isActive = true
+
         let tabs = NSTabViewController()
         tabs.tabStyle = .toolbar
         tabs.addTabViewItem(tab("World", worldPage()))
@@ -415,7 +448,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         tabs.addTabViewItem(tab("Experiments", experimentPage()))
 
         root.addChild(tabs)
-        let stack = NSStackView(views: [intro, statusStack, tabs.view])
+        let stack = NSStackView(views: [intro, statusStack, commonStateStack, tabs.view])
         stack.orientation = .vertical
         stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -428,6 +461,23 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             tabs.view.heightAnchor.constraint(greaterThanOrEqualToConstant: 500)
         ])
         window.contentViewController = root
+        renderViewState()
+    }
+
+    @objc private func viewModeChanged() {
+        // V5.2 owns mode centrally, but only Observe is implemented at this
+        // stage. Disabled future segments are kept visible for shell continuity.
+        viewState.mode = .observe
+        viewModeControl.selectedSegment = 0
+        renderViewState()
+    }
+
+    private func renderViewState() {
+        viewStateLabel.stringValue = viewState.commonStatusLine
+        viewStateLabel.textColor = viewState.sessionPhase == .failed ? .systemRed : .labelColor
+        sessionStatusLabel.stringValue = viewState.sessionStatusLine
+        sessionStatusLabel.textColor = viewState.sessionPhase == .failed ? .systemRed : .labelColor
+        viewModeControl.selectedSegment = LabViewMode.allCases.firstIndex(of: viewState.mode) ?? 0
     }
 
     private func tab(_ title: String, _ vc: NSViewController) -> NSTabViewItem {
@@ -972,6 +1022,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         }
         if let id = send(action, target: objectTarget, x: d(objectX), y: d(objectY), z: d(objectZ),
                          size: max(0.1, d(objectSize, fallback: 5))) {
+            viewState.selectObject(objectTarget)
+            renderViewState()
             lastObjectCommandID = id
             lastObjectCommandDescription = "create \(shape) ‘\(objectTarget)’"
             worldObjectStatusLabel.stringValue = "Object status — sending \(lastObjectCommandDescription)…"
@@ -981,13 +1033,35 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             worldObjectStatusLabel.textColor = .systemOrange
         }
     }
-    @objc private func moveObject() { send("move_object", target: target, x: d(objectX), y: d(objectY), z: d(objectZ)) }
-    @objc private func resizeObject() { send("resize_object", target: target, size: max(0.1, d(objectSize, fallback: 5))) }
-    @objc private func deleteObject() { send("delete_object", target: target) }
+    @objc private func moveObject() {
+        let objectTarget = target
+        if send("move_object", target: objectTarget, x: d(objectX), y: d(objectY), z: d(objectZ)) != nil {
+            viewState.selectObject(objectTarget)
+            renderViewState()
+        }
+    }
+    @objc private func resizeObject() {
+        let objectTarget = target
+        if send("resize_object", target: objectTarget, size: max(0.1, d(objectSize, fallback: 5))) != nil {
+            viewState.selectObject(objectTarget)
+            renderViewState()
+        }
+    }
+    @objc private func deleteObject() {
+        let objectTarget = target
+        if send("delete_object", target: objectTarget) != nil {
+            viewState.selectObject(objectTarget)
+            renderViewState()
+        }
+    }
     @objc private func approachObject() {
-        send("approach_object", target: target,
-             speed: max(0.1, d(objectSpeed, fallback: 12)),
-             endDistance: max(0.5, d(objectEndDistance, fallback: 8)))
+        let objectTarget = target
+        if send("approach_object", target: objectTarget,
+                speed: max(0.1, d(objectSpeed, fallback: 12)),
+                endDistance: max(0.5, d(objectEndDistance, fallback: 8))) != nil {
+            viewState.selectObject(objectTarget)
+            renderViewState()
+        }
     }
     @objc private func resetWorld() {
         clearEyePending()
@@ -1378,6 +1452,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         worldViewer.clearSnapshot()
         arenaPlacement.worldObjects = []
         arenaPlacement.flyPose = nil
+        viewState.clearViewerIdentity(clearObjectSelection: resetIdentity)
         lastPickRequestSeq = nil
         lastAppliedPickSeq = nil
         lastPickSource = nil
@@ -1393,6 +1468,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         let now = Date()
         let t = coordinator.labTelemetry()
         let session = coordinator.sessionSnapshot()
+        viewState.sync(session: session)
         var state: LabRemoteState?
         var ack: LabAck?
         var event: LabEventNotice?
@@ -1403,6 +1479,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             event = bridge.latestLabEvent()
 
             let viewerGeneration = bridge.connectionGeneration
+            viewState.setViewerAvailable(bridge.worldViewerV5_1Available)
             if let previousGeneration = lastViewerConnectionGeneration,
                previousGeneration != viewerGeneration {
                 clearWorldViewerSnapshotPresentation(resetIdentity: true)
@@ -1421,6 +1498,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                     lastViewerSessionID = snapshot.sessionID
                     lastViewerEpoch = snapshot.epoch
                     if snapshot.ok, let snapshotID = snapshot.snapshotID, let revision = snapshot.revision {
+                        viewState.accept(snapshot: snapshot, connectionGeneration: viewerGeneration)
                         worldViewer.apply(snapshot: snapshot)
                         updateArenaFromAtomicSnapshot(snapshot)
                         let pickSuffix = lastPickSummary.isEmpty ? "" : " · \(lastPickSummary)"
@@ -1457,6 +1535,11 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                     case .applySuccess:
                         lastAppliedPickSeq = pick.seq
                         worldViewer.apply(pickResult: pick)
+                        viewState.apply(pick: pick)
+                        if pick.targetKind == "lab_object", let targetID = pick.targetID {
+                            objectID.stringValue = targetID
+                            lastAutoObjectID = nil
+                        }
                         if pick.hit {
                             lastPickSummary = String(format: "pick #%d %@ · %.1f mm",
                                                      pick.seq, pick.targetID ?? "hit", pick.distanceMM ?? 0)
@@ -1542,10 +1625,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             }
         }
 
-        let sessionError = session.lastError.map { " · ERROR \($0)" } ?? ""
-        let bodyTick = session.lastBodyResultTick.map(String.init) ?? "—"
-        sessionStatusLabel.stringValue = "Session — \(session.mode.rawValue.uppercased()) · \(session.phase.rawValue) · epoch \(session.epoch) · tick \(session.simTick) ms · body result \(bodyTick)\(sessionError)"
-        sessionStatusLabel.textColor = session.phase == .failed ? .systemRed : .labelColor
+        renderViewState()
 
         if window?.isVisible == true {
             neuralGraph.append([t.ratePop, t.rateLoom, t.rateFwd, t.rateMDN, t.rateGroom])

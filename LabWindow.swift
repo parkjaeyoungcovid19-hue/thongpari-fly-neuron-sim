@@ -305,6 +305,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private var lastAppliedPickSeq: Int?
     private var lastPickSource: WorldViewerSnapshotSource?
     private var lastPickSummary = ""
+    private var participantCommandPending = ParticipantCommandPendingState()
     private var lastViewerConnectionGeneration: UInt64?
     private var lastViewerSessionID: String?
     private var lastViewerEpoch: Int?
@@ -396,9 +397,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         viewModeControl.target = self
         viewModeControl.action = #selector(viewModeChanged)
         viewModeControl.selectedSegment = 0
-        // V5.2 establishes one mode owner now. Participate/Edit become active in
-        // their owning implementation steps; showing them disabled prevents the
-        // shell from pretending those physics/edit contracts already exist.
+        // Participate becomes capability-gated in V5.4 once a backend-owned
+        // collidable probe is available. Edit remains a later-version contract.
         viewModeControl.setEnabled(false, forSegment: 1)
         viewModeControl.setEnabled(false, forSegment: 2)
 
@@ -466,14 +466,62 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func viewModeChanged() {
-        // V5.2 owns mode centrally, but only Observe is implemented at this
-        // stage. Disabled future segments are kept visible for shell continuity.
-        viewState.mode = .observe
-        viewModeControl.selectedSegment = 0
+        let modes = LabViewMode.allCases
+        guard viewModeControl.selectedSegment >= 0,
+              viewModeControl.selectedSegment < modes.count else { return }
+        let requested = modes[viewModeControl.selectedSegment]
+        if participantCommandPending.isPending {
+            viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+            return
+        }
+        switch requested {
+        case .participate:
+            guard bridge?.playerV5_4Available == true,
+                  let id = send("set_player_active", value: 1) else {
+                viewState.rejectModeTransition()
+                viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+                renderViewState()
+                return
+            }
+            participantCommandPending.begin(
+                commandID: id,
+                connectionGeneration: bridge?.connectionGeneration ?? 0)
+            viewState.beginModeTransition(to: .participate)
+            viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+            worldViewerStatusLabel.stringValue = "3D world — enabling backend participant probe…"
+        case .observe:
+            if viewState.mode == .participate {
+                guard let id = send("set_player_active", value: 0) else {
+                    viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+                    return
+                }
+                participantCommandPending.begin(
+                    commandID: id,
+                    connectionGeneration: bridge?.connectionGeneration ?? 0)
+                viewState.beginModeTransition(to: .observe)
+                viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+                worldViewerStatusLabel.stringValue = "3D world — disabling backend participant probe…"
+            }
+        case .edit:
+            viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+        }
         renderViewState()
     }
 
     private func renderViewState() {
+        viewModeControl.setEnabled(bridge?.playerV5_4Available == true, forSegment: 1)
+        viewModeControl.setEnabled(false, forSegment: 2)
+        let playerAvailable = bridge?.playerV5_4Available == true
+        let generation = bridge?.connectionGeneration ?? 0
+        if participantCommandPending.clearIfViewerLifecycleInvalid(
+            playerAvailable: playerAvailable,
+            connectionGeneration: generation) {
+            viewState.rejectModeTransition()
+        }
+        if !playerAvailable && viewState.mode == .participate {
+            viewState.mode = .observe
+        }
+        viewModeControl.selectedSegment = LabViewMode.allCases.firstIndex(of: viewState.mode) ?? 0
         viewStateLabel.stringValue = viewState.commonStatusLine
         viewStateLabel.textColor = viewState.sessionPhase == .failed ? .systemRed : .labelColor
         sessionStatusLabel.stringValue = viewState.sessionStatusLine
@@ -1526,7 +1574,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                         worldViewer.apply(snapshot: snapshot)
                         updateArenaFromAtomicSnapshot(snapshot)
                         let pickSuffix = lastPickSummary.isEmpty ? "" : " · \(lastPickSummary)"
-                        worldViewerStatusLabel.stringValue = "3D world — snapshot #\(snapshotID) · rev \(revision) · tick \(snapshot.simTick) · \(snapshot.objects.count) objects\(pickSuffix)"
+                        let playerSuffix = snapshot.player == nil ? "" : " · participant body"
+                        worldViewerStatusLabel.stringValue = "3D world — snapshot #\(snapshotID) · rev \(revision) · tick \(snapshot.simTick) · \(snapshot.objects.count) objects\(playerSuffix)\(pickSuffix)"
                         worldViewerStatusLabel.textColor = .secondaryLabelColor
                     } else {
                         worldViewerStatusLabel.stringValue = "3D world — snapshot error: \(snapshot.error ?? "backend rejected request")"
@@ -1626,6 +1675,20 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                         let message = ack.message.isEmpty ? "command rejected" : ack.message
                         worldObjectStatusLabel.stringValue = "Object status — ERROR · \(message)"
                         worldObjectStatusLabel.textColor = .systemRed
+                    }
+                }
+                if participantCommandPending.consumeAck(commandID: ack.id) {
+                    if ack.ok {
+                        // Do not switch mode from the ACK alone. The next atomic
+                        // world snapshot must confirm player presence/absence;
+                        // LabViewState.accept(snapshot:) is the authority gate.
+                        worldViewerStatusLabel.stringValue = "3D world — participant command applied; waiting for atomic snapshot…"
+                        worldViewerStatusLabel.textColor = .secondaryLabelColor
+                    } else {
+                        viewState.rejectModeTransition()
+                        let message = ack.message.isEmpty ? "participant command rejected" : ack.message
+                        worldViewerStatusLabel.stringValue = "3D world — participant ERROR · \(message)"
+                        worldViewerStatusLabel.textColor = .systemRed
                     }
                 }
             }

@@ -18,6 +18,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass
+from player_body import PlayerBody
 
 
 PHYSICAL = "PHYSICAL"
@@ -180,6 +181,9 @@ class LabWorld:
         self._previous_forces = {}
         self.approaches = {}
         self.events = deque(maxlen=MAX_EVENTS)
+        # V5.4 participant is one dedicated actor, not part of the generic
+        # LabObject pool. LabWorld still owns its lifecycle/revision semantics.
+        self.player = PlayerBody()
         self.wind = {
             "strength": 0.0,
             "direction_deg": 0.0,
@@ -239,9 +243,14 @@ class LabWorld:
                 type=geom_type,
                 size=size,
                 rgba=rgba,
-                contype=0,
-                conaffinity=0,
+                # Keep ordinary collision eligibility in the compiled model;
+                # `_deactivate_slot` immediately masks inactive slots back to
+                # 0/0 after binding. MuJoCo cannot promote a geom compiled with
+                # 0/0 into the generic collision candidate set at runtime.
+                contype=1,
+                conaffinity=1,
             )
+        self.player.install(world)
 
     def bind(self, sim, force_body_ids=None):
         """Resolve slot/body ids after Simulation construction."""
@@ -258,6 +267,7 @@ class LabWorld:
             mocap_id = int(self.model.body_mocapid[bid])
             self._slot_ids[slot] = (bid, gid, mocap_id)
         self.force_body_ids = dict(force_body_ids or {})
+        self.player.bind(sim)
         self._bound = True
         self._sync_all()
 
@@ -285,9 +295,10 @@ class LabWorld:
         self.force_body_ids = dict(mapping or {})
 
     def resync_after_sim_reset(self):
-        """Restore active mocap slots after Simulation.reset() resets mjData."""
+        """Restore active LabObject slots and the free-joint participant after reset."""
         self._previous_forces = {}
         self._sync_all()
+        self.player.resync_after_sim_reset()
 
     def _clear_applied_forces(self):
         """Remove only force vectors previously contributed by this LabWorld."""
@@ -306,6 +317,30 @@ class LabWorld:
         if obj is not None:
             obj.revision = self.revision
         return self.revision
+
+    def set_player_active(self, active):
+        changed, pose = self.player.set_active(active)
+        if changed:
+            self._bump_revision(structural=True)
+        return {"player": pose, "player_active": self.player.active}
+
+    def set_player_pose(self, *, position_mm=None, orientation_quat_xyzw=None, mode=None):
+        """Owner-thread participant pose update; no input/wire policy lives here."""
+        self.player.set_pose(position_mm=position_mm,
+                             orientation_quat_xyzw=orientation_quat_xyzw,
+                             mode=mode)
+        if self.player.active:
+            self._bump_revision(structural=False)
+        return self.player.render_pose()
+
+    def reset_player_pose(self, *, preserve_active=True):
+        was_active = self.player.active
+        self.player.reset_pose(preserve_active=preserve_active)
+        if was_active and self.player.active:
+            self._bump_revision(structural=False)
+
+    def render_player(self):
+        return self.player.render_pose()
 
     def _object_id(self, requested, shape):
         if requested is not None:
@@ -889,6 +924,9 @@ class LabWorld:
 
     def semantic_target_for_geom(self, geom_id):
         """Map one compiled MuJoCo geom id back to a stable lab object id."""
+        player = self.player.semantic_target_for_geom(geom_id)
+        if player is not None:
+            return player
         if not self._bound:
             return None
         try:
@@ -906,6 +944,7 @@ class LabWorld:
             "physical_backend": bool(self._bound),
             "world_revision": int(self.revision),
             "objects": [self.objects[k].state() for k in sorted(self.objects)],
+            "player": self.player.render_pose(),
             "slot_capacity": {shape: int(count) for shape, count in self.slot_counts.items()},
             "slot_free": {shape: len(slots) for shape, slots in self._free_slots.items()},
             "approaches": [

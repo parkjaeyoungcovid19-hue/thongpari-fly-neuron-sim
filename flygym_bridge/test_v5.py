@@ -1,4 +1,4 @@
-"""Focused V5.1 backend tests for render snapshots and read-only ray picking."""
+"""Focused V5 backend tests for atomic snapshots, participant and read-only picking."""
 from __future__ import annotations
 
 import copy
@@ -19,11 +19,13 @@ from bridge import Bridge
 from fly_body import RealFlyBody
 from protocol import (
     HelloPacket,
+    LabCommand,
     RayPickRequestPacket,
     RayPickResultPacket,
     SessionControlPacket,
     V4_CAPABILITIES,
     V5_VIEW_CAPABILITIES,
+    V5_PLAYER_CAPABILITIES,
     WorldRenderRequestPacket,
     WorldRenderSnapshotPacket,
     decode_line,
@@ -90,8 +92,9 @@ hello = HelloPacket()
 check(
     "V5 view capabilities advertised without changing V4 required set",
     V5_VIEW_CAPABILITIES.issubset(hello.capabilities)
+    and V5_PLAYER_CAPABILITIES.issubset(hello.capabilities)
     and hello.supports_v4_deterministic(require_physics_timestep=False)
-    and V4_CAPABILITIES.isdisjoint(V5_VIEW_CAPABILITIES),
+    and V4_CAPABILITIES.isdisjoint(V5_VIEW_CAPABILITIES | V5_PLAYER_CAPABILITIES),
     repr(hello.capabilities),
 )
 
@@ -131,6 +134,8 @@ bad_packets = [
     b'{"type":"ray_pick_request","protocol_version":4,"session_id":"","epoch":0,"seq":1,"source_snapshot_seq":1,"source_world_revision":0,"source_sim_tick":0,"ray_origin_mm":[0,0,0],"ray_direction":[0,0,0]}\n',
     b'{"type":"ray_pick_result","protocol_version":4,"session_id":"","epoch":0,"seq":1,"sim_tick":0,"world_revision":0,"ok":true,"hit":false}\n',
     b'{"type":"world_render_snapshot","protocol_version":4,"session_id":"","epoch":0,"request_seq":1,"sim_tick":0,"ok":true,"snapshot_seq":1,"world_revision":0,"fly":{"id":"fly","position_mm":[0,0,0],"orientation_quat_xyzw":[0,0,0,2]},"objects":[]}\n',
+    b'{"type":"world_render_snapshot","protocol_version":4,"session_id":"","epoch":0,"request_seq":1,"sim_tick":0,"ok":true,"snapshot_seq":1,"world_revision":0,"fly":{"id":"fly","position_mm":[0,0,0],"orientation_quat_xyzw":[0,0,0,1]},"objects":[],"player":{"id":"player","position_mm":[1,2,3],"orientation_quat_xyzw":[0,0,0,1],"collision_radius_mm":-1,"mode":"participate"}}\n',
+    b'{"type":"world_render_snapshot","protocol_version":4,"session_id":"","epoch":0,"request_seq":1,"sim_tick":0,"ok":true,"snapshot_seq":1,"world_revision":0,"fly":{"id":"fly","position_mm":[0,0,0],"orientation_quat_xyzw":[0,0,0,1]},"objects":[],"player":{"id":"player","position_mm":[1,2,3],"orientation_quat_xyzw":[0,0,0,1],"collision_radius_mm":2.5}}\n',
 ]
 check(
     "strict V5 packets reject missing fields, NaN, bad lengths and invalid quaternion",
@@ -205,6 +210,43 @@ check(
     and snapshot2.objects[0]["position_mm"] == [20.0, 3.0, 4.0],
     f"first={snapshot1.snapshot_seq}/{first_revision} duplicate={duplicate.snapshot_seq}/{duplicate.world_revision} "
     f"next={snapshot2.snapshot_seq}/{snapshot2.world_revision}",
+)
+
+# V5.4 participant presence is an owner-side world mutation, not camera state.
+# The inactive probe contributes no geometry. Activating it advances structural
+# provenance, then the same backend-owned pose appears in the atomic snapshot.
+inactive_player_revision = bridge.body.lab_world.revision
+inactive_structure_revision = bridge.body.lab_world.structure_revision
+player_result = bridge.body.apply_lab_command(
+    LabCommand(seq=90, op="set_player_active", args={"value": 1.0}))
+bridge.handle_line(encode(WorldRenderRequestPacket(session_id="", epoch=0, seq=3)))
+bridge._process_view_queries()
+player_snapshot = bridge._drain_lab_responses()[0]
+check(
+    "V5.4 activating participant mutates authoritative world structure",
+    player_result.get("player_active") is True
+    and bridge.body.lab_world.revision == inactive_player_revision + 1
+    and bridge.body.lab_world.structure_revision == inactive_structure_revision + 1,
+    repr(player_result),
+)
+check(
+    "V5.4 atomic snapshot carries strict backend-owned player pose",
+    isinstance(player_snapshot, WorldRenderSnapshotPacket)
+    and player_snapshot.ok
+    and player_snapshot.player is not None
+    and player_snapshot.player["actor_id"] == "player"
+    and player_snapshot.player["position_mm"] == [24.0, 0.0, 2.5]
+    and player_snapshot.player["orientation_quat_xyzw"] == [0.0, 0.0, 0.0, 1.0]
+    and player_snapshot.player["collision_radius_mm"] == 2.5
+    and player_snapshot.player["mode"] == "participate",
+    repr(player_snapshot),
+)
+player_roundtrip = decode_line(encode(player_snapshot))
+check(
+    "V5.4 player collision radius/mode survive strict wire round-trip",
+    isinstance(player_roundtrip, WorldRenderSnapshotPacket)
+    and player_roundtrip.player == player_snapshot.player,
+    repr(player_roundtrip),
 )
 
 
@@ -400,6 +442,48 @@ check(
 )
 
 
+# V5.4 lifecycle safety: participation belongs to one live client connection.
+# If that client vanishes, remove its collider and retire the V4 owner session so
+# reconnect cannot keep issuing traffic against the abandoned participant timeline.
+disconnect_bridge = Bridge(mode="mock")
+disconnect_bridge.handle_line(encode(HelloPacket(role="swift", physics_timestep_s=None)))
+disconnect_bridge.handle_line(encode(SessionControlPacket(
+    session_id="participant-session", epoch=3, seq=1, sim_tick=0,
+    action="begin", mode="deterministic",
+)))
+disconnect_bridge._process_session_controls()
+disconnect_bridge._drain_lab_responses()
+disconnect_bridge.body.lab_world.set_player_active(True)
+disconnect_revision = disconnect_bridge.body.lab_world.revision
+disconnect_client, disconnect_reader, disconnect_thread, disconnect_hello = start_transport(disconnect_bridge)
+stop_transport(disconnect_client, disconnect_thread)
+reconnect_after_participant, reconnect_after_participant_reader, reconnect_after_participant_thread, reconnect_after_participant_hello = start_transport(disconnect_bridge)
+reconnect_after_participant.sendall(encode(WorldRenderRequestPacket(
+    session_id="participant-session", epoch=3, seq=1)))
+stale_participant_session = reconnect_after_participant_reader.until(WorldRenderSnapshotPacket)
+stop_transport(reconnect_after_participant, reconnect_after_participant_thread)
+disconnect_bridge.running = False
+check(
+    "V5.4 participant disconnect removes body and retires old V4 session",
+    isinstance(disconnect_hello, HelloPacket)
+    and isinstance(reconnect_after_participant_hello, HelloPacket)
+    and not disconnect_bridge.body.lab_world.player.active
+    and disconnect_bridge.body.lab_world.render_player() is None
+    and disconnect_bridge.body.lab_world.revision == disconnect_revision + 1
+    and disconnect_bridge.session_id == ""
+    and disconnect_bridge.session_epoch == 0
+    and disconnect_bridge.session_tick == 0
+    and disconnect_bridge.session_mode == "interactive"
+    and not disconnect_bridge.session_paused
+    and isinstance(stale_participant_session, WorldRenderSnapshotPacket)
+    and not stale_participant_session.ok
+    and stale_participant_session.error == "session not active",
+    f"session={disconnect_bridge.session_id!r}/{disconnect_bridge.session_epoch} "
+    f"mode={disconnect_bridge.session_mode} player={disconnect_bridge.body.lab_world.state().get('player')!r} "
+    f"stale={stale_participant_session!r}",
+)
+
+
 # Reconnect regression: view request sequence numbers are connection-local. A
 # second client reusing seq=1 must get a newly generated snapshot, not the first
 # connection's cached result/source, while the logical V4 session survives.
@@ -531,5 +615,5 @@ check(
 )
 
 
-print("ALL V5.1 TESTS PASS" if not fails else f"{len(fails)} V5.1 FAILURES: {fails}")
+print("ALL V5 TESTS PASS" if not fails else f"{len(fails)} V5 FAILURES: {fails}")
 raise SystemExit(0 if not fails else 1)

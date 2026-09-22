@@ -311,7 +311,8 @@ class Bridge:
                         request_seq=request.seq, sim_tick=self._current_owner_tick(),
                         ok=True, snapshot_seq=self.snapshot_seq,
                         world_revision=int(state["world_revision"]),
-                        fly=state["fly"], objects=state["objects"])
+                        fly=state["fly"], objects=state["objects"],
+                        player=state.get("player"))
                     # Force strict output validation before caching/sending.
                     response = WorldRenderSnapshotPacket.from_dict(response.to_dict())
                     self._remember(self.snapshot_sources, response.snapshot_seq, {
@@ -822,6 +823,34 @@ class Bridge:
         except OSError:
             pass
         receiver.join(timeout=0.1)
+        # Participation is connection-owned in V5.4. A vanished UI must not
+        # leave an invisible user's collidable body behind in the fly's world.
+        # If participation was active, that connection also owned the V4 session
+        # which admitted its physical commands. Retire that session together with
+        # the participant so a reconnect cannot silently continue the old owner
+        # timeline. Passive Observe reconnects keep the existing V4 persistence.
+        world = getattr(self.body, "lab_world", None)
+        participant_was_active = (
+            world is not None
+            and getattr(getattr(world, "player", None), "active", False)
+        )
+        if participant_was_active:
+            world.set_player_active(False)
+            self.session_id = ""
+            self.session_epoch = 0
+            self.session_tick = 0
+            self.session_mode = "interactive"
+            self.session_paused = False
+            self.last_step_seq = -1
+            self.recent_step_results.clear()
+            self.recent_command_results.clear()
+            self.deferred_lab_commands = []
+            self.lab_commands.drain()
+            with self.lock:
+                self.pending_session_controls.clear()
+                self.pending_experiment_steps.clear()
+                self.pending_lab_responses.clear()
+                self._reset_view_transport_state_locked()
         # Connection-local counts make arrival/drop behavior visible.
         print(f"bridge: session brain={self.brain_count-brain_at_connect} "
               f"body={self.body_count-body_at_connect} "

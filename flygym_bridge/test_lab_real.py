@@ -12,6 +12,7 @@ import os
 import sys
 from unittest import mock
 
+import mujoco
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -171,6 +172,178 @@ try:
           f"snapshot={rendered_box} live_pos={live_box_pos.tolist()} "
           f"live_size={live_box_size.tolist()}")
 
+    # V5.4 participant is a dedicated fly-scale free-joint sphere in this exact
+    # compiled MuJoCo world. Inactive means hidden/non-colliding; activation is a
+    # structural world change and snapshot visual pose comes from the live body.
+    player = world.player
+    player_gid = player.geom_id
+    player_mass = float(body.sim.mj_model.body_mass[player.body_id])
+    thorax_mass = float(body.sim.mj_model.body_mass[thorax_bid])
+    player_mass_ratio = player_mass / thorax_mass
+    check("V5.4 participant compiled mass stays fly-scale",
+          math.isfinite(player_mass) and player_mass > 0.0
+          and math.isfinite(thorax_mass) and thorax_mass > 0.0
+          and 0.25 <= player_mass_ratio <= 4.0,
+          f"player_mass={player_mass:.9g} thorax_mass={thorax_mass:.9g} ratio={player_mass_ratio:.3f}")
+    check("V5.4 participant starts physically inactive",
+          not player.active
+          and float(body.sim.mj_model.geom_rgba[player_gid, 3]) == 0.0
+          and int(body.sim.mj_model.geom_contype[player_gid]) == 0
+          and render_state.get("player") is None)
+    player_revision_before = world.revision
+    player_structure_before = world.structure_revision
+    player_result = world.set_player_active(True)
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+    player_render_state = body.world_render_state()
+    player_pose = player_render_state.get("player") or {}
+    live_player_pos = np.asarray(body.sim.mj_data.xpos[player.body_id], dtype=float)
+    check("V5.4 active participant snapshot uses live collision pose/radius",
+          player_result.get("player_active") is True
+          and world.revision == player_revision_before + 1
+          and world.structure_revision == player_structure_before + 1
+          and player_pose.get("actor_id") == "player"
+          and np.allclose(player_pose.get("position_mm", []), live_player_pos, atol=1e-12)
+          and abs(player_pose.get("collision_radius_mm", -1) -
+                  float(body.sim.mj_model.geom_size[player_gid, 0])) < 1e-12
+          and player_pose.get("mode") == "participate",
+          repr(player_pose))
+
+    # Ray-picking the active participant must not fall through to generic world.
+    player_ray_origin = live_player_pos + np.array([0.0, 0.0, 20.0])
+    player_pick = body.ray_pick(player_ray_origin.tolist(), [0.0, 0.0, -1.0])
+    check("V5.4 authoritative ray identifies participant geom",
+          player_pick.get("hit") is True
+          and player_pick.get("target_id") == "player"
+          and player_pick.get("target_kind") == "player"
+          and player_pick.get("geom_id") == player_gid,
+          repr(player_pick))
+
+    # Generic collidable LabObjects use the ordinary 1/1 collision masks rather
+    # than an explicit pair. Put the active free-joint sphere just inside the
+    # runtime box surface and verify MuJoCo generates that mask-based contact.
+    object_contact_qpos = body.sim.mj_data.qpos.copy()
+    object_contact_qvel = body.sim.mj_data.qvel.copy()
+    object_contact_time = float(body.sim.mj_data.time)
+    player_qpos = player.qpos_adr
+    box_halfsize = np.asarray(body.sim.mj_model.geom_size[runtime_box_gid, :3], dtype=float)
+    body.sim.mj_data.qpos[player_qpos:player_qpos + 3] = (
+        live_box_pos + np.array([0.0, 0.0, box_halfsize[2] + player.radius_mm - 0.05])
+    )
+    body.sim.mj_data.qvel[player.dof_adr:player.dof_adr + 6] = 0.0
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+    object_contact_pairs = {
+        (int(body.sim.mj_data.contact[i].geom1), int(body.sim.mj_data.contact[i].geom2))
+        for i in range(int(body.sim.mj_data.ncon))
+    }
+    player_contacts_runtime_box = any(
+        {g1, g2} == {player_gid, runtime_box_gid}
+        for g1, g2 in object_contact_pairs
+    )
+    check("V5.4 active participant collides with generic LabObject via masks",
+          int(body.sim.mj_model.geom_contype[player_gid]) == 1
+          and int(body.sim.mj_model.geom_conaffinity[player_gid]) == 1
+          and int(body.sim.mj_model.geom_contype[runtime_box_gid]) == 1
+          and int(body.sim.mj_model.geom_conaffinity[runtime_box_gid]) == 1
+          and player_contacts_runtime_box,
+          f"player_gid={player_gid} box_gid={runtime_box_gid} contacts={sorted(object_contact_pairs)}")
+    body.sim.mj_data.qpos[:] = object_contact_qpos
+    body.sim.mj_data.qvel[:] = object_contact_qvel
+    body.sim.mj_data.time = object_contact_time
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+
+    # Controlled contact proof: FlyGym normally disables generic fly-geom contact
+    # and uses explicit pairs. V5.4 adds one explicit player<->thorax pair; move
+    # the probe inward from just outside the thorax until the first shallow contact.
+    compiled_player_pairs = [
+        (int(body.sim.mj_model.pair_geom1[i]), int(body.sim.mj_model.pair_geom2[i]))
+        for i in range(int(body.sim.mj_model.npair))
+        if player_gid in (int(body.sim.mj_model.pair_geom1[i]),
+                          int(body.sim.mj_model.pair_geom2[i]))
+    ]
+    thorax_collision_gid = -1
+    for g1, g2 in compiled_player_pairs:
+        other = g2 if g1 == player_gid else g1
+        if int(body.sim.mj_model.geom_bodyid[other]) == thorax_bid:
+            thorax_collision_gid = other
+            break
+    thorax_geom_pos = np.asarray(
+        body.sim.mj_data.geom_xpos[thorax_collision_gid]
+        if thorax_collision_gid >= 0 else live_thorax_pos, dtype=float).copy()
+    contact_pairs = set()
+    player_contacts_fly = False
+    contact_offset = None
+    contact_distance = None
+    # Find the first contact while approaching along +Z so the response check
+    # exercises a near-surface collision instead of an artificial deep overlap.
+    for z_offset in np.arange(3.2, 1.95, -0.05):
+        offset = [0.0, 0.0, float(z_offset)]
+        world.set_player_pose(position_mm=(thorax_geom_pos + np.asarray(offset, dtype=float)).tolist())
+        mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+        contact_pairs = {
+            (int(body.sim.mj_data.contact[i].geom1), int(body.sim.mj_data.contact[i].geom2))
+            for i in range(int(body.sim.mj_data.ncon))
+        }
+        player_contacts_fly = any(
+            (g1 == player_gid and g2 == thorax_collision_gid) or
+            (g2 == player_gid and g1 == thorax_collision_gid)
+            for g1, g2 in contact_pairs
+        )
+        if player_contacts_fly:
+            contact_offset = offset
+            contact_distance = min(
+                float(body.sim.mj_data.contact[i].dist)
+                for i in range(int(body.sim.mj_data.ncon))
+                if {int(body.sim.mj_data.contact[i].geom1), int(body.sim.mj_data.contact[i].geom2)}
+                == {player_gid, thorax_collision_gid}
+            )
+            break
+    check("V5.4 participant participates in real MuJoCo fly collision",
+          thorax_collision_gid >= 0 and player_contacts_fly,
+          f"ncon={body.sim.mj_data.ncon} player_gid={player_gid} thorax_gid={thorax_collision_gid} "
+          f"compiled_pairs={compiled_player_pairs} offset={contact_offset} dist={contact_distance} "
+          f"contacts={sorted(contact_pairs)}")
+
+    # A free-joint participant must exchange a real impulse without behaving like
+    # an effectively infinite-mass wall. Step only a few native ticks from the
+    # shallow contact and require both bodies to stay finite and locally bounded.
+    response_qpos = body.sim.mj_data.qpos.copy()
+    response_qvel = body.sim.mj_data.qvel.copy()
+    response_time = float(body.sim.mj_data.time)
+    response_player_start = np.asarray(body.sim.mj_data.xpos[player.body_id], dtype=float).copy()
+    response_thorax_start = np.asarray(body.sim.mj_data.xpos[thorax_bid], dtype=float).copy()
+    for _ in range(10):
+        mujoco.mj_step(body.sim.mj_model, body.sim.mj_data)
+    response_player_end = np.asarray(body.sim.mj_data.xpos[player.body_id], dtype=float).copy()
+    response_thorax_end = np.asarray(body.sim.mj_data.xpos[thorax_bid], dtype=float).copy()
+    player_response_mm = float(np.linalg.norm(response_player_end - response_player_start))
+    thorax_response_mm = float(np.linalg.norm(response_thorax_end - response_thorax_start))
+    response_finite = (
+        np.all(np.isfinite(body.sim.mj_data.qpos))
+        and np.all(np.isfinite(body.sim.mj_data.qvel))
+    )
+    check("V5.4 calibrated participant contact response stays bounded",
+          player_contacts_fly and response_finite
+          and player_response_mm < 1.0 and thorax_response_mm < 1.0,
+          f"player_delta={player_response_mm:.6f}mm thorax_delta={thorax_response_mm:.6f}mm")
+    body.sim.mj_data.qpos[:] = response_qpos
+    body.sim.mj_data.qvel[:] = response_qvel
+    body.sim.mj_data.time = response_time
+    world.reset_player_pose(preserve_active=True)
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+
+    # The legacy V5.1 read-only snapshot/pick invariant below should compare
+    # against the stable world *after* the intentional V5.4 participant mutation.
+    v5_qpos_before = body.sim.mj_data.qpos.copy()
+    v5_qvel_before = body.sim.mj_data.qvel.copy()
+    v5_mocap_pos_before = body.sim.mj_data.mocap_pos.copy()
+    v5_mocap_quat_before = body.sim.mj_data.mocap_quat.copy()
+    v5_time_before = float(body.sim.mj_data.time)
+    v5_revision_before = int(world.revision)
+    v5_structure_revision_before = int(world.structure_revision)
+    v5_state_before = copy.deepcopy(world.state())
+    v5_events_before = copy.deepcopy(list(world.events))
+    render_state = body.world_render_state()
+
     pick_qpos_before = body.sim.mj_data.qpos.copy()
     pick_qvel_before = body.sim.mj_data.qvel.copy()
     pick_mocap_pos_before = body.sim.mj_data.mocap_pos.copy()
@@ -291,6 +464,14 @@ try:
 
     ball = world.objects["ball"]
     before_reset = list(ball.position_mm)
+    player_spawn = np.asarray(world.player.spawn_position_mm, dtype=float)
+    player_away = player_spawn + np.array([7.0, -4.0, 3.0])
+    world.set_player_pose(position_mm=player_away.tolist())
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+    active_player_before_reset = np.asarray(
+        world.player.render_pose()["position_mm"], dtype=float)
+    player_reset_revision_before = int(world.revision)
+    player_reset_structure_before = int(world.structure_revision)
     body.apply_lab_command(LabCommand(5, "reset_body", {}))
     _, _, ball_mocap = world._slot_ids[ball.slot]
     actual_after_reset = list(body.sim.mj_data.mocap_pos[ball_mocap])
@@ -298,6 +479,17 @@ try:
     check("reset_body preserves world object",
           "ball" in world.objects and all(abs(a - b) < 1e-9 for a, b in zip(actual_after_reset, before_reset)),
           f"actual={actual_after_reset} expected={before_reset}")
+    check("V5.4 reset_body keeps active participant authoritative and resynced",
+          world.player.active
+          and world.player.render_pose() is not None
+          and not np.allclose(active_player_before_reset, player_spawn, atol=1e-12)
+          and np.allclose(world.player.render_pose()["position_mm"], player_spawn, atol=1e-12)
+          and int(world.revision) > player_reset_revision_before
+          and int(world.structure_revision) == player_reset_structure_before
+          and float(body.sim.mj_model.geom_rgba[world.player.geom_id, 3]) > 0.9,
+          f"before={active_player_before_reset.tolist()} after={world.player.render_pose()} "
+          f"spawn={player_spawn.tolist()} revision={player_reset_revision_before}->{world.revision} "
+          f"structure={player_reset_structure_before}->{world.structure_revision}")
 
     # Hidden reset settling must not consume the experiment's timed physical
     # stimuli. Those durations advance only with normal protocol-visible MuJoCo

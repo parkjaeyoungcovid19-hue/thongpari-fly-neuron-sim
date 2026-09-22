@@ -21,10 +21,46 @@ enum LabViewMode: String, CaseIterable, Codable {
     }
 }
 
+struct ParticipantCommandPendingState: Equatable {
+    private(set) var commandID: Int?
+    private(set) var connectionGeneration: UInt64?
+
+    var isPending: Bool { commandID != nil }
+
+    mutating func begin(commandID: Int, connectionGeneration: UInt64) {
+        self.commandID = commandID
+        self.connectionGeneration = connectionGeneration
+    }
+
+    mutating func consumeAck(commandID: Int) -> Bool {
+        guard self.commandID == commandID else { return false }
+        clear()
+        return true
+    }
+
+    @discardableResult
+    mutating func clearIfViewerLifecycleInvalid(playerAvailable: Bool,
+                                                connectionGeneration: UInt64) -> Bool {
+        guard isPending else { return false }
+        guard !playerAvailable || self.connectionGeneration != connectionGeneration else {
+            return false
+        }
+        clear()
+        return true
+    }
+
+    mutating func clear() {
+        commandID = nil
+        connectionGeneration = nil
+    }
+}
+
 struct LabViewState: Equatable {
     var mode: LabViewMode = .observe
+    var pendingMode: LabViewMode?
     var selectedFlyID: String? = "fly"
     var selectedObjectID: String?
+    var selectedPlayerID: String?
 
     var timelineTick: Int = 0
     var sessionMode: LabSessionMode = .interactive
@@ -53,6 +89,8 @@ struct LabViewState: Equatable {
     mutating func setViewerAvailable(_ available: Bool) {
         viewerAvailable = available
         if !available {
+            mode = .observe
+            pendingMode = nil
             clearViewerIdentity(clearObjectSelection: true)
         }
     }
@@ -64,9 +102,22 @@ struct LabViewState: Equatable {
         worldRevision = snapshot.revision
         snapshotTick = snapshot.simTick
         if let fly = snapshot.fly { selectedFlyID = selectedFlyID ?? fly.id }
+        if snapshot.player == nil { selectedPlayerID = nil }
         if let selectedObjectID,
            !snapshot.objects.contains(where: { $0.id == selectedObjectID }) {
             self.selectedObjectID = nil
+        }
+        let backendMode: LabViewMode = snapshot.player == nil ? .observe : .participate
+        if let pendingMode {
+            if pendingMode == backendMode {
+                mode = backendMode
+                self.pendingMode = nil
+            }
+        } else if mode != .edit {
+            // The player body in the atomic backend snapshot is authoritative for
+            // whether the user is actually participating. UI intent alone cannot
+            // claim a mode that the physical world does not contain.
+            mode = backendMode
         }
     }
 
@@ -75,7 +126,18 @@ struct LabViewState: Equatable {
         worldRevision = nil
         snapshotTick = nil
         connectionGeneration = 0
-        if clearObjectSelection { selectedObjectID = nil }
+        if clearObjectSelection {
+            selectedObjectID = nil
+            selectedPlayerID = nil
+        }
+    }
+
+    mutating func beginModeTransition(to target: LabViewMode) {
+        pendingMode = target
+    }
+
+    mutating func rejectModeTransition() {
+        pendingMode = nil
     }
 
     mutating func selectObject(_ id: String?) {
@@ -91,6 +153,8 @@ struct LabViewState: Equatable {
             selectedFlyID = targetID
         case "lab_object":
             selectObject(targetID)
+        case "player":
+            selectedPlayerID = targetID
         default:
             break
         }
@@ -111,11 +175,13 @@ struct LabViewState: Equatable {
     var selectionSummary: String {
         let fly = selectedFlyID ?? "none"
         let object = selectedObjectID ?? "none"
-        return "fly \(fly) · object \(object)"
+        let player = selectedPlayerID ?? "none"
+        return "fly \(fly) · player \(player) · object \(object)"
     }
 
     var commonStatusLine: String {
-        "View — \(mode.title.uppercased()) · \(selectionSummary) · tick \(timelineTick) ms · \(phaseBadge)"
+        let transition = pendingMode.map { " → \($0.title.uppercased()) PENDING" } ?? ""
+        return "View — \(mode.title.uppercased())\(transition) · \(selectionSummary) · tick \(timelineTick) ms · \(phaseBadge)"
     }
 
     var sessionStatusLine: String {

@@ -263,6 +263,90 @@ check("future V4 command waits for requested boundary",
       len(future_acks) == 1 and future_acks[0].applied_tick == 60,
       repr(future_acks))
 
+# V5.4 participant activation is still a V4 LabCommand and must obey the exact
+# same deterministic boundary, idempotence, epoch and pause contracts as every
+# other physical world mutation. Keep this on a separate bridge so the legacy
+# V4 fixture above remains unchanged.
+player_bridge = Bridge(mode="mock")
+player_bridge.handle_line(encode(HelloPacket(role="swift", physics_timestep_s=None)))
+player_bridge.handle_line(encode(SessionControlPacket(
+    session_id="player-v4", epoch=1, seq=1, sim_tick=0,
+    action="begin", mode="deterministic")))
+player_bridge._process_session_controls(); player_bridge._drain_lab_responses()
+player_enable = LabCommand(
+    seq=70, op="set_player_active", args={"value": 1.0},
+    session_id="player-v4", epoch=1, requested_tick=40,
+    protocol_version=V4_PROTOCOL_VERSION)
+player_bridge.handle_line(encode(player_enable))
+for seq, tick in ((200, 0), (201, 20)):
+    player_bridge._process_experiment_step(ExperimentStepPacket(
+        session_id="player-v4", epoch=1, seq=seq, sim_tick=tick,
+        quantum_ticks=20, brain=BrainPacket(t=tick / 1000.0)))
+    player_bridge._drain_lab_responses()
+check("V5.4 player command waits for requested deterministic boundary",
+      not player_bridge.body.lab_world.player.active and player_bridge.session_tick == 40)
+player_bridge._process_experiment_step(ExperimentStepPacket(
+    session_id="player-v4", epoch=1, seq=202, sim_tick=40,
+    quantum_ticks=20, brain=BrainPacket(t=0.040)))
+player_apply_responses = player_bridge._drain_lab_responses()
+player_enable_acks = [p for p in player_apply_responses
+                      if isinstance(p, LabStatePacket) and p.ack == 70]
+check("V5.4 player activation records exact applied tick",
+      player_bridge.body.lab_world.player.active
+      and len(player_enable_acks) == 1 and player_enable_acks[0].ok
+      and player_enable_acks[0].applied_tick == 40,
+      repr(player_enable_acks))
+
+player_revision_after_enable = player_bridge.body.lab_world.revision
+player_bridge.handle_line(encode(player_enable))
+player_bridge._apply_lab_commands(applied_tick=60, applied_epoch=1)
+player_duplicate = [p for p in player_bridge._drain_lab_responses()
+                    if isinstance(p, LabStatePacket) and p.ack == 70]
+check("V5.4 duplicate player activation is idempotent",
+      len(player_duplicate) == 1 and player_duplicate[0].ok
+      and player_duplicate[0].applied_tick == 40
+      and player_bridge.body.lab_world.revision == player_revision_after_enable,
+      repr(player_duplicate))
+
+player_bridge.handle_line(encode(LabCommand(
+    seq=71, op="set_player_active", args={"value": 0.0},
+    session_id="player-v4", epoch=2, requested_tick=60,
+    protocol_version=V4_PROTOCOL_VERSION)))
+player_bridge._apply_lab_commands(applied_tick=60, applied_epoch=1)
+player_wrong_epoch = [p for p in player_bridge._drain_lab_responses()
+                      if isinstance(p, LabStatePacket) and p.ack == 71]
+check("V5.4 wrong-epoch player command is rejected without mutation",
+      player_bridge.body.lab_world.player.active
+      and len(player_wrong_epoch) == 1 and not player_wrong_epoch[0].ok
+      and player_wrong_epoch[0].status == "rejected_old_epoch",
+      repr(player_wrong_epoch))
+
+player_bridge.handle_line(encode(SessionControlPacket(
+    session_id="player-v4", epoch=1, seq=2, sim_tick=60,
+    action="pause", mode="deterministic")))
+player_bridge._process_session_controls(); player_bridge._drain_lab_responses()
+player_bridge.handle_line(encode(LabCommand(
+    seq=72, op="set_player_active", args={"value": 0.0},
+    session_id="player-v4", epoch=1, requested_tick=60,
+    protocol_version=V4_PROTOCOL_VERSION)))
+time.sleep(0.02)
+check("V5.4 paused player command does not mutate world",
+      player_bridge.session_paused and player_bridge.body.lab_world.player.active)
+player_bridge.handle_line(encode(SessionControlPacket(
+    session_id="player-v4", epoch=1, seq=3, sim_tick=60,
+    action="resume", mode="deterministic")))
+player_bridge._process_session_controls(); player_bridge._drain_lab_responses()
+player_bridge._process_experiment_step(ExperimentStepPacket(
+    session_id="player-v4", epoch=1, seq=203, sim_tick=60,
+    quantum_ticks=20, brain=BrainPacket(t=0.060)))
+player_resume_responses = player_bridge._drain_lab_responses()
+player_disable_acks = [p for p in player_resume_responses
+                       if isinstance(p, LabStatePacket) and p.ack == 72]
+check("V5.4 resumed boundary applies deferred player disable",
+      not player_bridge.body.lab_world.player.active
+      and len(player_disable_acks) == 1 and player_disable_acks[0].applied_tick == 60,
+      repr(player_disable_acks))
+
 # One logical reset advances one epoch. It is accepted only behind a pause
 # barrier; body/world reset happens on the owner thread and stale epoch traffic
 # cannot mutate the new timeline.

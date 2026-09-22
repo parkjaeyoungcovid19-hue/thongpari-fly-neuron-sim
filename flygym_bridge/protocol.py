@@ -33,6 +33,9 @@ V5_VIEW_CAPABILITIES = {
     "world_render_snapshot",
     "ray_pick",
 }
+V5_PLAYER_CAPABILITIES = {
+    "player_body",
+}
 
 MAX_DISCRETE_LAB_COMMANDS = 128
 MAX_CONTINUOUS_LAB_SLOTS = 64
@@ -116,15 +119,26 @@ def _strict_unit_quat_xyzw(value, name):
 def _strict_render_pose(value, name):
     if not isinstance(value, dict):
         raise ValueError(f"{name} must be an object")
-    object_id = value.get("id")
+    object_id = value.get("id", value.get("actor_id"))
     if not isinstance(object_id, str) or not object_id.strip() or len(object_id) > 64:
         raise ValueError(f"{name}.id is invalid")
-    return {
+    out = {
         "id": object_id.strip(),
         "position_mm": _strict_vec(value.get("position_mm"), 3, f"{name}.position_mm"),
         "orientation_quat_xyzw": _strict_unit_quat_xyzw(
             value.get("orientation_quat_xyzw"), f"{name}.orientation_quat_xyzw"),
     }
+    if value.get("collision_radius_mm") is not None:
+        radius = _strict_number(value.get("collision_radius_mm"), f"{name}.collision_radius_mm")
+        if radius < 0.0 or radius > 1000.0:
+            raise ValueError(f"{name}.collision_radius_mm out of range")
+        out["collision_radius_mm"] = radius
+    if value.get("mode") is not None:
+        mode = value.get("mode")
+        if not isinstance(mode, str) or not mode.strip() or len(mode) > 32:
+            raise ValueError(f"{name}.mode is invalid")
+        out["mode"] = mode.strip()
+    return out
 
 
 def _strict_render_object(value, index):
@@ -325,7 +339,7 @@ class HelloPacket:
     protocol_version: int = V4_PROTOCOL_VERSION
     role: str = "python"
     capabilities: set[str] = field(
-        default_factory=lambda: set(V4_CAPABILITIES | V5_VIEW_CAPABILITIES))
+        default_factory=lambda: set(V4_CAPABILITIES | V5_VIEW_CAPABILITIES | V5_PLAYER_CAPABILITIES))
     physics_timestep_s: float | None = None
     supported_quantum_ticks: list[int] = field(
         default_factory=lambda: [V4_EXPERIMENT_QUANTUM_TICKS])
@@ -595,6 +609,7 @@ class WorldRenderSnapshotPacket:
     world_revision: int | None = None
     fly: dict | None = None
     objects: list[dict] | None = None
+    player: dict | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "WorldRenderSnapshotPacket":
@@ -625,11 +640,20 @@ class WorldRenderSnapshotPacket:
         objects = [_strict_render_object(obj, i) for i, obj in enumerate(raw_objects)]
         if len({obj["id"] for obj in objects}) != len(objects):
             raise ValueError("objects contain duplicate ids")
+        player = None
+        if d.get("player") is not None:
+            player = _strict_render_pose(d.get("player"), "player")
+            if player.get("collision_radius_mm") is None or player["collision_radius_mm"] <= 0.0:
+                raise ValueError("player.collision_radius_mm is required")
+            if player.get("mode") is None:
+                raise ValueError("player.mode is required")
+            actor_id = player.pop("id")
+            player["actor_id"] = actor_id
         return WorldRenderSnapshotPacket(
             protocol_version=protocol_version, session_id=session_id, epoch=epoch,
             request_seq=request_seq, sim_tick=sim_tick, ok=True,
             snapshot_seq=snapshot_seq, world_revision=world_revision,
-            fly=fly, objects=objects)
+            fly=fly, objects=objects, player=player)
 
     def to_dict(self) -> dict:
         out = {
@@ -652,6 +676,7 @@ class WorldRenderSnapshotPacket:
             world_revision=self.world_revision,
             fly=self.fly,
             objects=self.objects,
+            player=self.player,
         )
         # Validate every required success field before it reaches json.dumps.
         validated = WorldRenderSnapshotPacket.from_dict(out)
@@ -659,6 +684,10 @@ class WorldRenderSnapshotPacket:
         out["world_revision"] = validated.world_revision
         out["fly"] = validated.fly
         out["objects"] = validated.objects
+        if validated.player is not None:
+            out["player"] = validated.player
+        else:
+            out.pop("player", None)
         return out
 
 

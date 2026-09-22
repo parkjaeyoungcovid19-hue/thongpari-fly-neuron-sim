@@ -56,11 +56,16 @@ enum FlyGymViewerProtocolV5_1 {
     static let capabilities = ["world_render_snapshot", "ray_pick"]
 }
 
+enum FlyGymPlayerProtocolV5_4 {
+    static let capabilities = ["player_body"]
+}
+
 struct FlyGymHelloPacket: Codable, FlyGymStampedPacket {
     var type: String = "hello"
     var protocolVersion: Int = FlyGymProtocolV4.version
     var role: String = "swift"
-    var capabilities: [String] = FlyGymProtocolV4.capabilities + FlyGymViewerProtocolV5_1.capabilities
+    var capabilities: [String] = FlyGymProtocolV4.capabilities
+        + FlyGymViewerProtocolV5_1.capabilities + FlyGymPlayerProtocolV5_4.capabilities
     var physicsTimestepS: Double?
     var supportedQuantumTicks: [Int] = [FlyGymProtocolV4.experimentQuantumTicks]
     var receivedAt: Date = Date()
@@ -83,6 +88,11 @@ struct FlyGymHelloPacket: Codable, FlyGymStampedPacket {
     var supportsWorldViewerV5_1: Bool {
         guard protocolVersion >= FlyGymProtocolV4.version else { return false }
         return Set(FlyGymViewerProtocolV5_1.capabilities).isSubset(of: Set(capabilities))
+    }
+
+    var supportsPlayerV5_4: Bool {
+        guard supportsWorldViewerV5_1 else { return false }
+        return Set(FlyGymPlayerProtocolV5_4.capabilities).isSubset(of: Set(capabilities))
     }
 }
 
@@ -598,6 +608,13 @@ final class FlyGymBridge {
         guard _connected, let hello = _serverHello,
               hello.connectionGeneration == _connectionGeneration else { return false }
         return hello.supportsWorldViewerV5_1
+    }
+
+    var playerV5_4Available: Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard _connected, let hello = _serverHello,
+              hello.connectionGeneration == _connectionGeneration else { return false }
+        return hello.supportsPlayerV5_4
     }
 
     func serverHello() -> FlyGymHelloPacket? {
@@ -1688,14 +1705,23 @@ func runBridgeTest() {
     check("V5 snapshot wire names are canonical",
           parseWorldRenderSnapshotLine(Data(aliasSnapshot.utf8)) == nil)
 
+    let playerSnapshotLine = #"{"type":"world_render_snapshot","protocol_version":4,"session_id":"","epoch":0,"request_seq":4,"sim_tick":40,"ok":true,"snapshot_seq":4,"world_revision":6,"fly":{"id":"fly","position_mm":[1,2,0.7],"orientation_quat_xyzw":[0,0,0,1]},"objects":[],"player":{"actor_id":"player","position_mm":[24,0,2.5],"orientation_quat_xyzw":[0,0,0,1],"collision_radius_mm":2.5,"mode":"participate"}}"#
+    let playerSnapshot = parseWorldRenderSnapshotLine(Data(playerSnapshotLine.utf8))
+    check("V5.4 player pose preserves collision/display contract",
+          playerSnapshot?.player?.id == "player"
+          && playerSnapshot?.player?.positionMM == [24, 0, 2.5]
+          && playerSnapshot?.player?.collisionRadiusMM == 2.5
+          && playerSnapshot?.player?.mode == "participate")
+
     let v5Bridge = FlyGymBridge()
     let v5Generation = v5Bridge.beginConnectionForTesting()
     // Drain Swift's hello, then install a server hello that explicitly advertises
     // V5.1. A V4-only peer must leave the viewport disabled.
     _ = v5Bridge.dequeueLaneForTesting(at: Date())
-    let v5Hello = #"{"type":"hello","protocol_version":4,"role":"python","capabilities":["applied_tick","deterministic_experiment","epoch","pause_barrier","world_render_snapshot","ray_pick"],"physics_timestep_s":0.001,"supported_quantum_ticks":[20]}"#
+    let v5Hello = #"{"type":"hello","protocol_version":4,"role":"python","capabilities":["applied_tick","deterministic_experiment","epoch","pause_barrier","world_render_snapshot","ray_pick","player_body"],"physics_timestep_s":0.001,"supported_quantum_ticks":[20]}"#
     _ = v5Bridge.receiveLineForTesting(Data(v5Hello.utf8))
     check("V5 viewer requires explicit server capabilities", v5Bridge.worldViewerV5_1Available)
+    check("V5.4 participant requires explicit player capability", v5Bridge.playerV5_4Available)
     let renderRequestSeq = v5Bridge.requestWorldRenderSnapshot()
     let renderLane = v5Bridge.dequeueLaneForTesting(at: Date().addingTimeInterval(0.02))
     check("V5 render request has bounded observation lane",
@@ -1786,6 +1812,11 @@ func runBridgeTest() {
     _ = v4Only.receiveLineForTesting(Data(#"{"type":"hello","protocol_version":4,"role":"python","capabilities":["applied_tick","deterministic_experiment","epoch","pause_barrier"],"physics_timestep_s":0.001,"supported_quantum_ticks":[20]}"#.utf8))
     check("V4-only peer does not silently enable V5 viewport",
           !v4Only.worldViewerV5_1Available && v4Only.requestWorldRenderSnapshot() == nil)
+    let v51Only = FlyGymBridge()
+    _ = v51Only.beginConnectionForTesting()
+    _ = v51Only.receiveLineForTesting(Data(#"{"type":"hello","protocol_version":4,"role":"python","capabilities":["world_render_snapshot","ray_pick"],"physics_timestep_s":0.001,"supported_quantum_ticks":[20]}"#.utf8))
+    check("V5.1-only peer does not silently enable V5.4 participant",
+          v51Only.worldViewerV5_1Available && !v51Only.playerV5_4Available)
 
     // MuJoCo z-up <-> SceneKit y-up basis must be exact or the displayed pose
     // and the authoritative backend pick ray refer to different geometry.
@@ -1834,6 +1865,85 @@ func runBridgeTest() {
     check("V5.2 shared selection is reconciled by authoritative snapshot",
           v52State.selectedObjectID == nil && v52State.timelineTick == 120
           && v52State.snapshotSeq == 3 && v52State.worldRevision == 5)
+
+    // V5.4 mode presentation is snapshot-authoritative. A UI request stays
+    // pending until the backend world actually contains/removes the participant;
+    // rejection leaves the prior mode intact.
+    var v54State = LabViewState()
+    v54State.setViewerAvailable(true)
+    v54State.beginModeTransition(to: .participate)
+    check("V5.4 participate request does not claim mode before backend snapshot",
+          v54State.mode == .observe && v54State.pendingMode == .participate)
+    var v54Rejected = v54State
+    v54Rejected.rejectModeTransition()
+    check("V5.4 rejected participate request preserves prior mode",
+          v54Rejected.mode == .observe && v54Rejected.pendingMode == nil)
+    if let playerSnapshot {
+        v54State.accept(snapshot: playerSnapshot, connectionGeneration: 12)
+    }
+    check("V5.4 player snapshot confirms Participate mode",
+          v54State.mode == .participate && v54State.pendingMode == nil)
+
+    let v54PlayerPickLine = #"{"type":"ray_pick_result","protocol_version":4,"session_id":"","epoch":0,"seq":91,"sim_tick":41,"world_revision":6,"source_snapshot_seq":4,"source_world_revision":6,"source_sim_tick":40,"ok":true,"hit":true,"target_id":"player","target_kind":"player","distance_mm":2.0,"point_mm":[24,0,5],"normal_world":[0,0,1],"geom_id":9}"#
+    if let v54PlayerPick = parseRayPickResultLine(Data(v54PlayerPickLine.utf8)) {
+        v54State.apply(pick: v54PlayerPick)
+    }
+    check("V5.4 authoritative player pick reaches common selection state",
+          v54State.selectedPlayerID == "player" && v54State.selectionSummary.contains("player player"))
+
+    v54State.beginModeTransition(to: .observe)
+    if let playerSnapshot {
+        v54State.accept(snapshot: playerSnapshot, connectionGeneration: 12)
+    }
+    check("V5.4 disable request stays Participate while player still exists",
+          v54State.mode == .participate && v54State.pendingMode == .observe)
+    if let v54Empty = parseWorldRenderSnapshotLine(Data(v52EmptySnapshotLine.utf8)) {
+        v54State.accept(snapshot: v54Empty, connectionGeneration: 12)
+    }
+    check("V5.4 player-free snapshot confirms Observe mode",
+          v54State.mode == .observe && v54State.pendingMode == nil
+          && v54State.selectedPlayerID == nil)
+
+    // Pending participant commands are transport-generation scoped. Losing the
+    // viewer/capability must clear the command gate even when the current mode is
+    // still Observe (enable pending) or still Participate (disable pending).
+    var pendingEnable = ParticipantCommandPendingState()
+    var pendingEnableState = LabViewState()
+    pendingEnableState.setViewerAvailable(true)
+    pendingEnableState.beginModeTransition(to: .participate)
+    pendingEnable.begin(commandID: 701, connectionGeneration: 21)
+    let enableCleared = pendingEnable.clearIfViewerLifecycleInvalid(
+        playerAvailable: false, connectionGeneration: 21)
+    if enableCleared { pendingEnableState.rejectModeTransition() }
+    pendingEnableState.setViewerAvailable(false)
+    check("V5.4 disconnect during enable clears pending participant command",
+          enableCleared && !pendingEnable.isPending
+          && pendingEnableState.mode == .observe
+          && pendingEnableState.pendingMode == nil)
+
+    var pendingDisable = ParticipantCommandPendingState()
+    var pendingDisableState = LabViewState()
+    pendingDisableState.setViewerAvailable(true)
+    if let playerSnapshot {
+        pendingDisableState.accept(snapshot: playerSnapshot, connectionGeneration: 31)
+    }
+    pendingDisableState.beginModeTransition(to: .observe)
+    pendingDisable.begin(commandID: 702, connectionGeneration: 31)
+    let disableCleared = pendingDisable.clearIfViewerLifecycleInvalid(
+        playerAvailable: false, connectionGeneration: 31)
+    if disableCleared { pendingDisableState.rejectModeTransition() }
+    pendingDisableState.setViewerAvailable(false)
+    check("V5.4 disconnect during disable clears pending participant command",
+          disableCleared && !pendingDisable.isPending
+          && pendingDisableState.mode == .observe
+          && pendingDisableState.pendingMode == nil)
+
+    var pendingGeneration = ParticipantCommandPendingState()
+    pendingGeneration.begin(commandID: 703, connectionGeneration: 41)
+    check("V5.4 connection-generation rollover clears stale participant command",
+          pendingGeneration.clearIfViewerLifecycleInvalid(
+              playerAvailable: true, connectionGeneration: 42)
+          && !pendingGeneration.isPending)
 
     // V5.3 observation camera is strictly presentation-only. Exercise the same
     // camera APIs used by right-drag/Shift-right-drag/scroll while wiring the

@@ -1,6 +1,6 @@
 # Virtual Fly Lab V5 — 통합 Viewer와 세계 안의 사용자
 
-작성: 2026-09-13 · 상태: **V5.2 IMPLEMENTING / V5.1 AUTOMATED CORE VERIFIED / V5.1 GUI ACCEPTANCE STILL PENDING**
+작성: 2026-09-13 · 상태: **V5.4 AUTOMATED + REAL-BACKEND VERIFIED / V5.5 NEXT / INTEGRATED GUI ACCEPTANCE STILL PENDING**
 
 착수 기준: V4 completion commit `e900b27` (`Complete Virtual Fly Lab V4 deterministic sessions`). V5 준비는 `3faf942` (`Prepare Virtual Fly Lab V5 implementation`)에 커밋됐다. 구현 진행표와 V5.1 검증 상태는 [`../reports/V5_PROGRESS.md`](../reports/V5_PROGRESS.md)에 기록한다.
 
@@ -85,9 +85,11 @@ session/epoch/tick, object IDs/pose/geometry revision, player pose, fly pose. im
 
 ### 5.4. 사용자 참여체 구현
 
-**할 일:** 작은 avatar/probe geometry를 실제 world에 등록한다. collision pose와 시각 pose를 같은 source로 업데이트한다. 참여체가 파리 눈 시야에 들어왔는지 actual eye frame으로 확인한다.
+**할 일:** 작은 avatar/probe geometry를 실제 world에 등록한다. V5.4의 실제 구현은 backend-owned **free-joint MuJoCo sphere**이며, FlyGym의 explicit-pair contact 모델에 맞춰 **participant↔fly thorax explicit contact pair**를 compile한다. collision pose와 시각 pose를 같은 physical body source로 업데이트한다. 참여체가 파리 눈 시야에 들어왔는지 actual eye frame으로 확인한다.
 
 **완료 출력:** 단순 camera 이동이 아닌 몸체가 world에 존재한다.
+
+**revision 계약:** 물리 적분으로 계속 변하는 fly/player pose는 `snapshot_seq`와 `sim_tick`으로 식별하며 매 physics step마다 `world_revision`을 올리지 않는다. `world_revision`은 명시적 LabWorld mutation, `structure_revision`은 topology/ray-query 구조 변경을 나타낸다.
 
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V5.4` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 

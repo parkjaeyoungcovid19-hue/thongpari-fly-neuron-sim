@@ -3,7 +3,7 @@
 Prepared: **2026-09-13** · updated **2026-09-22**
 V4 baseline: `e900b272e1df4131edba51476f0d213a8d166ca1` (`Complete Virtual Fly Lab V4 deterministic sessions`)
 V5 preparation commit: `3faf942` (`Prepare Virtual Fly Lab V5 implementation`)
-Status: **V5.3 AUTOMATED_VERIFIED — Observe camera controls and raw-eye sample provenance are implemented; fresh real-eye execution is currently blocked before `RealFlyBody` construction by a local Python venv import-I/O stall**
+Status: **V5.4 AUTOMATED + REAL-BACKEND VERIFIED — a backend-owned participant body now exists in the same MuJoCo/eye world; V5.5 game input is next. Fresh integrated GUI acceptance still remains a separate gate.**
 
 ## Start gate
 
@@ -26,8 +26,8 @@ These checks confirm the committed V4 scheduling/session baseline before V5 work
 |---|---|---|---|---|---|
 | V5.1 | 현재 API 조사 및 viewport prototype | automated_verified | `LabProtocol.swift`, `FlyGymBridge.swift`, `WorldViewer.swift`, `LabWindow.swift`, `build.sh`, `flygym_bridge/{protocol,bridge,fly_body,lab_world}.py`, `flygym_bridge/test_v5.py` | focused V5 + Swift bridge/lab/V4 + Python V4/lab/bridge + real lab/vision PASS; real MuJoCo snapshot/pick probe PASS | fresh integrated GUI, keyboard-focus suitability, viewport FPS + pick ACK latency remain before `complete` |
 | V5.2 | 공통 화면 상태 소유권 | implemented | `LabViewState.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `build.sh` | build + Swift bridge/lab/V4 PASS; V5.2 state fixtures PASS | common state ownership is implemented; broader fresh GUI acceptance remains part of the V5 integrated UI gate |
-| V5.3 | 관찰 camera + eye sample provenance | automated_verified | `WorldViewer.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `LabProtocol.swift`, `flygym_bridge/{protocol,fly_body,test_bridge,test_lab_real}.py` | build, Swift bridge/lab/V4/timing/sim/behavior/GPU, Python V5/V4/lab/bridge, py_compile, diff check PASS | fresh `test_lab_real.py` / `test_vision_real.py` could not start because `flygym.vision.retina -> numba` import stalls on local venv file reads; no V5.3 assertion failure observed |
-| V5.4 | 실제 사용자 참여체 | planned | 미정 | 미실행 | backend geometry + eye visibility required |
+| V5.3 | 관찰 camera + eye sample provenance | automated_verified | `WorldViewer.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `LabProtocol.swift`, `flygym_bridge/{protocol,fly_body,test_bridge,test_lab_real}.py` | build, Swift bridge/lab/V4/timing/sim/behavior/GPU, Python V5/V4/lab/bridge PASS; fresh real lab/vision now PASS under V5.4 verification | integrated GUI acceptance remains separate |
+| V5.4 | 실제 사용자 참여체 | automated_real_verified | `FlyGymBridge.swift`, `LabWindow.swift`, `flygym_bridge/{player_body,lab_world,fly_body,protocol,bridge,test_v5,test_lab_real,test_vision_real}.py` | strict player wire/capability tests, real eye pixel delta, real semantic ray, real MuJoCo fly contact, reset/disconnect lifecycle, full V4/neural regression PASS | fresh integrated GUI click-through remains before whole-V5 completion; movement input intentionally deferred to V5.5 |
 | V5.5 | WASD/look/E/Esc 및 focus handling | planned | 미정 | 미실행 | backend player contract required |
 | V5.6 | 집기/놓기 | planned | 미정 | 미실행 | authoritative backend ray/hit/contact required |
 | V5.7 | 기존 activity card 연결 | planned | 미정 | 미실행 | reuse existing telemetry only; no new state model |
@@ -58,14 +58,49 @@ Fresh 2026-09-22 verification on the current tree:
 | `./ThongpariFlyNeuronSim --simtest` | PASS |
 | `./ThongpariFlyNeuronSim --behaviortest` | PASS — `ALL BEHAVIOR TESTS PASS` |
 | `./ThongpariFlyNeuronSim --gpucheck` | PASS — `GPUCHECK PASS` |
-| `./flygym-venv/bin/python flygym_bridge/test_v5.py` | PASS — `ALL V5.1 TESTS PASS` |
+| `./flygym-venv/bin/python flygym_bridge/test_v5.py` | PASS — `ALL V5 TESTS PASS` on the fresh V5.4 rerun |
 | `./flygym-venv/bin/python flygym_bridge/test_v4.py` | PASS — `ALL V4 TESTS PASS` |
 | `./flygym-venv/bin/python flygym_bridge/test_lab.py` | PASS — `ALL LAB TESTS PASS` |
 | `./flygym-venv/bin/python flygym_bridge/test_bridge.py` | PASS — includes `eye_sample_sim_tick` parse/round-trip |
 | Python `py_compile` + `git diff --check` | PASS |
-| fresh `test_lab_real.py` / `test_vision_real.py` | **BLOCKED BEFORE BODY CONSTRUCTION** — local venv file reads stall while importing `flygym.vision.retina` / `numba`; standalone traceback reached import loading rather than a V5.3 assertion |
+| fresh `test_lab_real.py` / `test_vision_real.py` | PASS on the V5.4 rerun — includes V5.3 successful-sample/hold/failure/reset provenance cases |
 
-The real-eye test contains regressions for successful-sample tick, inter-frame hold, forced render failure retaining the last successful tick, and reset clearing provenance. Those assertions are syntax-checked but are not counted as fresh runtime evidence until the local retina/Numba import stall is resolved.
+The previous local Retina/Numba import stall did not recur during V5.4 verification. Fresh `test_vision_real.py` and `test_lab_real.py` both completed successfully, including the V5.3 eye-sample success/hold/failure/reset cases.
+
+## V5.4 automated + real-backend verification — participant body
+
+V5.4 now creates a **real participant body**, not a camera surrogate. The body is inactive by default so Observe/V4 behavior is unchanged, and it is activated only when a peer explicitly negotiates the new `player_body` capability and the UI enters Participate mode.
+
+- `flygym_bridge/player_body.py` owns the bounded fly-scale participant mechanics while `LabWorld` remains the single world/revision authority. The participant is a dedicated **free-joint MuJoCo sphere**, not a generic LabObject and not a mocap/world-welded fake body.
+- The participant is compiled into the same `FlatGroundWorld` as NeuroMechFly before `Simulation` construction. FlyGym's fly geometry uses explicit contact pairs, so V5.4 compiles an explicit player↔fly thorax pair instead of globally changing fly collision masks. The participant also uses the ordinary physical LabObject collision mask while active.
+- Inactive state moves the free body to the hidden far position and disables its normal collision mask/visibility. Activation is a structural world change. Observe mode deactivates it normally; if a transport disappears while participation is active, the backend also retires that connection's owning V4 session so a reconnect cannot silently continue a timeline after an out-of-band physical cleanup. Passive Observe reconnects still preserve the logical V4 session.
+- `WorldRenderSnapshotPacket` now strictly preserves optional `player` pose, normalized XYZW orientation, required `collision_radius_mm`, and `mode`. Swift already had the matching `WorldRenderPose`/SceneKit player path; `WorldViewer` therefore renders the exact backend collision pose/radius rather than inventing a UI-only avatar.
+- V5.4 adds an explicit `player_body` negotiated capability. A V5.1-only peer may still use the viewport/picking but **cannot enable Participate**. V5.5 WASD/look/E/Esc input is intentionally not implemented here.
+- `RealFlyBody.ray_pick()` maps the live player geom to semantic target `player` instead of falling through to generic `world`.
+- `reset_body` resynchronizes an active participant to its authoritative spawn pose, and transport disconnect deactivates it. The participant is not inserted into the LabObject slot registry, so there is still one object registry and one LabWorld revision clock.
+- Physics-driven fly/player pose changes are identified by snapshot sequence and simulation tick; they do not bump `LabWorld.world_revision` every physics step. `world_revision` advances for explicit LabWorld mutations such as a participant pose/reset command, while `structure_revision` advances only when topology/query structure changes.
+
+Fresh 2026-09-22 V5.4 evidence:
+
+| Check | Result |
+|---|---|
+| `./build.sh` | PASS |
+| `./ThongpariFlyNeuronSim --bridgetest` | PASS — strict player pose, capability gate, V5.1-only negative control |
+| `./ThongpariFlyNeuronSim --labtest` | PASS |
+| `./ThongpariFlyNeuronSim --v4test` | PASS — `ALL V4 SESSION TESTS PASS` |
+| `./ThongpariFlyNeuronSim --v4timingtest` | PASS |
+| `./ThongpariFlyNeuronSim --simtest` | PASS — realtime neural simulation remains within budget |
+| `./ThongpariFlyNeuronSim --behaviortest` | PASS — `ALL BEHAVIOR TESTS PASS` |
+| `./ThongpariFlyNeuronSim --gpucheck` | PASS — `GPUCHECK PASS` |
+| `./flygym-venv/bin/python flygym_bridge/test_v5.py` | PASS — `ALL V5 TESTS PASS` |
+| `./flygym-venv/bin/python flygym_bridge/test_v4.py` | PASS — `ALL V4 TESTS PASS` |
+| `./flygym-venv/bin/python flygym_bridge/test_lab.py` | PASS |
+| `./flygym-venv/bin/python flygym_bridge/test_bridge.py` | PASS |
+| `./flygym-venv/bin/python flygym_bridge/test_vision_real.py` | PASS — active participant changes actual FlyGym stereo-eye pixels; mean absolute delta `1.088` |
+| `./flygym-venv/bin/python flygym_bridge/test_lab_real.py` | PASS — live snapshot/radius, semantic ray, calibrated player mass `0.00034` vs thorax `0.0004016` (ratio `0.847`), generic LabObject contact `(225, 14)`, explicit player↔thorax contact `(225, 226)`, bounded contact response, reset lifecycle, V5.3 eye provenance |
+| `git diff --check` | PASS |
+
+The initial V5.4 prototype used a mocap body. Real contact testing correctly rejected that design: the mocap actor remained world-welded and produced no fly contact even with matching collision masks. V5.4 therefore switched to the free-joint body above. The final real test observes an actual MuJoCo contact, so the completion evidence is physical rather than inferred from coordinates or the SceneKit mirror.
 
 ## V5.2 implementation start — common screen state
 
@@ -99,7 +134,7 @@ Fresh verification after the implementation slice:
 | `./ThongpariFlyNeuronSim --labtest` | PASS |
 | `./ThongpariFlyNeuronSim --v4test` | PASS |
 | `./ThongpariFlyNeuronSim --v4timingtest` | PASS |
-| `./flygym-venv/bin/python flygym_bridge/test_v5.py` | PASS — `ALL V5.1 TESTS PASS` |
+| `./flygym-venv/bin/python flygym_bridge/test_v5.py` | PASS — `ALL V5 TESTS PASS` |
 | `./flygym-venv/bin/python flygym_bridge/test_v4.py` | PASS |
 | `./flygym-venv/bin/python flygym_bridge/test_lab.py` | PASS |
 | `./flygym-venv/bin/python flygym_bridge/test_bridge.py` | PASS |
@@ -114,7 +149,7 @@ This is **automated verification, not V5.1 completion**. The remaining V5.1 gate
 
 The independent review in `notes/validation/v5-1-independent-2026-09-13/REVIEW.md` found three P2 defects. The review file is preserved as the original audit record; the current working tree fixes all three and adds regressions for the exact failure modes:
 
-1. **Moving-object picks no longer fail just because pose revision advanced.** `LabWorld` now tracks an internal structural revision separately from the existing full render/world revision. Pose-only movement, including `approach`, may advance `world_revision` without invalidating a displayed snapshot as a ray source. Spawn/delete/resize/reset still invalidate structurally stale ray sources. The new `test_v5.py` transport regression reproduces the former `serve_once` ordering and verifies a just-delivered moving-object snapshot remains pickable.
+1. **Moving-object picks no longer fail just because pose revision advanced.** `LabWorld` now tracks an internal structural revision separately from the existing world revision. Explicit LabWorld pose mutations, including `approach`, may advance `world_revision` without invalidating a displayed snapshot as a ray source; ordinary physics-driven fly/player motion is instead identified by `snapshot_seq`/`sim_tick` and does not bump `world_revision` every step. Spawn/delete/resize/reset-world topology changes still invalidate structurally stale ray sources. The new `test_v5.py` transport regression reproduces the former `serve_once` ordering and verifies a just-delivered moving-object snapshot remains pickable.
 2. **Reconnect cannot reuse the previous client's V5 query cache.** Each transport connection clears only V5 pending view queries, cached view results, snapshot provenance and queued V5 replies while preserving the logical V4 session/epoch/tick and V4 idempotence caches. A reconnect regression reuses request `seq=1` after moving an object and verifies the second client receives a newly generated snapshot with the live pose.
 3. **Snapshot and pick observe the same derived MuJoCo pose at one owner boundary.** `RealFlyBody.world_render_state()` now runs `mj_forward` before copying `xpos/xquat`, matching the existing ray path. The full real-backend test verifies snapshot → ray hit/miss → snapshot is identical at unchanged simulation time while qpos/qvel/mocap/time/world state/events stay unchanged.
 
@@ -195,7 +230,7 @@ The viewport may calculate a local ray for hover/preview, but the backend decide
 
 ### Player body
 
-The V5 participant begins as a small fly-scale probe/avatar, not a human-scale body. Its visual and collision pose must come from one backend-owned state. It must exist in the same compiled MuJoCo world used by collisions and the fly's real eye cameras. Merely moving the observer camera is not participation.
+The V5 participant begins as a small fly-scale probe/avatar, not a human-scale body. V5.4 implements it as a backend-owned **free-joint MuJoCo sphere** in the same compiled world as NeuroMechFly, with an **explicit participant↔fly thorax contact pair** matching FlyGym's contact model. Its visual and collision pose come from that one physical body. Merely moving the observer camera is not participation.
 
 ## Existing code to reuse
 

@@ -113,6 +113,9 @@ class MockBody:
         if command.op == "reset_body":
             self.reset_body()
             return {"reset_body": True}
+        if command.op == "set_player_active":
+            active = bool(float(command.args.get("value", command.args.get("active", 0.0))) >= 0.5)
+            return self.lab_world.set_player_active(active)
         return self.lab_world.apply_command(
             command, fly_position_mm=(self.x * 1000.0, self.y * 1000.0, 0.7))
 
@@ -130,6 +133,7 @@ class MockBody:
         self.last_tempo = 1.0
         self.controller_left = 0.0
         self.controller_right = 0.0
+        self.lab_world.reset_player_pose(preserve_active=True)
 
     def lab_state(self):
         state = self.lab_world.state()
@@ -145,6 +149,7 @@ class MockBody:
 
     def world_render_state(self):
         half = self.heading * 0.5
+        render_player = getattr(self.lab_world, "render_player", None)
         return {
             "world_revision": int(self.lab_world.revision),
             "fly": {
@@ -153,6 +158,7 @@ class MockBody:
                 "orientation_quat_xyzw": [0.0, 0.0, math.sin(half), math.cos(half)],
             },
             "objects": self.lab_world.render_objects(),
+            "player": None if render_player is None else render_player(),
         }
 
     def ray_pick(self, ray_origin_mm, ray_direction):
@@ -235,6 +241,7 @@ class RealFlyBody:
             spawn_position=np.array([0.0, 0.0, 0.7]),
             spawn_rotation=Rotation3D('quat', (1, 0, 0, 0)),
         )
+        self.lab_world.player.install_fly_contact_pairs(self.world, self.fly)
         self.sim = Simulation(self.world)
         self.physics_timestep_s = float(self.sim.timestep)
         self.lab_world.bind(self.sim, self._lab_force_body_ids())
@@ -459,8 +466,9 @@ class RealFlyBody:
 
     def world_render_state(self):
         # Refresh derived body/geom transforms at the same owner boundary used by
-        # ray_pick. This is especially important after a mocap/object pose write
-        # that has not yet been followed by a physics step. mj_forward does not
+        # ray_pick. This is especially important after an owner-thread LabObject
+        # or free-joint participant pose write that has not yet been followed by
+        # a physics step. mj_forward does not
         # advance qpos/qvel/time or mutate LabWorld semantic state.
         import mujoco
         mujoco.mj_forward(self.sim.mj_model, self.sim.mj_data)
@@ -471,6 +479,7 @@ class RealFlyBody:
         # MuJoCo stores global body quaternion as wxyz; V5 wire contract is xyzw.
         quat_wxyz = [float(v) for v in self.sim.mj_data.xquat[bid]]
         quat = [quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]]
+        render_player = getattr(self.lab_world, "render_player", None)
         return {
             "world_revision": int(self.lab_world.revision),
             "fly": {
@@ -479,6 +488,7 @@ class RealFlyBody:
                 "orientation_quat_xyzw": quat,
             },
             "objects": self.lab_world.render_objects(),
+            "player": None if render_player is None else render_player(),
         }
 
     def ray_pick(self, ray_origin_mm, ray_direction):
@@ -496,9 +506,9 @@ class RealFlyBody:
         direction = direction / norm
         geom_id = np.array([-1], dtype=np.int32)
         normal = np.zeros(3, dtype=float)
-        # Keep derived geom transforms coherent with any owner-thread mocap pose
-        # update that occurred since the previous physics step. mj_forward does
-        # not advance simulation time or mutate semantic world state.
+        # Keep derived geom transforms coherent with any owner-thread LabObject
+        # or free-joint participant pose update since the previous physics step.
+        # mj_forward does not advance simulation time or mutate semantic world state.
         mujoco.mj_forward(self.sim.mj_model, self.sim.mj_data)
         distance = float(mujoco.mj_ray(
             self.sim.mj_model, self.sim.mj_data,
@@ -533,12 +543,21 @@ class RealFlyBody:
         if command.op == "reset_body":
             self.reset_body()
             return {"reset_body": True}
+        if command.op == "set_player_active":
+            active = bool(float(command.args.get("value", command.args.get("active", 0.0))) >= 0.5)
+            return self.lab_world.set_player_active(active)
         return self.lab_world.apply_command(command, fly_position_mm=self._thorax_position())
 
     def reset_body(self):
-        """Reset the fly/controller pose while preserving the current lab world."""
+        """Reset fly/controller and participant pose while preserving the lab world.
+
+        An active participant remains active but returns to its authoritative
+        spawn pose. That pose reset is a non-structural LabWorld mutation: it
+        advances world revision without changing structure revision.
+        """
         self.sim.reset()
         self.lab_world.resync_after_sim_reset()
+        self.lab_world.reset_player_pose(preserve_active=True)
         self.sim.warmup()
         try:
             self.ctl.reset(seed=0)

@@ -247,15 +247,24 @@ struct WorldRenderPose: Decodable {
         orientationQuatXYZW = try WorldRenderDecode.unitQuaternion(
             c.decode([Double].self, forKey: .orientationQuatXYZW), name: "orientation_quat_xyzw")
         if let radius = try c.decodeIfPresent(Double.self, forKey: .collisionRadiusMM) {
-            guard radius.isFinite, radius >= 0 else {
+            guard radius.isFinite, radius >= 0, radius <= 1000 else {
                 throw DecodingError.dataCorruptedError(forKey: .collisionRadiusMM, in: c,
-                                                       debugDescription: "collision_radius_mm must be finite and non-negative")
+                                                       debugDescription: "collision_radius_mm must be finite and in 0...1000")
             }
             collisionRadiusMM = radius
         } else {
             collisionRadiusMM = nil
         }
-        mode = try c.decodeIfPresent(String.self, forKey: .mode)
+        if let rawMode = try c.decodeIfPresent(String.self, forKey: .mode) {
+            let trimmedMode = rawMode.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedMode.isEmpty, trimmedMode.count <= 32 else {
+                throw DecodingError.dataCorruptedError(forKey: .mode, in: c,
+                                                       debugDescription: "pose mode is invalid")
+            }
+            mode = trimmedMode
+        } else {
+            mode = nil
+        }
     }
 }
 
@@ -367,6 +376,13 @@ struct WorldRenderSnapshot: Decodable, FlyGymStampedPacket {
         fly = try c.decode(WorldRenderPose.self, forKey: .fly)
         objects = try c.decode([WorldRenderObject].self, forKey: .objects)
         player = try c.decodeIfPresent(WorldRenderPose.self, forKey: .player)
+        if let player {
+            guard let radius = player.collisionRadiusMM, radius > 0,
+                  player.mode != nil else {
+                throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                                                        debugDescription: "player requires positive collision_radius_mm and mode"))
+            }
+        }
         guard Set(objects.map(\.id)).count == objects.count else {
             throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
                                                     debugDescription: "snapshot object ids must be unique"))

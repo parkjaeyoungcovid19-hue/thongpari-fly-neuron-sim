@@ -48,6 +48,38 @@ body = RealFlyBody(config={}, show_viewer=False)
 try:
     world = body.lab_world
 
+    # V5.4 participant proof (V5-02): keep the same *active* backend geometry,
+    # first outside the eye field and then inside it. The world snapshot must
+    # report the exact pose used for both renders, and the actual FlyGym stereo
+    # frames must change. This is not an inactive-vs-active rendering shortcut.
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+    world.set_player_active(True)
+    outside_pos = [24.0, 120.0, 2.5]
+    world.set_player_pose(position_mm=outside_pos)
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+    player_outside, _ = render(body)
+    outside_pose = body.world_render_state().get("player") or {}
+    outside_revision = world.revision
+    inside_pos = [24.0, 0.0, 2.5]
+    world.set_player_pose(position_mm=inside_pos)
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+    player_inside, _ = render(body)
+    inside_pose = body.world_render_state().get("player") or {}
+    inside_revision = world.revision
+    player_eye_delta = float(np.mean(np.abs(
+        player_inside.astype(float) - player_outside.astype(float))))
+    check(
+        "V5.4 participant outside->inside changes actual FlyGym eye pixels with pose provenance",
+        player_inside.shape == player_outside.shape and player_eye_delta > 0.05
+        and outside_pose.get("actor_id") == "player"
+        and np.allclose(outside_pose.get("position_mm", []), outside_pos, atol=1e-12)
+        and np.allclose(inside_pose.get("position_mm", []), inside_pos, atol=1e-12)
+        and inside_revision == outside_revision + 1,
+        f"mean_abs_delta={player_eye_delta:.3f} outside={outside_pose} inside={inside_pose}",
+    )
+    world.set_player_active(False)
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+
     # Default food is green in LabWorld and deliberately outside the historical
     # magenta target mask. Keep it on the fly's forward axis so both broad-FOV
     # eyes see a clean angular expansion as it approaches.

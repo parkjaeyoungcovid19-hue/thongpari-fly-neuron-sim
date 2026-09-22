@@ -14,11 +14,11 @@ elif find . -maxdepth 1 \( -name '*.swift' -o -name '*.metal' -o -name 'build.sh
   NEEDS_BUILD=1
 fi
 if [ "$NEEDS_BUILD" -eq 1 ]; then
-    echo "🔨 최신 소스로 Virtual Fly Lab V5.1 Preview 빌드 중..."
+    echo "🔨 최신 소스로 Virtual Fly Lab V5.5 빌드 중..."
   ./build.sh || exit 1
 fi
 
-echo "🧪 Launching Thongpari Fly Neuron Sim — Virtual Fly Lab V5.1 Preview"
+echo "🧪 Launching Thongpari Fly Neuron Sim — Virtual Fly Lab V5.5"
 
 if [ ! -x flygym-venv/bin/python ]; then
   echo "no flygym-venv — create it first (see flygym_bridge/README.md)" >&2

@@ -331,6 +331,7 @@ class RealFlyBody:
         self.vision_period = 0.20   # 5 Hz stereo render; body feedback stays 60 Hz
         self.vision_elapsed = self.vision_period
         self.vision_state = self.vision.state()
+        self.eye_sample_sim_tick = None
         # Force lazy observation/contact/render paths to initialize before the
         # TCP server starts listening. Otherwise the first connected brain can
         # be stalled for seconds by one-time JIT/graphics work.
@@ -348,6 +349,7 @@ class RealFlyBody:
         self.prev_heading = None
         self.vision_elapsed = self.vision_period
         self.vision_state = self.vision.state()
+        self.eye_sample_sim_tick = None
         print('realbody: ready', flush=True)
 
     def _apply_controller_tempo(self, tempo):
@@ -566,6 +568,7 @@ class RealFlyBody:
         self.vision = VisionLoomDetector(target_rgb=(0.92, 0.08, 0.72))
         self.vision_elapsed = self.vision_period
         self.vision_state = self.lab_world.augment_vision_state(self.vision.state())
+        self.eye_sample_sim_tick = None
 
     def lab_state(self):
         state = self.lab_world.state()
@@ -660,6 +663,11 @@ class RealFlyBody:
                 frames = self.sim.get_raw_vision('fly')
                 frames = self.lab_world.apply_eye_mask(frames)
                 self.vision_state = self.vision.analyze(frames, vision_dt)
+                # Exact simulation time of the latest successful raw stereo-eye
+                # sample. Values in later body packets may be decayed from this
+                # frame, so clients must not pretend the current body tick was a
+                # fresh camera render.
+                self.eye_sample_sim_tick = int(round(self.t * 1000.0))
             except Exception as e:
                 print(f'realbody: vision sample failed ({e})', flush=True)
                 self.vision_state = self.vision.decay(vision_dt)
@@ -703,6 +711,7 @@ class RealFlyBody:
                           occupancy_right=self.vision_state.get('occupancy_right', 0.0),
                           optic_expansion_left=self.vision_state.get('optic_expansion_left', 0.0),
                           optic_expansion_right=self.vision_state.get('optic_expansion_right', 0.0),
+                          eye_sample_sim_tick=self.eye_sample_sim_tick,
                           flash_left=self.vision_state.get('flash_left', 0.0),
                           flash_right=self.vision_state.get('flash_right', 0.0),
                           odor_left=odor["odor_left"], odor_right=odor["odor_right"],

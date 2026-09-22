@@ -1,9 +1,9 @@
 # Virtual Fly Lab V5 — implementation progress
 
-Prepared: **2026-09-13**
+Prepared: **2026-09-13** · updated **2026-09-22**
 V4 baseline: `e900b272e1df4131edba51476f0d213a8d166ca1` (`Complete Virtual Fly Lab V4 deterministic sessions`)
 V5 preparation commit: `3faf942` (`Prepare Virtual Fly Lab V5 implementation`)
-Status: **V5.1 AUTOMATED_VERIFIED — atomic snapshot/picking + integrated SceneKit prototype are implemented; fresh GUI/focus/latency acceptance is still pending**
+Status: **V5.3 AUTOMATED_VERIFIED — Observe camera controls and raw-eye sample provenance are implemented; fresh real-eye execution is currently blocked before `RealFlyBody` construction by a local Python venv import-I/O stall**
 
 ## Start gate
 
@@ -25,14 +25,47 @@ These checks confirm the committed V4 scheduling/session baseline before V5 work
 | 단계 ID | 요구 | 상태 | 변경 파일 | 실행 검사/로그 | 실패/다음 조치 |
 |---|---|---|---|---|---|
 | V5.1 | 현재 API 조사 및 viewport prototype | automated_verified | `LabProtocol.swift`, `FlyGymBridge.swift`, `WorldViewer.swift`, `LabWindow.swift`, `build.sh`, `flygym_bridge/{protocol,bridge,fly_body,lab_world}.py`, `flygym_bridge/test_v5.py` | focused V5 + Swift bridge/lab/V4 + Python V4/lab/bridge + real lab/vision PASS; real MuJoCo snapshot/pick probe PASS | fresh integrated GUI, keyboard-focus suitability, viewport FPS + pick ACK latency remain before `complete` |
-| V5.2 | 공통 화면 상태 소유권 | implementing | `LabViewState.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `build.sh` | build + Swift bridge/lab/V4 PASS; V5.2 state fixtures PASS | first slice owns mode/selection/timeline/pause/snapshot presentation in one state; central world + collapsible tool/activity panel composition and fresh GUI acceptance remain |
-| V5.3 | 관찰 camera | planned | 미정 | 미실행 | camera must stay read-only to simulation |
+| V5.2 | 공통 화면 상태 소유권 | implemented | `LabViewState.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `build.sh` | build + Swift bridge/lab/V4 PASS; V5.2 state fixtures PASS | common state ownership is implemented; broader fresh GUI acceptance remains part of the V5 integrated UI gate |
+| V5.3 | 관찰 camera + eye sample provenance | automated_verified | `WorldViewer.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `LabProtocol.swift`, `flygym_bridge/{protocol,fly_body,test_bridge,test_lab_real}.py` | build, Swift bridge/lab/V4/timing/sim/behavior/GPU, Python V5/V4/lab/bridge, py_compile, diff check PASS | fresh `test_lab_real.py` / `test_vision_real.py` could not start because `flygym.vision.retina -> numba` import stalls on local venv file reads; no V5.3 assertion failure observed |
 | V5.4 | 실제 사용자 참여체 | planned | 미정 | 미실행 | backend geometry + eye visibility required |
 | V5.5 | WASD/look/E/Esc 및 focus handling | planned | 미정 | 미실행 | backend player contract required |
 | V5.6 | 집기/놓기 | planned | 미정 | 미실행 | authoritative backend ray/hit/contact required |
 | V5.7 | 기존 activity card 연결 | planned | 미정 | 미실행 | reuse existing telemetry only; no new state model |
 
 No V6 terrain/environment editor, V7 neuron inspector, V8 module host, V9 checkpoint, or V11 desire/emotion model is pulled forward into this version.
+
+## V5.3 automated verification — observation camera + raw-eye provenance
+
+The V5.3 implementation is now in the working tree. It remains observation-only: none of the camera controls are allowed to become a neural, lab-world, session, experiment-step or player command.
+
+- `WorldViewer` now owns explicit **Orbit / Follow fly / Free** presentation camera modes. Right-drag rotates, Shift+right-drag pans in Orbit/Free, and scroll zooms/dollies. Follow pan is deliberately a no-op so the target remains the authoritative fly pose.
+- Entering Free preserves the effective current target, camera position and forward direction. Positive scroll means zoom/dolly out in all three modes; negative scroll means in.
+- The first authoritative backend snapshot still reframes the real scene even if the user pressed Reset before that snapshot arrived, or during a cleared session identity gap. `clearSnapshot()` removes old geometry/provenance and re-arms that initial frame.
+- The `--bridgetest` V5.3 fixture drives the same camera APIs as the UI and proves that camera input causes **zero pick callbacks, zero pending bridge commands, zero pending lab commands, and zero mutation of the shared `LabViewState`**. Only the existing left-click path can emit an authoritative MuJoCo pick ray.
+- Python `RealFlyBody` now tracks `eye_sample_sim_tick`, the exact protocol-ms simulation tick of the **latest successful** raw FlyGym stereo-eye render. It advances only after `get_raw_vision` + eye mask + vision analysis succeed; body packets between frames keep the previous tick. A failed scheduled render decays the vision signal but keeps provenance pointed at the last successful raw frame rather than falsely claiming the current body tick. `reset_body` clears the provenance.
+- The optional field is strict-round-tripped through Python `BodyPacket`, Swift `FlyGymBodyPacket` / feedback, and `LabTelemetry`. The Vision UI reports `raw-eye sample tick N ms · M ms old` using the simulation time from the same body packet, or explicitly says that no raw-eye sample has rendered yet.
+- Experiment CSV now records `body_eye_sample_sim_tick` so the raw-frame provenance is not lost during offline analysis.
+
+Fresh 2026-09-22 verification on the current tree:
+
+| Check | Result |
+|---|---|
+| `./build.sh` | PASS |
+| `./ThongpariFlyNeuronSim --bridgetest` | PASS — includes first-snapshot framing + Orbit/Follow/Free presentation-only V5.3 regressions |
+| `./ThongpariFlyNeuronSim --labtest` | PASS — includes Swift eye-tick propagation and CSV provenance |
+| `./ThongpariFlyNeuronSim --v4test` | PASS — `ALL V4 SESSION TESTS PASS` |
+| `./ThongpariFlyNeuronSim --v4timingtest` | PASS — 60/120 FPS and stall timing invariance preserved |
+| `./ThongpariFlyNeuronSim --simtest` | PASS |
+| `./ThongpariFlyNeuronSim --behaviortest` | PASS — `ALL BEHAVIOR TESTS PASS` |
+| `./ThongpariFlyNeuronSim --gpucheck` | PASS — `GPUCHECK PASS` |
+| `./flygym-venv/bin/python flygym_bridge/test_v5.py` | PASS — `ALL V5.1 TESTS PASS` |
+| `./flygym-venv/bin/python flygym_bridge/test_v4.py` | PASS — `ALL V4 TESTS PASS` |
+| `./flygym-venv/bin/python flygym_bridge/test_lab.py` | PASS — `ALL LAB TESTS PASS` |
+| `./flygym-venv/bin/python flygym_bridge/test_bridge.py` | PASS — includes `eye_sample_sim_tick` parse/round-trip |
+| Python `py_compile` + `git diff --check` | PASS |
+| fresh `test_lab_real.py` / `test_vision_real.py` | **BLOCKED BEFORE BODY CONSTRUCTION** — local venv file reads stall while importing `flygym.vision.retina` / `numba`; standalone traceback reached import loading rather than a V5.3 assertion |
+
+The real-eye test contains regressions for successful-sample tick, inter-frame hold, forced render failure retaining the last successful tick, and reset clearing provenance. Those assertions are syntax-checked but are not counted as fresh runtime evidence until the local retina/Numba import stall is resolved.
 
 ## V5.2 implementation start — common screen state
 

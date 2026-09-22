@@ -73,13 +73,14 @@ check("sleep zeros descending drive",
       brain_to_descending(decode(BrainPacket(walk=1.0, turn=1.0, sleep=True))) == (0.0, 0.0))
 
 # 6. sensory packet parsing
-s = decode_line(b'{"type":"body","t":1.238,"controller_left":0.21,"controller_right":0.43,"wind_strength":0.7,"wind_direction_deg":330,"wind_sensory":true,"touch_strength":0.55,"touch_sensory":true,"vx":0.013,"yaw_rate":-0.12,"contacts":[1,1,0,0,1,0],"left_contact":0.67,"right_contact":0.33,"loom_left":0.7,"loom_right":0.2,"brightness":0.4,"brightness_left":0.3,"brightness_right":0.5,"occupancy_left":0.2,"occupancy_right":0.1,"optic_expansion_left":0.8,"optic_expansion_right":0.25,"flash_left":0.6,"flash_right":0.0,"bearing":0.5}\n')
+s = decode_line(b'{"type":"body","t":1.238,"controller_left":0.21,"controller_right":0.43,"wind_strength":0.7,"wind_direction_deg":330,"wind_sensory":true,"touch_strength":0.55,"touch_sensory":true,"vx":0.013,"yaw_rate":-0.12,"contacts":[1,1,0,0,1,0],"left_contact":0.67,"right_contact":0.33,"loom_left":0.7,"loom_right":0.2,"brightness":0.4,"brightness_left":0.3,"brightness_right":0.5,"occupancy_left":0.2,"occupancy_right":0.1,"optic_expansion_left":0.8,"optic_expansion_right":0.25,"eye_sample_sim_tick":1200,"flash_left":0.6,"flash_right":0.0,"bearing":0.5}\n')
 check("body parse", isinstance(s, BodyPacket) and abs(s.vx-0.013)<1e-9 and s.contacts==[1,1,0,0,1,0]
       and abs(s.left_contact-0.67)<1e-9 and abs(s.loom_left-0.7)<1e-9
       and abs(s.loom_right-0.2)<1e-9 and abs(s.bearing-0.5)<1e-9
       and abs(s.brightness_left-0.3)<1e-9 and abs(s.brightness_right-0.5)<1e-9
       and abs(s.occupancy_left-0.2)<1e-9 and abs(s.occupancy_right-0.1)<1e-9
       and abs(s.optic_expansion_left-0.8)<1e-9 and abs(s.optic_expansion_right-0.25)<1e-9
+      and s.eye_sample_sim_tick == 1200
       and abs(s.flash_left-0.6)<1e-9 and s.flash_right == 0.0
       and abs(s.controller_left-0.21)<1e-9 and abs(s.controller_right-0.43)<1e-9
       and abs(s.wind_strength-0.7)<1e-9 and abs(s.wind_direction_deg-330)<1e-9
@@ -96,11 +97,13 @@ check("brain clamps", cb is not None and cb.walk==1.5 and cb.turn==-1.0)
 cn = decode_line(b'{"type":"brain","walk":"NaN","t":"Infinity"}\n')
 check("non-finite values rejected to safe zero", cn is not None and cn.walk == 0.0 and cn.t == 0.0)
 
-timed = BodyPacket(t=2.0, sim_dt=0.002, wall_dt=0.016, sim_wall_ratio=0.125)
+timed = BodyPacket(t=2.0, sim_dt=0.002, wall_dt=0.016, sim_wall_ratio=0.125,
+                   eye_sample_sim_tick=1800)
 timed_rt = decode_line(encode(timed))
 check("body sim/wall timing round-trip",
       isinstance(timed_rt, BodyPacket) and abs(timed_rt.sim_dt - 0.002) < 1e-12 and
-      abs(timed_rt.wall_dt - 0.016) < 1e-12 and abs(timed_rt.sim_wall_ratio - 0.125) < 1e-12,
+      abs(timed_rt.wall_dt - 0.016) < 1e-12 and abs(timed_rt.sim_wall_ratio - 0.125) < 1e-12 and
+      timed_rt.eye_sample_sim_tick == 1800,
       repr(timed_rt))
 
 # Stale-brain safety is based only on a monotonic timestamp. Wall-clock jumps

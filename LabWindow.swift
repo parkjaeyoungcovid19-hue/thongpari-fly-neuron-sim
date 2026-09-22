@@ -249,6 +249,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private let worldCapacityLabel = NSTextField(wrappingLabelWithString: "Object capacity — waiting for backend…")
     private let worldViewer = WorldViewer(frame: .zero)
     private let worldViewerStatusLabel = NSTextField(wrappingLabelWithString: "3D world — waiting for V5.1 backend capability…")
+    private let observationCameraMode = NSPopUpButton(frame: .zero, pullsDown: false)
     private let arenaPlacement = LabArenaPlacementView(frame: .zero)
     private let createOnArenaClick = NSButton(checkboxWithTitle: "Create selected object when clicking arena", target: nil, action: nil)
     private var autoObjectSerial: [String: Int] = [:]
@@ -632,6 +633,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         worldViewer.translatesAutoresizingMaskIntoConstraints = false
         worldViewer.heightAnchor.constraint(equalToConstant: 360).isActive = true
         worldViewer.widthAnchor.constraint(greaterThanOrEqualToConstant: 700).isActive = true
+        addPopupItems(observationCameraMode, WorldViewerCameraMode.allCases.map { ($0.title, $0.rawValue) })
+        observationCameraMode.target = self
+        observationCameraMode.action = #selector(observationCameraModeChanged)
+        selectPopupValue(observationCameraMode, WorldViewerCameraMode.orbit.rawValue)
         [objectX, objectY, objectZ, objectSize, objectSpeed, objectEndDistance].forEach { _ = field($0) }
         addPopupItems(objectShape, [
             ("Box", "box"),
@@ -649,8 +654,13 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         arenaPlacement.selectedPoint = (d(objectX), d(objectY))
         return page([
             section("3D world — backend snapshot", kind: .physical,
-                    help: "Read-only V5.1 view of one atomic backend world snapshot. Camera movement here does not change the simulation. A click only sends a ray; MuJoCo decides the authoritative hit.",
-                    views: [worldViewer, worldViewerStatusLabel]),
+                    help: "Read-only backend world view. Orbit/follow/free camera motion is presentation-only and never becomes a neural/world command. Right-drag rotates; Shift+right-drag pans in Orbit/Free; scroll zooms/dollies. A left click only sends an authoritative MuJoCo pick ray.",
+                    views: [
+                        row([label("Observation camera"), observationCameraMode,
+                             button("Reset camera", #selector(resetObservationCamera))]),
+                        worldViewer,
+                        worldViewerStatusLabel
+                    ]),
             section("Click to place an object", kind: .physical,
                     help: "This top-down arena remains a minimap and coordinate helper. Choose a type first, then click the arena. Up is +X forward and left is +Y. With the checkbox on, one click creates the selected object; turn it off to pick coordinates only.",
                     views: [
@@ -934,6 +944,20 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             objectSize.stringValue = "5"
             objectZ.stringValue = "5"
         }
+    }
+
+    @objc private func observationCameraModeChanged() {
+        let raw = selectedValue(observationCameraMode, fallback: WorldViewerCameraMode.orbit.rawValue)
+        guard let mode = WorldViewerCameraMode(rawValue: raw) else { return }
+        worldViewer.setObservationCameraMode(mode)
+        worldViewerStatusLabel.stringValue = "3D world — \(mode.title) observation camera · presentation only"
+        worldViewerStatusLabel.textColor = .secondaryLabelColor
+    }
+
+    @objc private func resetObservationCamera() {
+        worldViewer.resetObservationCamera()
+        worldViewerStatusLabel.stringValue = "3D world — observation camera reset"
+        worldViewerStatusLabel.textColor = .secondaryLabelColor
     }
 
     private func setEyeButtonsEnabled(_ enabled: Bool) {
@@ -1647,9 +1671,17 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                                                      t.rateFoodOdorL, t.rateFoodOdorR)
             visionGraph.append([t.bodyBrightnessL, t.bodyBrightnessR, t.bodyOccupancyL,
                                 t.bodyOccupancyR, t.bodyOpticExpansionL, t.bodyOpticExpansionR])
-            visionTelemetryLabel.stringValue = String(format: "Vision — expansion L/R %.3f/%.3f · brightness L/R %.3f/%.3f",
+            let eyeSample: String
+            if t.bodyEyeSampleSimTick >= 0 {
+                let bodyTick = max(0, Int((t.bodySimTime * 1000.0).rounded()))
+                let ageMs = max(0, bodyTick - t.bodyEyeSampleSimTick)
+                eyeSample = "raw-eye sample tick \(t.bodyEyeSampleSimTick) ms · \(ageMs) ms old"
+            } else {
+                eyeSample = "raw-eye sample not rendered yet"
+            }
+            visionTelemetryLabel.stringValue = String(format: "Vision — expansion L/R %.3f/%.3f · brightness L/R %.3f/%.3f · %@",
                                                        t.bodyOpticExpansionL, t.bodyOpticExpansionR,
-                                                       t.bodyBrightnessL, t.bodyBrightnessR)
+                                                       t.bodyBrightnessL, t.bodyBrightnessR, eyeSample)
         }
 
         let nearest = t.bodyNearestFoodDistanceMm >= 0

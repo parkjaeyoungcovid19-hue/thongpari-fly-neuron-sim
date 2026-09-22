@@ -204,6 +204,7 @@ struct FlyGymBodyPacket: Decodable {
     var occupancyRight: Double = 0
     var opticExpansionLeft: Double = 0
     var opticExpansionRight: Double = 0
+    var eyeSampleSimTick: Int?
     var flashLeft: Double = 0
     var flashRight: Double = 0
     var odorLeft: Double = 0
@@ -226,6 +227,7 @@ struct FlyGymBodyPacket: Decodable {
         case brightnessLeft = "brightness_left", brightnessRight = "brightness_right"
         case occupancyLeft = "occupancy_left", occupancyRight = "occupancy_right"
         case opticExpansionLeft = "optic_expansion_left", opticExpansionRight = "optic_expansion_right"
+        case eyeSampleSimTick = "eye_sample_sim_tick"
         case flashLeft = "flash_left", flashRight = "flash_right"
         case odorLeft = "odor_left", odorRight = "odor_right"
         case nearestFoodDistanceMm = "nearest_food_distance_mm"
@@ -279,6 +281,11 @@ struct FlyGymBodyPacket: Decodable {
         occupancyRight = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .occupancyRight)) ?? 0))
         opticExpansionLeft = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .opticExpansionLeft)) ?? 0))
         opticExpansionRight = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .opticExpansionRight)) ?? 0))
+        if let sample = (try? c.decodeIfPresent(Int.self, forKey: .eyeSampleSimTick)) ?? nil {
+            eyeSampleSimTick = max(0, sample)
+        } else {
+            eyeSampleSimTick = nil
+        }
         flashLeft = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .flashLeft)) ?? 0))
         flashRight = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .flashRight)) ?? 0))
         odorLeft = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .odorLeft)) ?? 0))
@@ -386,6 +393,7 @@ struct FlyGymBodyFeedback: FlyGymStampedPacket {
     var occupancyRight: Double = 0
     var opticExpansionLeft: Double = 0
     var opticExpansionRight: Double = 0
+    var eyeSampleSimTick: Int?
     var flashLeft: Double = 0
     var flashRight: Double = 0
     var odorLeft: Double = 0
@@ -412,6 +420,7 @@ struct FlyGymBodyFeedback: FlyGymStampedPacket {
         brightness = p.brightness; brightnessLeft = p.brightnessLeft; brightnessRight = p.brightnessRight
         occupancyLeft = p.occupancyLeft; occupancyRight = p.occupancyRight
         opticExpansionLeft = p.opticExpansionLeft; opticExpansionRight = p.opticExpansionRight
+        eyeSampleSimTick = p.eyeSampleSimTick
         flashLeft = p.flashLeft; flashRight = p.flashRight
         odorLeft = p.odorLeft; odorRight = p.odorRight
         nearestFoodDistanceMm = p.nearestFoodDistanceMm
@@ -1618,7 +1627,7 @@ func runBridgeTest() {
         && (obj["backward"] as? Bool) == true
         && abs((obj["t"] as? Double ?? -1) - 1.234) < 1e-9)
     // 2/6. body parse of a well-formed line.
-    let line = #"{"type":"body","t":1.238,"sim_dt":0.002,"wall_dt":0.020,"sim_wall_ratio":0.1,"controller_left":0.21,"controller_right":0.43,"wind_strength":0.7,"wind_direction_deg":-30,"wind_sensory":true,"touch_strength":0.55,"touch_sensory":true,"vx":0.013,"yaw_rate":-0.12,"contacts":[1,1,0,0,1,0],"left_contact":0.67,"right_contact":0.33,"loom_left":0.7,"loom_right":0.2,"brightness":0.4,"odor_left":0.75,"odor_right":0.2,"nearest_food_distance_mm":12.5,"position_x_mm":14.5,"position_y_mm":-3.25,"heading_rad":1.25,"bearing":0.5}"#
+    let line = #"{"type":"body","t":1.238,"sim_dt":0.002,"wall_dt":0.020,"sim_wall_ratio":0.1,"controller_left":0.21,"controller_right":0.43,"wind_strength":0.7,"wind_direction_deg":-30,"wind_sensory":true,"touch_strength":0.55,"touch_sensory":true,"vx":0.013,"yaw_rate":-0.12,"contacts":[1,1,0,0,1,0],"left_contact":0.67,"right_contact":0.33,"loom_left":0.7,"loom_right":0.2,"brightness":0.4,"eye_sample_sim_tick":1200,"odor_left":0.75,"odor_right":0.2,"nearest_food_distance_mm":12.5,"position_x_mm":14.5,"position_y_mm":-3.25,"heading_rad":1.25,"bearing":0.5}"#
     let body = parseBodyLine(Data(line.utf8))
     check("body parse", body != nil && abs((body?.vx ?? 9) - 0.013) < 1e-9
         && abs((body?.t ?? -1) - 1.238) < 1e-9
@@ -1635,6 +1644,7 @@ func runBridgeTest() {
         && (body?.contacts ?? []) == [1, 1, 0, 0, 1, 0]
         && abs((body?.leftContact ?? -1) - 0.67) < 1e-9
         && abs((body?.loomLeft ?? -1) - 0.7) < 1e-9
+        && body?.eyeSampleSimTick == 1200
         && abs((body?.odorLeft ?? -1) - 0.75) < 1e-9
         && abs((body?.odorRight ?? -1) - 0.2) < 1e-9
         && abs((body?.nearestFoodDistanceMm ?? -1) - 12.5) < 1e-9
@@ -1824,6 +1834,76 @@ func runBridgeTest() {
     check("V5.2 shared selection is reconciled by authoritative snapshot",
           v52State.selectedObjectID == nil && v52State.timelineTick == 120
           && v52State.snapshotSeq == 3 && v52State.worldRevision == 5)
+
+    // V5.3 observation camera is strictly presentation-only. Exercise the same
+    // camera APIs used by right-drag/Shift-right-drag/scroll while wiring the
+    // existing pick callback to a real V5-capable bridge. Any accidental pick,
+    // neural, lab, session, render, or experiment send would increase bridge
+    // pendingDepth and fail this test.
+    let v53Bridge = FlyGymBridge()
+    _ = v53Bridge.beginConnectionForTesting()
+    _ = v53Bridge.dequeueLaneForTesting(at: Date()) // drain Swift hello
+    _ = v53Bridge.receiveLineForTesting(Data(v5Hello.utf8))
+    let v53Viewer = WorldViewer(frame: NSRect(x: 0, y: 0, width: 640, height: 360))
+    var v53PickCallbacks = 0
+    v53Viewer.onPickRay = { ray in
+        v53PickCallbacks += 1
+        guard let source = v53Viewer.currentSnapshotSource else { return }
+        _ = v53Bridge.sendRayPick(rayOriginMM: ray.originMM,
+                                  rayDirection: ray.direction,
+                                  sourceSnapshotSeq: source.snapshotSeq,
+                                  sourceWorldRevision: source.worldRevision,
+                                  sourceSimTick: source.simTick)
+    }
+    // Reset before any backend snapshot must not consume the one-shot initial
+    // authoritative framing gate.
+    v53Viewer.resetObservationCamera()
+    if let snapshotParsed { v53Viewer.apply(snapshot: snapshotParsed) }
+    let v53SharedBefore = v52State
+    let v53InitialCamera = v53Viewer.cameraState
+    let expectedInitialCenter = [6.5, 2.35, 0.5]
+    let initialFrameOK = zip(v53InitialCamera.targetScene, expectedInitialCenter)
+        .allSatisfy { abs($0 - $1) < 1e-5 }
+    v53Viewer.rotateObservationCamera(deltaX: 24, deltaY: -9)
+    v53Viewer.panObservationCamera(deltaX: 12, deltaY: 6)
+    v53Viewer.zoomObservationCamera(delta: -3)
+    let v53OrbitChanged = v53Viewer.cameraState != v53InitialCamera
+    v53Viewer.setObservationCameraMode(.followFly)
+    let followBeforePan = v53Viewer.cameraState
+    v53Viewer.panObservationCamera(deltaX: 99, deltaY: 99)
+    let followPanNoOp = v53Viewer.cameraState == followBeforePan
+    v53Viewer.rotateObservationCamera(deltaX: -11, deltaY: 4)
+    v53Viewer.zoomObservationCamera(delta: 2)
+    v53Viewer.setObservationCameraMode(.free)
+    let freeStart = v53Viewer.cameraState
+    let expectedFreePosition = zip(freeStart.targetScene, freeStart.forwardVector).map {
+        $0.0 - $0.1 * freeStart.distance
+    }
+    let freeContinuity = zip(freeStart.freePositionScene, expectedFreePosition)
+        .allSatisfy { abs($0 - $1) < 1e-3 }
+    let freeZoomForward = freeStart.forwardVector
+    v53Viewer.zoomObservationCamera(delta: 4)
+    let freeAfterPositiveZoom = v53Viewer.cameraState
+    let freePositiveZoomProjection = zip(zip(freeAfterPositiveZoom.freePositionScene,
+                                             freeStart.freePositionScene), freeZoomForward)
+        .reduce(0.0) { partial, pair in
+            partial + (pair.0.0 - pair.0.1) * pair.1
+        }
+    var orbitZoomProbe = WorldViewerCameraState()
+    let orbitDistanceBeforePositiveZoom = orbitZoomProbe.distance
+    orbitZoomProbe.zoom(delta: 4)
+    let scrollDirectionConsistent = orbitZoomProbe.distance > orbitDistanceBeforePositiveZoom
+        && freePositiveZoomProjection < 0
+    v53Viewer.rotateObservationCamera(deltaX: 7, deltaY: 3)
+    v53Viewer.panObservationCamera(deltaX: 5, deltaY: -2)
+    v53Viewer.resetObservationCamera()
+    check("V5.3 first snapshot frames authoritative scene",
+          initialFrameOK && v53Viewer.currentSnapshotSource?.snapshotSeq == 2)
+    check("V5.3 orbit/follow/free camera inputs are presentation-only",
+          v53OrbitChanged && followPanNoOp && freeContinuity
+          && scrollDirectionConsistent
+          && v53PickCallbacks == 0 && v53Bridge.pendingDepth() == 0
+          && v53Bridge.pendingLabDepth() == 0 && v52State == v53SharedBefore)
 
     // sensory map: standing contact is not gait; fresh real body is authoritative;
     // stale/missing real body falls back to the desktop procedural fly.

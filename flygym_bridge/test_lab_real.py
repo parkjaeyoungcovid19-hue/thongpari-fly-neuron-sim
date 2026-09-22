@@ -10,6 +10,7 @@ import copy
 import math
 import os
 import sys
+from unittest import mock
 
 import numpy as np
 
@@ -382,6 +383,39 @@ try:
           cpg_step_count[0] == expected_cpg_steps,
           f"cpg_steps={cpg_step_count[0]} physics_steps={expected_cpg_steps} "
           f"action_stride={body.controller_action_stride}")
+
+    # V5.3 raw-eye provenance: only a successful actual FlyGym stereo render
+    # advances eye_sample_sim_tick. Later body packets may carry decayed vision
+    # values but must keep the exact last raw-frame tick.
+    body.vision_elapsed = body.vision_period
+    body.eye_sample_sim_tick = None
+    eye_sample_obs = body.step(LocomotorCommand(forward=0.0), 1.0 / 60.0)
+    first_eye_tick = eye_sample_obs.eye_sample_sim_tick
+    check("V5.3 actual eye render carries exact protocol simulation tick",
+          first_eye_tick == int(round(eye_sample_obs.t * 1000.0)),
+          f"eye_tick={first_eye_tick} body_t={eye_sample_obs.t}")
+    body.vision_elapsed = 0.0
+    held_eye_obs = body.step(LocomotorCommand(forward=0.0), 1.0 / 60.0)
+    check("V5.3 body packet holds raw-eye sample tick between renders",
+          held_eye_obs.eye_sample_sim_tick == first_eye_tick
+          and body.vision_elapsed < body.vision_period,
+          f"eye_tick={held_eye_obs.eye_sample_sim_tick} elapsed={body.vision_elapsed:.6f}")
+
+    # A failed scheduled render must not claim the current body tick as a new raw
+    # frame. Keep provenance pointed at the last successful sample instead.
+    body.vision_elapsed = body.vision_period
+    with mock.patch.object(body.sim, "get_raw_vision",
+                           side_effect=RuntimeError("forced V5.3 eye render failure")):
+        failed_eye_obs = body.step(LocomotorCommand(forward=0.0), 1.0 / 60.0)
+    check("V5.3 failed eye render preserves last successful sample tick",
+          failed_eye_obs.eye_sample_sim_tick == first_eye_tick
+          and failed_eye_obs.eye_sample_sim_tick != int(round(failed_eye_obs.t * 1000.0)),
+          f"eye_tick={failed_eye_obs.eye_sample_sim_tick} body_t={failed_eye_obs.t}")
+
+    body.reset_body()
+    check("V5.3 reset clears raw-eye sample provenance",
+          body.eye_sample_sim_tick is None,
+          f"eye_tick={body.eye_sample_sim_tick}")
 
     # Approach motion and vision cadence must share actual MuJoCo simulation time
     # even when the caller/wall interval is much larger than the capped sim chunk.

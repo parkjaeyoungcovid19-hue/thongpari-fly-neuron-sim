@@ -551,6 +551,10 @@ struct LabTelemetry {
     var bodyOccupancyR: Double = 0
     var bodyOpticExpansionL: Double = 0
     var bodyOpticExpansionR: Double = 0
+    /// Protocol-ms simulation tick of the latest successful raw FlyGym stereo-eye
+    /// render. -1 means no rendered sample yet. This is provenance for the raw
+    /// frame, not a claim that every decayed/modeled vision scalar has this age.
+    var bodyEyeSampleSimTick: Int = -1
     var bodyFlashL: Double = 0
     var bodyFlashR: Double = 0
     var bodyOdorL: Double = 0
@@ -629,6 +633,7 @@ extension LabTelemetry {
             bodyBrightnessL = 0; bodyBrightnessR = 0
             bodyOccupancyL = 0; bodyOccupancyR = 0
             bodyOpticExpansionL = 0; bodyOpticExpansionR = 0
+            bodyEyeSampleSimTick = -1
             bodyFlashL = 0; bodyFlashR = 0
             bodyOdorL = 0; bodyOdorR = 0
             bodyNearestFoodDistanceMm = -1
@@ -644,6 +649,7 @@ extension LabTelemetry {
         bodyBrightnessL = fb.brightnessLeft; bodyBrightnessR = fb.brightnessRight
         bodyOccupancyL = fb.occupancyLeft; bodyOccupancyR = fb.occupancyRight
         bodyOpticExpansionL = fb.opticExpansionLeft; bodyOpticExpansionR = fb.opticExpansionRight
+        bodyEyeSampleSimTick = fb.eyeSampleSimTick ?? -1
         bodyFlashL = fb.flashLeft; bodyFlashR = fb.flashRight
         bodyOdorL = fb.odorLeft; bodyOdorR = fb.odorRight
         bodyNearestFoodDistanceMm = fb.nearestFoodDistanceMm ?? -1
@@ -662,7 +668,7 @@ extension LabTelemetry {
         bodyConnectionGeneration = fb.connectionGeneration
     }
 
-    static let csvHeader = "wall_time,sim_ms,pop_hz,loom_hz,dna_l_hz,dna_r_hz,mdn_hz,dnp09_hz,dng11_hz,escw_hz,loom_l,loom_r,air_puff,gait_drive,odor_drive_l,odor_drive_r,thermo_warm_drive,thermo_cool_drive,wind_c_drive,wind_e_drive,temp_c,body_vx,body_yaw_rate,body_contact_mean,body_loom_l,body_loom_r,brightness_l,brightness_r,occupancy_l,occupancy_r,optic_expansion_l,optic_expansion_r,flash_l,flash_r,odor_l,odor_r,nearest_food_mm,fly_state,body_sim_s,body_sim_dt,body_wall_dt,body_sim_wall_ratio,body_packet_age_s,body_generation,receptor_odor_l_hz,receptor_odor_r_hz,receptor_warm_hz,receptor_cool_hz,receptor_wind_c_hz,receptor_wind_e_hz,brain_signals_available,brain_walk,brain_turn,brain_escape,brain_backward,brain_groom,brain_wing,brain_arousal,brain_tempo,brain_sleep,brain_nervous,controller_left,controller_right,body_wind_strength,body_wind_direction_deg,body_wind_sensory,body_touch_strength,body_touch_sensory,session_id,session_epoch,session_sim_tick,session_mode,session_phase,session_paused,body_result_tick\n"
+    static let csvHeader = "wall_time,sim_ms,pop_hz,loom_hz,dna_l_hz,dna_r_hz,mdn_hz,dnp09_hz,dng11_hz,escw_hz,loom_l,loom_r,air_puff,gait_drive,odor_drive_l,odor_drive_r,thermo_warm_drive,thermo_cool_drive,wind_c_drive,wind_e_drive,temp_c,body_vx,body_yaw_rate,body_contact_mean,body_loom_l,body_loom_r,brightness_l,brightness_r,occupancy_l,occupancy_r,optic_expansion_l,optic_expansion_r,flash_l,flash_r,odor_l,odor_r,nearest_food_mm,fly_state,body_sim_s,body_sim_dt,body_wall_dt,body_sim_wall_ratio,body_packet_age_s,body_generation,body_eye_sample_sim_tick,receptor_odor_l_hz,receptor_odor_r_hz,receptor_warm_hz,receptor_cool_hz,receptor_wind_c_hz,receptor_wind_e_hz,brain_signals_available,brain_walk,brain_turn,brain_escape,brain_backward,brain_groom,brain_wing,brain_arousal,brain_tempo,brain_sleep,brain_nervous,controller_left,controller_right,body_wind_strength,body_wind_direction_deg,body_wind_sensory,body_touch_strength,body_touch_sensory,session_id,session_epoch,session_sim_tick,session_mode,session_phase,session_paused,body_result_tick\n"
 
     var csvLine: String {
         let safeState = flyState.replacingOccurrences(of: ",", with: "_")
@@ -678,6 +684,7 @@ extension LabTelemetry {
                           bodyOdorL, bodyOdorR, bodyNearestFoodDistanceMm,
                           safeState, bodySimTime, bodySimDt, bodyWallDt, bodySimWallRatio,
                           bodyPacketAgeS, bodyConnectionGeneration)
+        let eyeProvenance = ",\(bodyEyeSampleSimTick)"
         let diagnostic = String(format: ",%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%d,%.5f,%.5f,%d,%d,%.5f,%.5f,%.5f,%.5f,%d,%.5f,%.5f,%.5f,%.5f,%.5f,%d,%.5f,%d",
                                 rateFoodOdorL, rateFoodOdorR, rateThermoWarm, rateThermoCool,
                                 rateWindC, rateWindE, brainSignalsAvailable ? 1 : 0,
@@ -691,7 +698,7 @@ extension LabTelemetry {
         let safeMode = sessionMode.replacingOccurrences(of: ",", with: "_")
         let safePhase = sessionPhase.replacingOccurrences(of: ",", with: "_")
         let session = ",\(safeSession),\(sessionEpoch),\(sessionSimTick),\(safeMode),\(safePhase),\(sessionPaused ? 1 : 0),\(bodyResultTick)\n"
-        return base + diagnostic + session
+        return base + eyeProvenance + diagnostic + session
     }
 }
 
@@ -897,7 +904,7 @@ func runLabTest() {
           && !decodedTelemetry.brainEscape && !decodedTelemetry.brainBackward
           && decodedTelemetry.brainTempo == 1 && !decodedTelemetry.brainSleep)
 
-    let telemetryBodyLine = #"{"type":"body","t":2.5,"sim_dt":0.003,"wall_dt":0.030,"sim_wall_ratio":0.1,"controller_left":0.22,"controller_right":0.44,"wind_strength":0.7,"wind_direction_deg":45,"wind_sensory":true,"touch_strength":0.55,"touch_sensory":true,"vx":0.004,"yaw_rate":0.2,"contacts":[1,1,1,1,1,1],"odor_left":0.3,"odor_right":0.4}"#
+    let telemetryBodyLine = #"{"type":"body","t":2.5,"sim_dt":0.003,"wall_dt":0.030,"sim_wall_ratio":0.1,"controller_left":0.22,"controller_right":0.44,"wind_strength":0.7,"wind_direction_deg":45,"wind_sensory":true,"touch_strength":0.55,"touch_sensory":true,"vx":0.004,"yaw_rate":0.2,"contacts":[1,1,1,1,1,1],"eye_sample_sim_tick":2300,"odor_left":0.3,"odor_right":0.4}"#
     if let bodyPacket = parseBodyLine(Data(telemetryBodyLine.utf8)) {
         let now = Date()
         var feedback = FlyGymBodyFeedback(bodyPacket)
@@ -917,6 +924,7 @@ func runLabTest() {
               && bodyTelemetry.bodyWindSensory
               && abs(bodyTelemetry.bodyTouchStrength - 0.55) < 1e-9
               && bodyTelemetry.bodyTouchSensory
+              && bodyTelemetry.bodyEyeSampleSimTick == 2300
               && abs(bodyTelemetry.bodyPacketAgeS - 0.125) < 1e-6
               && bodyTelemetry.bodyConnectionGeneration == 9)
         check("body timing columns recorded",
@@ -927,6 +935,8 @@ func runLabTest() {
               && LabTelemetry.csvHeader.contains("controller_right")
               && LabTelemetry.csvHeader.contains("body_wind_strength")
               && LabTelemetry.csvHeader.contains("body_touch_strength")
+              && LabTelemetry.csvHeader.contains("body_generation,body_eye_sample_sim_tick,receptor_odor_l_hz")
+              && bodyTelemetry.csvLine.contains(",9,2300,")
               && bodyTelemetry.csvLine.contains(",2.500000,0.003000,0.030000,0.100000,"))
     } else {
         check("body timing reaches lab telemetry", false, "body packet did not parse")

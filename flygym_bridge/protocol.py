@@ -217,6 +217,7 @@ class BodyPacket:
     occupancy_right: float = 0.0
     optic_expansion_left: float = 0.0
     optic_expansion_right: float = 0.0
+    eye_sample_sim_tick: int | None = None
     flash_left: float = 0.0
     flash_right: float = 0.0
     odor_left: float = 0.0
@@ -263,6 +264,11 @@ class BodyPacket:
         p.occupancy_right = clamp(d.get("occupancy_right", 0.0), 0.0, 1.0)
         p.optic_expansion_left = clamp(d.get("optic_expansion_left", 0.0), 0.0, 1.0)
         p.optic_expansion_right = clamp(d.get("optic_expansion_right", 0.0), 0.0, 1.0)
+        if "eye_sample_sim_tick" in d and d.get("eye_sample_sim_tick") is not None:
+            p.eye_sample_sim_tick = _strict_required_int(
+                d, "eye_sample_sim_tick", 0, 10**15)
+        else:
+            p.eye_sample_sim_tick = None
         p.flash_left = clamp(d.get("flash_left", 0.0), 0.0, 1.0)
         p.flash_right = clamp(d.get("flash_right", 0.0), 0.0, 1.0)
         p.odor_left = clamp(d.get("odor_left", 0.0), 0.0, 1.0)
@@ -302,6 +308,8 @@ class BodyPacket:
              "heading_rad": self.heading_rad, "bearing": self.bearing}
         if self.nearest_food_distance_mm is not None:
             d["nearest_food_distance_mm"] = self.nearest_food_distance_mm
+        if self.eye_sample_sim_tick is not None:
+            d["eye_sample_sim_tick"] = int(self.eye_sample_sim_tick)
         if self.gait_phase is not None:
             d["gait_phase"] = self.gait_phase
         return d

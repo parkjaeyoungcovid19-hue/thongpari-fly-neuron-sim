@@ -15,6 +15,64 @@ struct WorldViewerSnapshotSource: Equatable {
     let simTick: Int
 }
 
+enum WorldViewerCameraMode: String, CaseIterable {
+    case orbit
+    case followFly
+    case free
+
+    var title: String {
+        switch self {
+        case .orbit: return "Orbit"
+        case .followFly: return "Follow fly"
+        case .free: return "Free"
+        }
+    }
+}
+
+struct WorldViewerCameraState: Equatable {
+    var mode: WorldViewerCameraMode = .orbit
+    var yaw: Double = Double.pi * 0.25
+    var pitch: Double = 0.52
+    var distance: Double = 190
+    var targetScene: [Double] = [0, 0, 0]
+    var freePositionScene: [Double] = [120, 110, 150]
+
+    mutating func rotate(deltaX: Double, deltaY: Double) {
+        yaw -= deltaX * 0.008
+        pitch = min(1.35, max(-1.20, pitch + deltaY * 0.008))
+    }
+
+    mutating func zoom(delta: Double) {
+        if mode == .free {
+            let forward = forwardVector
+            let scale = max(1.0, distance * 0.018)
+            // Match Orbit/Follow scroll semantics: positive delta zooms/dollies
+            // out, negative delta zooms/dollies in toward the look direction.
+            for i in 0..<3 { freePositionScene[i] -= forward[i] * delta * scale }
+        } else {
+            distance = min(3000, max(8, distance * exp(delta * 0.035)))
+        }
+    }
+
+    mutating func pan(deltaX: Double, deltaY: Double) {
+        let right = [cos(yaw), 0.0, -sin(yaw)]
+        let up = [0.0, 1.0, 0.0]
+        let scale = max(0.08, distance * 0.0025)
+        let dx = -deltaX * scale
+        let dy = deltaY * scale
+        if mode == .free {
+            for i in 0..<3 { freePositionScene[i] += right[i] * dx + up[i] * dy }
+        } else {
+            for i in 0..<3 { targetScene[i] += right[i] * dx + up[i] * dy }
+        }
+    }
+
+    var forwardVector: [Double] {
+        let cp = cos(pitch)
+        return [-sin(yaw) * cp, -sin(pitch), -cos(yaw) * cp]
+    }
+}
+
 enum WorldViewerPickDisposition: Equatable {
     case ignore
     case showError
@@ -100,6 +158,12 @@ final class WorldViewer: SCNView {
     private(set) var currentSnapshotSource: WorldViewerSnapshotSource?
     private var selectedNode: SCNNode?
     private var selectedOriginalEmission: Any?
+    private(set) var cameraState = WorldViewerCameraState()
+    private var lastRightDragPoint: NSPoint?
+    private var lastSceneCenter = SCNVector3Zero
+    private var lastSceneExtent: CGFloat = 80
+    private var lastFlyScenePosition: SCNVector3?
+    private var needsInitialCameraFrame = true
 
     override init(frame frameRect: NSRect, options: [String: Any]? = nil) {
         super.init(frame: frameRect, options: options)
@@ -134,7 +198,11 @@ final class WorldViewer: SCNView {
         camera.zFar = 5000
         cameraNode.camera = camera
         worldScene.rootNode.addChildNode(cameraNode)
-        pointCamera(target: SCNVector3(0, 0, 0), extent: 80)
+        resetObservationCamera()
+        // The static shell has no authoritative extent yet. The first backend
+        // snapshot must still frame the actual fly/world rather than preserving
+        // this placeholder origin camera.
+        needsInitialCameraFrame = true
         pointOfView = cameraNode
 
         let key = SCNLight()
@@ -153,15 +221,96 @@ final class WorldViewer: SCNView {
         worldScene.rootNode.addChildNode(ambientNode)
     }
 
-    private func pointCamera(target: SCNVector3, extent: CGFloat) {
-        let distance: CGFloat = max(45, extent * 2.4)
-        let px = target.x + distance
-        let py = target.y + distance * 0.90
-        let pz = target.z + distance * 1.25
-        cameraNode.position = SCNVector3(px, py, pz)
+    private func cameraTargetForCurrentMode() -> SCNVector3 {
+        if cameraState.mode == .followFly, let lastFlyScenePosition {
+            return lastFlyScenePosition
+        }
+        return SCNVector3(Float(cameraState.targetScene[0]),
+                          Float(cameraState.targetScene[1]),
+                          Float(cameraState.targetScene[2]))
+    }
+
+    private func applyCameraState() {
+        let target = cameraTargetForCurrentMode()
+        if cameraState.mode == .free {
+            let p = cameraState.freePositionScene
+            cameraNode.position = SCNVector3(Float(p[0]), Float(p[1]), Float(p[2]))
+            let f = cameraState.forwardVector
+            let fx = CGFloat(f[0])
+            let fy = CGFloat(f[1])
+            let fz = CGFloat(f[2])
+            let look = SCNVector3(cameraNode.position.x + fx,
+                                  cameraNode.position.y + fy,
+                                  cameraNode.position.z + fz)
+            cameraNode.look(at: look,
+                            up: SCNVector3(0, 1, 0),
+                            localFront: SCNVector3(0, 0, -1))
+            return
+        }
+
+        let distance = cameraState.distance
+        let forward = cameraState.forwardVector
+        cameraNode.position = SCNVector3(Float(Double(target.x) - forward[0] * distance),
+                                         Float(Double(target.y) - forward[1] * distance),
+                                         Float(Double(target.z) - forward[2] * distance))
         cameraNode.look(at: target,
                         up: SCNVector3(0, 1, 0),
                         localFront: SCNVector3(0, 0, -1))
+    }
+
+    func setObservationCameraMode(_ mode: WorldViewerCameraMode) {
+        if mode == cameraState.mode { return }
+        if mode == .free {
+            let target = cameraTargetForCurrentMode()
+            cameraState.targetScene = [Double(target.x), Double(target.y), Double(target.z)]
+            cameraState.freePositionScene = [Double(cameraNode.position.x),
+                                             Double(cameraNode.position.y),
+                                             Double(cameraNode.position.z)]
+        } else if cameraState.mode == .free {
+            cameraState.targetScene = [Double(lastSceneCenter.x),
+                                       Double(lastSceneCenter.y),
+                                       Double(lastSceneCenter.z)]
+        }
+        cameraState.mode = mode
+        applyCameraState()
+    }
+
+    func resetObservationCamera() {
+        cameraState.yaw = Double.pi * 0.25
+        cameraState.pitch = 0.52
+        cameraState.distance = max(45, Double(lastSceneExtent) * 2.4)
+        cameraState.targetScene = [Double(lastSceneCenter.x),
+                                   Double(lastSceneCenter.y),
+                                   Double(lastSceneCenter.z)]
+        let target = cameraTargetForCurrentMode()
+        let forward = cameraState.forwardVector
+        cameraState.freePositionScene = [Double(target.x) - forward[0] * cameraState.distance,
+                                         Double(target.y) - forward[1] * cameraState.distance,
+                                         Double(target.z) - forward[2] * cameraState.distance]
+        applyCameraState()
+        // A user may press Reset before the first backend snapshot or while a
+        // session identity transition has cleared the scene. Keep the initial
+        // authoritative reframe armed until a real snapshot is being applied.
+        needsInitialCameraFrame = (currentSnapshotSource == nil)
+    }
+
+    func rotateObservationCamera(deltaX: Double, deltaY: Double) {
+        cameraState.rotate(deltaX: deltaX, deltaY: deltaY)
+        applyCameraState()
+    }
+
+    func panObservationCamera(deltaX: Double, deltaY: Double) {
+        // Follow mode's target is the authoritative fly pose; allowing a hidden
+        // presentation offset here would make "follow" ambiguous. Switch to
+        // Orbit or Free when a panned target is desired.
+        guard cameraState.mode != .followFly else { return }
+        cameraState.pan(deltaX: deltaX, deltaY: deltaY)
+        applyCameraState()
+    }
+
+    func zoomObservationCamera(delta: Double) {
+        cameraState.zoom(delta: delta)
+        applyCameraState()
     }
 
     private func material(for shape: String, collidable: Bool = true) -> SCNMaterial {
@@ -259,6 +408,7 @@ final class WorldViewer: SCNView {
         f.name = fly.id
         f.position = WorldViewerCoordinates.sceneVector(fly.positionMM)
         f.orientation = WorldViewerCoordinates.sceneQuaternion(fly.orientationQuatXYZW)
+        lastFlyScenePosition = f.position
 
         if let player = snapshot.player {
             let p = ensurePlayerNode()
@@ -292,7 +442,13 @@ final class WorldViewer: SCNView {
             let yExtent = abs(p.y - center.y) + size
             maxExtent = max(maxExtent, max(xExtent, max(zExtent, yExtent)))
         }
-        pointCamera(target: center, extent: maxExtent)
+        lastSceneCenter = center
+        lastSceneExtent = maxExtent
+        if needsInitialCameraFrame {
+            resetObservationCamera()
+        } else if cameraState.mode == .followFly {
+            applyCameraState()
+        }
     }
 
     private func clearSelection() {
@@ -316,6 +472,10 @@ final class WorldViewer: SCNView {
         playerNode?.removeFromParentNode()
         playerNode = nil
         currentSnapshotSource = nil
+        lastFlyScenePosition = nil
+        lastSceneCenter = SCNVector3Zero
+        lastSceneExtent = 80
+        needsInitialCameraFrame = true
     }
 
     func apply(pickResult: RayPickResult) {
@@ -343,5 +503,34 @@ final class WorldViewer: SCNView {
         onPickRay?(WorldViewerRay(
             originMM: WorldViewerCoordinates.mujocoComponents(fromScene: sceneOrigin),
             direction: WorldViewerCoordinates.mujocoComponents(fromScene: sceneDirection)))
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        lastRightDragPoint = convert(event.locationInWindow, from: nil)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        guard let last = lastRightDragPoint else {
+            lastRightDragPoint = p
+            return
+        }
+        let dx = Double(p.x - last.x)
+        let dy = Double(p.y - last.y)
+        lastRightDragPoint = p
+        if event.modifierFlags.contains(.shift) {
+            panObservationCamera(deltaX: dx, deltaY: dy)
+        } else {
+            rotateObservationCamera(deltaX: dx, deltaY: dy)
+        }
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        lastRightDragPoint = nil
+    }
+
+    override func scrollWheel(with event: NSEvent) {
+        zoomObservationCamera(delta: Double(event.scrollingDeltaY))
     }
 }

@@ -9,7 +9,7 @@
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-111111?style=flat-square">
   <img alt="Swift" src="https://img.shields.io/badge/frontend-Swift%20%2B%20Metal-F05138?style=flat-square">
   <img alt="FlyGym" src="https://img.shields.io/badge/body-FlyGym%202.1%20%2B%20MuJoCo-5C7CFA?style=flat-square">
-  <img alt="status" src="https://img.shields.io/badge/V4-deterministic%20session%20complete-2E8B57?style=flat-square">
+  <img alt="status" src="https://img.shields.io/badge/V5.5-participant%20input%20verified-2E8B57?style=flat-square">
 </p>
 
 <p align="center">
@@ -24,7 +24,21 @@
 
 **Thongpari Fly Neuron Sim** turns the original SiliconFly desktop fly into an interactive **virtual fly lab**. The brain side runs the shipped FlyWire v783 connectome as a 139,255-neuron spiking network on the GPU. The body side runs a real NeuroMechFly v2 model in FlyGym / MuJoCo. A bidirectional bridge connects neural outputs to locomotion and sends measured body, vision, contact and environmental state back into the neural simulation.
 
-The goal is not to fake convincing animal behavior. The V2 feature set is preserved in V3 so that you can see where a response came from: **source → modeled sensor → receptor activity → brain output → controller → measured motion**. V3 stabilizes that loop and extracts the first explicit sensory/motor module boundaries without changing the model equations.
+The goal is not to fake convincing animal behavior. The V2 feature set is preserved through the later architecture so that you can see where a response came from: **source → modeled sensor → receptor activity → brain output → controller → measured motion**. V3 stabilized that loop, V4 added deterministic session/tick ownership, and V5 is building a participant-facing 3D lab on top of the same authoritative backend.
+
+### Current V5 status
+
+V5.1–V5.5 are now implemented in the repository. The current V5.5 milestone adds a backend-owned participant body and deterministic player input without moving authority into the Swift renderer:
+
+- **V5.1** — read-only SceneKit 3D viewport driven by atomic backend snapshots, plus authoritative ray picking;
+- **V5.2** — shared Observe / Participate screen state and common selection/session state;
+- **V5.3** — orbit/follow/free presentation cameras plus eye-render simulation-tick provenance;
+- **V5.4** — a real free-joint participant body compiled into the same MuJoCo world as the fly and LabObjects, including real collision and rendered-eye visibility;
+- **V5.5** — WASD movement, mouse look, E held-action state and Esc safety release, with focus-safe capture, persistent key remapping, strict Swift/Python PlayerInput wire validation, deterministic requested-tick scheduling, replay/idempotency protection and disconnect neutralization.
+
+V5.5 movement is integrated from **simulation time**, not render FPS or key-repeat rate. Mouse-look deltas are accumulated exactly once; if coalescing exceeds the per-packet bound they are split into valid packets rather than clipped. Esc, focus loss, mode exit, capability loss and reconnect discard stale held state and any unsent look remainder before a neutral packet is sent.
+
+**Next milestone: V5.6 — authoritative grab / place interaction.** V5.5 carries E only as the held `interact` action contract; grab/place is intentionally not implemented yet.
 
 ---
 
@@ -189,6 +203,46 @@ Telemetry includes neural rates, modeled sensory drive, receptor EMA spike rates
 
 ## Validation status
 
+### V5.5 participant input status — 2026-09-22
+
+V5.5 is **automated + real-backend verified** in commit `f6c4c92` (`Implement Virtual Fly Lab V5.5 player input`). The implementation keeps player pose and motion authoritative in Python/MuJoCo while Swift supplies bounded, session-stamped input intent.
+
+Key verified properties:
+
+- strict PlayerInput / PlayerInputResult schema symmetry across Swift and Python, including bounded `seq`, `requested_tick`, `applied_tick`, status/error presence rules and capability gating;
+- deterministic `requested_tick` ordering relative to experiment steps and LabCommands;
+- pre-Begin / pre-reset input cannot become valid retroactively;
+- pause/resume ordering distinguishes input received before, during and after the barrier;
+- replay remains idempotent after the bounded ACK cache is evicted and across passive transport reconnects;
+- disconnect drops transport-owned deferred input and queued participant activation;
+- WASD/E held state is latest-wins while mouse-look deltas are accumulated exactly once and split losslessly above the per-packet bound;
+- Esc, focus loss, mode exit, capability loss, key remapping and reconnect send/leave a neutral state and discard pending mouse-look/remainder;
+- text fields and controls suppress movement capture, Participate requires an explicit click into the 3D view, and ordinary AppKit `mouseMoved` delivery is enabled;
+- real participant motion uses the free-joint `qpos` as the authoritative same-boundary base, avoiding stale derived-pose jumps;
+- the participant collides with generic LabObjects and the fly in real MuJoCo and remains visible in the real FlyGym eye render.
+
+Fresh validation on the development Apple M2 Mac:
+
+```sh
+./build.sh
+./ThongpariFlyNeuronSim --bridgetest
+./ThongpariFlyNeuronSim --labtest
+./ThongpariFlyNeuronSim --v4test
+./ThongpariFlyNeuronSim --v4timingtest
+./ThongpariFlyNeuronSim --simtest
+./ThongpariFlyNeuronSim --behaviortest
+./ThongpariFlyNeuronSim --gpucheck
+
+./flygym-venv/bin/python flygym_bridge/test_v4.py
+./flygym-venv/bin/python flygym_bridge/test_v5.py
+NUMBA_DISABLE_JIT=1 ./flygym-venv/bin/python flygym_bridge/test_lab_real.py
+./flygym-venv/bin/python flygym_bridge/test_vision_real.py
+```
+
+All of the above passed in the final V5.5 verification pass. The real-body regression measured **0.600000 mm of participant travel over a 20 ms simulation quantum**, exactly matching the configured 30 mm/s movement speed. Same-boundary activation + input began from the 24.0 mm free-joint spawn and ended at 24.6 mm, proving the movement base is authoritative `qpos` rather than stale `xpos`.
+
+The remaining V5 acceptance item is a fresh manual integrated GUI click-through/performance check. That is separate from the automated + real-backend verification above and does not include V5.6 grab/place.
+
 ### V4 deterministic session status — 2026-09-13
 
 V4 is **complete in the current local working tree**. The final acceptance pass exercised the full Swift/Python regression suite, mock and real-headless V4 TCP lockstep, real MuJoCo and rendered-eye tests, and a fresh real Viewer + GUI process. Deterministic mode uses 1 ms neural ticks and exact 20 ms brain/body quanta; the installed real FlyGym backend declared a 0.1 ms physics timestep, giving exactly 200 native MuJoCo substeps per quantum.
@@ -266,12 +320,14 @@ The project is therefore best used for **controlled comparisons inside the same 
 ├── FlyGymBridge.swift             Swift TCP bridge and body feedback
 ├── LabWindow.swift                Virtual Fly Lab UI
 ├── LabProtocol.swift              lab state / telemetry / tests
+├── PlayerController.swift         V5.5 WASD / mouse-look / focus / remap state
 ├── ExperimentRecorder.swift       events + CSV recording
 ├── SensoryModel.swift             modeled source → receptor-drive boundary
 ├── MotorReadout.swift             neural population rate → BrainSignals boundary
 ├── flygym_bridge/
 │   ├── bridge.py                  Python server
 │   ├── fly_body.py                mock + real FlyGym body
+│   ├── player_body.py             V5.4/V5.5 participant physics + movement
 │   ├── lab_world.py               world / stimuli / source state
 │   ├── vision_decoder.py          rendered-eye decoder
 │   └── test_*.py                  Python regression suite
@@ -284,7 +340,7 @@ The project is therefore best used for **controlled comparisons inside the same 
 └── flygym_bridge/README.md         bridge internals and protocol notes
 ```
 
-For detailed controls and exact preset values, see **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. The **[V4–V14 sequential roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** and detailed per-version plans define the participant Viewer, environment editing, neural interpretation and external I/O extension path. V4 is complete; V5 is the next implementation version and V6–V14 remain planned. Bridge internals and protocol details are in **[flygym_bridge/README.md](flygym_bridge/README.md)**.
+For detailed controls and exact preset values, see **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. The **[V4–V14 sequential roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** and detailed per-version plans define the participant Viewer, environment editing, neural interpretation and external I/O extension path. V4 is complete; V5.1–V5.5 are implemented and V5.6 grab/place is next. V6–V14 remain planned. Bridge internals and protocol details are in **[flygym_bridge/README.md](flygym_bridge/README.md)**.
 
 ---
 

@@ -140,6 +140,10 @@ struct LabViewState: Equatable {
         pendingMode = nil
     }
 
+    var displayedMode: LabViewMode {
+        pendingMode ?? mode
+    }
+
     mutating func selectObject(_ id: String?) {
         let trimmed = id?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         selectedObjectID = trimmed.isEmpty ? nil : trimmed

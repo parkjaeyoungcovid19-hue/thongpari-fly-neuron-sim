@@ -177,6 +177,10 @@ final class WorldViewer: SCNView {
     private var needsInitialCameraFrame = true
     private var playerTrackingArea: NSTrackingArea?
 
+    var cameraScenePositionForTesting: [Double] {
+        [Double(cameraNode.position.x), Double(cameraNode.position.y), Double(cameraNode.position.z)]
+    }
+
     override init(frame frameRect: NSRect, options: [String: Any]? = nil) {
         super.init(frame: frameRect, options: options)
         configureScene()
@@ -575,19 +579,35 @@ final class WorldViewer: SCNView {
     }
 
     override func keyDown(with event: NSEvent) {
-        guard participateInputEnabled else {
-            super.keyDown(with: event)
+        if routePlayerKeyDown(keyCode: event.keyCode, isRepeat: event.isARepeat) {
             return
         }
-        onPlayerKeyDown?(event.keyCode, event.isARepeat)
+        super.keyDown(with: event)
     }
 
     override func keyUp(with event: NSEvent) {
-        guard participateInputEnabled else {
-            super.keyUp(with: event)
+        if routePlayerKeyUp(keyCode: event.keyCode) {
             return
         }
-        onPlayerKeyUp?(event.keyCode)
+        super.keyUp(with: event)
+    }
+
+    @discardableResult
+    func routePlayerKeyDown(keyCode: UInt16, isRepeat: Bool) -> Bool {
+        if participateInputEnabled {
+            onPlayerKeyDown?(keyCode, isRepeat)
+            return true
+        }
+        return participateModeEnabled
+    }
+
+    @discardableResult
+    func routePlayerKeyUp(keyCode: UInt16) -> Bool {
+        if participateInputEnabled {
+            onPlayerKeyUp?(keyCode)
+            return true
+        }
+        return participateModeEnabled
     }
 
     override func resignFirstResponder() -> Bool {

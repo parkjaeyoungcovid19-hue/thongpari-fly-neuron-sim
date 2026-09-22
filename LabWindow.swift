@@ -533,7 +533,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
               viewModeControl.selectedSegment < modes.count else { return }
         let requested = modes[viewModeControl.selectedSegment]
         if participantCommandPending.isPending {
-            viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+            viewModeControl.selectedSegment = modes.firstIndex(of: viewState.displayedMode) ?? 0
             return
         }
         switch requested {
@@ -569,7 +569,11 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 commandID: id,
                 connectionGeneration: bridge?.connectionGeneration ?? 0)
             viewState.beginModeTransition(to: .participate)
-            viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+            playerCaptureArmed = bridge?.playerInputV5_5Available == true
+            if playerCaptureArmed {
+                window?.makeFirstResponder(worldViewer)
+            }
+            viewModeControl.selectedSegment = modes.firstIndex(of: viewState.displayedMode) ?? 0
             worldViewerStatusLabel.stringValue = "3D world — enabling backend participant probe…"
         case .observe:
             if viewState.mode == .participate {
@@ -616,21 +620,27 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         let wantsPlayerInputMode = viewState.mode == .participate
             && viewState.pendingMode == nil && playerInputAvailable
             && viewState.sessionPhase == .running
-        worldViewer.participateModeEnabled = wantsPlayerInputMode
+        let participatePending = viewState.pendingMode == .participate && playerInputAvailable
+        worldViewer.participateModeEnabled = wantsPlayerInputMode || participatePending
         if !wantsPlayerInputMode {
-            let hadCapture = playerController.captureEnabled
-                || playerCaptureArmed || worldViewer.participateInputEnabled
-            if hadCapture {
-                releasePlayerHeldInput(reason: "input capability/mode release")
-            } else {
+            if participatePending && playerCaptureArmed {
                 _ = playerController.setCaptureEnabled(false)
-                playerCaptureArmed = false
                 worldViewer.participateInputEnabled = false
+            } else {
+                let hadCapture = playerController.captureEnabled
+                    || playerCaptureArmed || worldViewer.participateInputEnabled
+                if hadCapture {
+                    releasePlayerHeldInput(reason: "input capability/mode release")
+                } else {
+                    _ = playerController.setCaptureEnabled(false)
+                    playerCaptureArmed = false
+                    worldViewer.participateInputEnabled = false
+                }
             }
         } else {
-            // Never steal an editor/control first responder when the async
-            // Participate snapshot arrives. Capture starts only from an explicit
-            // click in WorldViewer (onPlayerCaptureRequested).
+            // The Participate click itself arms capture and focuses WorldViewer.
+            // If the user moved focus to an editor/control while the backend was
+            // confirming the participant, fail closed rather than stealing it back.
             let focused = playerInputFocusAllowsCapture()
             let shouldCapture = playerCaptureArmed && focused
             if shouldCapture {
@@ -660,12 +670,11 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             playerInputStatusLabel.stringValue = "Participant controls — Observe mode; camera controls remain presentation-only"
             playerInputStatusLabel.textColor = .secondaryLabelColor
         }
-        viewModeControl.selectedSegment = LabViewMode.allCases.firstIndex(of: viewState.mode) ?? 0
+        viewModeControl.selectedSegment = LabViewMode.allCases.firstIndex(of: viewState.displayedMode) ?? 0
         viewStateLabel.stringValue = viewState.commonStatusLine
         viewStateLabel.textColor = viewState.sessionPhase == .failed ? .systemRed : .labelColor
         sessionStatusLabel.stringValue = viewState.sessionStatusLine
         sessionStatusLabel.textColor = viewState.sessionPhase == .failed ? .systemRed : .labelColor
-        viewModeControl.selectedSegment = LabViewMode.allCases.firstIndex(of: viewState.mode) ?? 0
     }
 
     private func playerInputFocusAllowsCapture() -> Bool {
@@ -980,7 +989,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         arenaPlacement.selectedPoint = (d(objectX), d(objectY))
         return page([
             section("3D world — backend snapshot", kind: .physical,
-                    help: "Observe uses the presentation-only Orbit/follow/free camera. In V5.5 Participate, clicking the 3D view captures WASD/mouse/E input for the backend player; Esc releases capture. While captured, camera/pick gestures are suppressed rather than mixed with game input.",
+                    help: "Observe uses the presentation-only Orbit/follow/free camera. Selecting Participate arms WASD/mouse/E input and capture begins only after the backend participant is confirmed. Esc releases capture; click the 3D view to recapture. While captured, camera/pick gestures are suppressed rather than mixed with game input.",
                     views: [
                         row([label("Observation camera"), observationCameraMode,
                              button("Reset camera", #selector(resetObservationCamera))]),

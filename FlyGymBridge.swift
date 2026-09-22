@@ -2062,6 +2062,11 @@ func runBridgeTest() {
           && v52State.phaseBadge == "PAUSED"
           && v52State.commonStatusLine.contains("tick 120 ms · PAUSED")
           && v52State.sessionStatusLine.contains("paused · epoch 3 · tick 120 ms"))
+    var v52PendingDisplay = v52State
+    v52PendingDisplay.beginModeTransition(to: .participate)
+    check("V5.5 pending Participate stays visibly selected without claiming authority",
+          v52PendingDisplay.mode == .observe
+          && v52PendingDisplay.displayedMode == .participate)
 
     let v52PickLine = #"{"type":"ray_pick_result","protocol_version":4,"session_id":"","epoch":0,"seq":90,"sim_tick":41,"world_revision":4,"source_snapshot_seq":2,"source_world_revision":3,"source_sim_tick":40,"ok":true,"hit":true,"target_id":"box_1","target_kind":"lab_object","distance_mm":1.0,"point_mm":[0,0,0],"normal_world":[0,0,1],"geom_id":1}"#
     if let v52Pick = parseRayPickResultLine(Data(v52PickLine.utf8)) {
@@ -2397,12 +2402,20 @@ func runBridgeTest() {
     focusViewer.routeScroll(delta: 9)
     let captureCameraAfter = focusViewer.cameraState
     focusViewer.participateInputEnabled = false
+    var pendingKeyCallbacks = 0
+    focusViewer.onPlayerKeyDown = { _, _ in pendingKeyCallbacks += 1 }
+    let pendingParticipateOwnsKey = focusViewer.routePlayerKeyDown(keyCode: 13, isRepeat: false)
+    focusViewer.participateInputEnabled = true
+    let capturedParticipateOwnsKey = focusViewer.routePlayerKeyDown(keyCode: 13, isRepeat: false)
+    focusViewer.participateInputEnabled = false
     focusViewer.routePointerDelta(deltaX: 5, deltaY: 2, shift: false)
     let releasedCameraChanged = focusViewer.cameraState != captureCameraAfter
     check("V5.5 Participate capture is exclusive from pick/Observe camera gestures",
           participateLookCallbacks == 1
           && captureCameraAfter == captureCameraBefore
           && !focusViewer.pickEnabledForCurrentMode
+          && pendingParticipateOwnsKey && capturedParticipateOwnsKey
+          && pendingKeyCallbacks == 1
           && releasedCameraChanged)
 
     // Reconnect invalidates both pending input/result state and the Coordinator's
@@ -2457,11 +2470,27 @@ func runBridgeTest() {
     let expectedInitialCenter = [6.5, 2.35, 0.5]
     let initialFrameOK = zip(v53InitialCamera.targetScene, expectedInitialCenter)
         .allSatisfy { abs($0 - $1) < 1e-5 }
+    let initialSnapshotSourceOK = v53Viewer.currentSnapshotSource?.snapshotSeq == 2
     v53Viewer.rotateObservationCamera(deltaX: 24, deltaY: -9)
     v53Viewer.panObservationCamera(deltaX: 12, deltaY: 6)
     v53Viewer.zoomObservationCamera(delta: -3)
     let v53OrbitChanged = v53Viewer.cameraState != v53InitialCamera
     v53Viewer.setObservationCameraMode(.followFly)
+    let followCameraBeforeMove = v53Viewer.cameraScenePositionForTesting
+    let movedFollowLine = snapshotLine
+        .replacingOccurrences(of: #""snapshot_seq":2"#, with: #""snapshot_seq":5"#)
+        .replacingOccurrences(of: #""sim_tick":40"#, with: #""sim_tick":60"#)
+        .replacingOccurrences(of: #""position_mm":[1.0,2.0,0.7]"#,
+                              with: #""position_mm":[11.0,7.0,0.7]"#)
+    if let movedFollowSnapshot = parseWorldRenderSnapshotLine(Data(movedFollowLine.utf8)) {
+        v53Viewer.apply(snapshot: movedFollowSnapshot)
+    }
+    let followCameraAfterMove = v53Viewer.cameraScenePositionForTesting
+    let followCameraDelta = zip(followCameraAfterMove, followCameraBeforeMove).map { $0.0 - $0.1 }
+    let expectedFollowDelta = [10.0, 0.0, -5.0]
+    let followTracksFlyMotion = zip(followCameraDelta, expectedFollowDelta)
+        .allSatisfy { abs($0.0 - $0.1) < 1e-4 }
+    check("V5.3 Follow fly tracks authoritative fly motion", followTracksFlyMotion)
     let followBeforePan = v53Viewer.cameraState
     v53Viewer.panObservationCamera(deltaX: 99, deltaY: 99)
     let followPanNoOp = v53Viewer.cameraState == followBeforePan
@@ -2491,9 +2520,9 @@ func runBridgeTest() {
     v53Viewer.panObservationCamera(deltaX: 5, deltaY: -2)
     v53Viewer.resetObservationCamera()
     check("V5.3 first snapshot frames authoritative scene",
-          initialFrameOK && v53Viewer.currentSnapshotSource?.snapshotSeq == 2)
+          initialFrameOK && initialSnapshotSourceOK)
     check("V5.3 orbit/follow/free camera inputs are presentation-only",
-          v53OrbitChanged && followPanNoOp && freeContinuity
+          v53OrbitChanged && followTracksFlyMotion && followPanNoOp && freeContinuity
           && scrollDirectionConsistent
           && v53PickCallbacks == 0 && v53Bridge.pendingDepth() == 0
           && v53Bridge.pendingLabDepth() == 0 && v52State == v53SharedBefore)

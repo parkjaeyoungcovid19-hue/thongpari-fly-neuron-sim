@@ -217,7 +217,7 @@ Key verified properties:
 - disconnect drops transport-owned deferred input and queued participant activation;
 - WASD/E held state is latest-wins while mouse-look deltas are accumulated exactly once and split losslessly above the per-packet bound;
 - Esc, focus loss, mode exit, capability loss, key remapping and reconnect send/leave a neutral state and discard pending mouse-look/remainder;
-- text fields and controls suppress movement capture, Participate requires an explicit click into the 3D view, and ordinary AppKit `mouseMoved` delivery is enabled;
+- text fields and controls suppress movement capture; selecting Participate visibly stays pending until the backend participant snapshot confirms it, then capture begins immediately if the 3D viewer still owns focus. Esc/focus release requires a 3D-view click to recapture, and ordinary AppKit `mouseMoved` delivery is enabled;
 - real participant motion uses the free-joint `qpos` as the authoritative same-boundary base, avoiding stale derived-pose jumps;
 - the participant collides with generic LabObjects and the fly in real MuJoCo and remains visible in the real FlyGym eye render.
 
@@ -241,7 +241,7 @@ NUMBA_DISABLE_JIT=1 ./flygym-venv/bin/python flygym_bridge/test_lab_real.py
 
 All of the above passed in the final V5.5 verification pass. The real-body regression measured **0.600000 mm of participant travel over a 20 ms simulation quantum**, exactly matching the configured 30 mm/s movement speed. Same-boundary activation + input began from the 24.0 mm free-joint spawn and ended at 24.6 mm, proving the movement base is authoritative `qpos` rather than stale `xpos`.
 
-The remaining V5 acceptance item is a fresh manual integrated GUI click-through/performance check. That is separate from the automated + real-backend verification above and does not include V5.6 grab/place.
+A fresh integrated GUI smoke on 2026-09-22 launched the parent `.command` against the real FlyGym backend, switched the live segmented control from Observe to Participate, reached `CAPTURED`, and received an authoritative W-input ACK (`input #2 applied at tick 4365`). The live Observation camera popup also switched from Orbit to Follow fly. Automated camera regression additionally moves the authoritative fly snapshot and verifies that Follow fly translates the camera by the same scene-space delta. Remaining whole-V5 acceptance is limited to broader live focus-loss/disconnect/performance coverage; V5.6 grab/place is still separate.
 
 ### V4 deterministic session status — 2026-09-13
 

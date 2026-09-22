@@ -22,6 +22,10 @@ PLAYER_MASS = 0.00034
 PLAYER_SPAWN_MM = (24.0, 0.0, 2.5)
 PLAYER_FAR_POS = (0.0, 0.0, -500.0)
 PLAYER_RGBA = (0.58, 0.22, 0.86, 1.0)
+# V5.5 movement is simulation-time-owned. A full-scale move axis produces this
+# bounded planar speed regardless of render/input packet frequency.
+PLAYER_MOVE_SPEED_MM_S = 30.0
+PLAYER_MAX_PITCH_DEG = 85.0
 
 
 def _finite_vec3(value, fallback):
@@ -67,6 +71,11 @@ class PlayerBody:
         self.orientation_quat_xyzw = [0.0, 0.0, 0.0, 1.0]
         self.active = False
         self.mode = "inactive"
+        self.input_move_axes = [0.0, 0.0]
+        self.input_held_actions = []
+        self.look_yaw_rad = 0.0
+        self.look_pitch_rad = 0.0
+        self._look_dirty = False
         self._bound = False
         self.model = None
         self.data = None
@@ -175,8 +184,102 @@ class PlayerBody:
             self.mode = str(mode or "participate")[:32]
         else:
             self.mode = "inactive"
+            self.clear_input_state(reset_look=False)
         self._sync()
         return changed, self.render_pose()
+
+    def clear_input_state(self, *, reset_look=False):
+        self.input_move_axes = [0.0, 0.0]
+        self.input_held_actions = []
+        self._look_dirty = False
+        if reset_look:
+            self.look_yaw_rad = 0.0
+            self.look_pitch_rad = 0.0
+
+    def set_input_state(self, *, move_axes, look_delta, held_actions):
+        """Accept one already-validated V5.5 input state on the owner thread.
+
+        move_axes is [forward, right]. look_delta is radians and is
+        discrete: duplicate packet IDs must be filtered by Bridge before this
+        method is called, otherwise yaw/pitch would be applied twice.
+        """
+        if not self.active:
+            raise RuntimeError("participant is not active")
+        if not isinstance(move_axes, (list, tuple)) or len(move_axes) != 2:
+            raise ValueError("move_axes must have length 2")
+        forward = max(-1.0, min(1.0, float(move_axes[0])))
+        right = max(-1.0, min(1.0, float(move_axes[1])))
+        mag = math.hypot(forward, right)
+        if mag > 1.0:
+            forward /= mag
+            right /= mag
+        self.input_move_axes = [forward, right]
+        self.input_held_actions = [str(v) for v in held_actions]
+
+        yaw_delta = float(look_delta[0])
+        pitch_delta = float(look_delta[1])
+        if abs(yaw_delta) > 0.0 or abs(pitch_delta) > 0.0:
+            self.look_yaw_rad = (self.look_yaw_rad + yaw_delta + math.pi) % (2.0 * math.pi) - math.pi
+            max_pitch = math.radians(PLAYER_MAX_PITCH_DEG)
+            self.look_pitch_rad = max(-max_pitch, min(max_pitch, self.look_pitch_rad + pitch_delta))
+            self.orientation_quat_xyzw = self._look_quaternion()
+            self._look_dirty = True
+        return self.input_state()
+
+    def _look_quaternion(self):
+        """Return yaw(Z) * pitch(Y), XYZW, with zero roll."""
+        hy = self.look_yaw_rad * 0.5
+        hp = self.look_pitch_rad * 0.5
+        sy, cy = math.sin(hy), math.cos(hy)
+        sp, cp = math.sin(hp), math.cos(hp)
+        return [-sy * sp, cy * sp, sy * cp, cy * cp]
+
+    def input_motion_pose(self, sim_dt):
+        """Plan one simulation-time movement update without render-FPS coupling."""
+        if not self.active:
+            return None
+        try:
+            dt = float(sim_dt)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(dt) or dt <= 0.0:
+            return None
+        forward, right = self.input_move_axes
+        moving = abs(forward) > 1e-12 or abs(right) > 1e-12
+        if not moving and not self._look_dirty:
+            return None
+        if self._bound:
+            # qpos is the authoritative free-joint owner state. _sync() writes it
+            # immediately on activation/pose changes, whereas xpos is derived and
+            # remains stale until mj_forward/mj_step. Reading xpos here can turn a
+            # same-boundary activate+input from spawn X=24 mm into X=0.6 mm.
+            base = [float(v) for v in self.data.qpos[self.qpos_adr:self.qpos_adr + 3]]
+        else:
+            base = list(self.position_mm)
+        if moving:
+            yaw = self.look_yaw_rad
+            fx, fy = math.cos(yaw), math.sin(yaw)
+            # World +Y is left, so local +right points toward -Y at yaw=0.
+            rx, ry = math.sin(yaw), -math.cos(yaw)
+            distance = PLAYER_MOVE_SPEED_MM_S * dt
+            base[0] += (forward * fx + right * rx) * distance
+            base[1] += (forward * fy + right * ry) * distance
+        return {
+            "position_mm": base,
+            "orientation_quat_xyzw": list(self.orientation_quat_xyzw),
+        }
+
+    def mark_input_pose_applied(self):
+        self._look_dirty = False
+
+    def input_state(self):
+        return {
+            "move_axes": list(self.input_move_axes),
+            "look_yaw_rad": self.look_yaw_rad,
+            "look_pitch_rad": self.look_pitch_rad,
+            "held_actions": list(self.input_held_actions),
+            "move_speed_mm_s": PLAYER_MOVE_SPEED_MM_S,
+        }
 
     def set_pose(self, *, position_mm=None, orientation_quat_xyzw=None, mode=None):
         """Owner-thread pose setter reserved for V5.5 tick-scheduled input."""
@@ -193,6 +296,7 @@ class PlayerBody:
         was_active = self.active if preserve_active else False
         self.position_mm = list(self.spawn_position_mm)
         self.orientation_quat_xyzw = [0.0, 0.0, 0.0, 1.0]
+        self.clear_input_state(reset_look=True)
         self.active = bool(was_active)
         self.mode = "participate" if self.active else "inactive"
         self._sync()

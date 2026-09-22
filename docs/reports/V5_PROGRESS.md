@@ -3,7 +3,7 @@
 Prepared: **2026-09-13** · updated **2026-09-22**
 V4 baseline: `e900b272e1df4131edba51476f0d213a8d166ca1` (`Complete Virtual Fly Lab V4 deterministic sessions`)
 V5 preparation commit: `3faf942` (`Prepare Virtual Fly Lab V5 implementation`)
-Status: **V5.4 AUTOMATED + REAL-BACKEND VERIFIED — a backend-owned participant body now exists in the same MuJoCo/eye world; V5.5 game input is next. Fresh integrated GUI acceptance still remains a separate gate.**
+Status: **V5.5 AUTOMATED + REAL-BACKEND VERIFIED — deterministic participant input, focus safety and key remapping are implemented on the V5.4 MuJoCo body. V5.6 grab/place is next; fresh integrated GUI acceptance still remains a separate gate.**
 
 ## Start gate
 
@@ -28,7 +28,7 @@ These checks confirm the committed V4 scheduling/session baseline before V5 work
 | V5.2 | 공통 화면 상태 소유권 | implemented | `LabViewState.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `build.sh` | build + Swift bridge/lab/V4 PASS; V5.2 state fixtures PASS | common state ownership is implemented; broader fresh GUI acceptance remains part of the V5 integrated UI gate |
 | V5.3 | 관찰 camera + eye sample provenance | automated_verified | `WorldViewer.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `LabProtocol.swift`, `flygym_bridge/{protocol,fly_body,test_bridge,test_lab_real}.py` | build, Swift bridge/lab/V4/timing/sim/behavior/GPU, Python V5/V4/lab/bridge PASS; fresh real lab/vision now PASS under V5.4 verification | integrated GUI acceptance remains separate |
 | V5.4 | 실제 사용자 참여체 | automated_real_verified | `FlyGymBridge.swift`, `LabWindow.swift`, `flygym_bridge/{player_body,lab_world,fly_body,protocol,bridge,test_v5,test_lab_real,test_vision_real}.py` | strict player wire/capability tests, real eye pixel delta, real semantic ray, real MuJoCo fly contact, reset/disconnect lifecycle, full V4/neural regression PASS | fresh integrated GUI click-through remains before whole-V5 completion; movement input intentionally deferred to V5.5 |
-| V5.5 | WASD/look/E/Esc 및 focus handling | planned | 미정 | 미실행 | backend player contract required |
+| V5.5 | WASD/look/E/Esc 및 focus handling | automated_real_verified | `PlayerController.swift`, `LabProtocol.swift`, `LabWindow.swift`, `WorldViewer.swift`, `FlyGymBridge.swift`, `main.swift`, `build.sh`, `flygym_bridge/{protocol,bridge,player_body,fly_body,test_v5,test_v4,test_lab_real}.py` | strict PlayerInput/result wire tests, pre-Begin/session-generation ordering, requested_tick/idempotency/pause regressions, focus/Esc/reconnect stale-key release, remap persistence, real simulation-time movement and same-boundary free-joint pose proof, full V4/neural regression PASS | fresh integrated GUI click-through remains before whole-V5 completion; V5.6 grab/place intentionally not started |
 | V5.6 | 집기/놓기 | planned | 미정 | 미실행 | authoritative backend ray/hit/contact required |
 | V5.7 | 기존 activity card 연결 | planned | 미정 | 미실행 | reuse existing telemetry only; no new state model |
 
@@ -101,6 +101,39 @@ Fresh 2026-09-22 V5.4 evidence:
 | `git diff --check` | PASS |
 
 The initial V5.4 prototype used a mocap body. Real contact testing correctly rejected that design: the mocap actor remained world-welded and produced no fly contact even with matching collision masks. V5.4 therefore switched to the free-joint body above. The final real test observes an actual MuJoCo contact, so the completion evidence is physical rather than inferred from coordinates or the SceneKit mirror.
+
+## V5.5 automated + real-backend verification — participant input
+
+V5.5 now drives the existing V5.4 backend-owned participant through a strict `PlayerInput` contract rather than moving SceneKit geometry locally.
+
+- Swift captures WASD, mouse look, E and Esc only while Participate mode owns keyboard focus. The Lab window explicitly enables ordinary AppKit `mouseMoved` delivery, and Participate never steals a text/control first responder when its backend snapshot arrives: the 3D view must be clicked to capture. Editable text/control focus, window focus loss, Esc, mode exit, capability loss, disconnect and connection-generation rollover all release held input. Safety release can fall back to interactive tick 0 when the matching render snapshot is stale or temporarily absent, and it replaces any unsent mouse-look packet/remainder with an explicit zero-look neutral packet, so neither movement nor stale rotation can leak past release. Released keys are blocked until a fresh physical press, so stale key-repeat cannot resume movement after focus returns.
+- Key bindings persist through the existing `UserDefaults` preference pattern. Conflicting remaps swap keys, corrupt/duplicate stored mappings fail back to the known-unique defaults, and Esc remains a fixed local safety release.
+- `FlyGymBridge` keeps a bounded latest-state PlayerInput lane: axes/held actions are latest-wins while unsent look deltas accumulate exactly once. If coalesced look exceeds the per-packet `pi/4` bound it is split across monotonically sequenced packets instead of being clipped; every chunk drains before a deterministic experiment step can cross the same authoritative boundary.
+- Python and Swift enforce matching strict PlayerInput/result bounds and success/failure presence rules. Successful results are `status=applied` with a non-null authoritative `applied_tick` and no `error` key; failures have no `applied_tick` key, cannot claim `applied`, and carry a non-empty error. Swift never emits a PlayerInput sequence above Python's `2_147_483_647` wire limit.
+- Sessionful input received before the owning Begin/reset is terminally rejected even if SessionControl is drained first from its separate queue. SessionControl receive phases also distinguish `pause -> input -> resume` from `pause -> resume -> input`, so only the former is rejected by the pause barrier. Disconnect always drops transport-owned deferred input and queued activation, while a passive reconnect that intentionally preserves the logical V4 session also preserves the consumed-input sequence watermark; an evicted old seq therefore cannot become authoritative again.
+- Movement integrates at `PLAYER_MOVE_SPEED_MM_S` from simulation time, not render/input packet frequency. Local forward is MuJoCo +X and local right maps to world -Y when yaw is zero. Real free-joint motion uses authoritative qpos after same-boundary activation, avoiding stale derived `xpos` jumps.
+- V5.6 grab/place is not included. E is carried only as the V5.5 `interact` held action contract for the later interaction layer.
+
+Fresh 2026-09-22 V5.5 evidence:
+
+| Check | Result |
+|---|---|
+| `./build.sh` | PASS |
+| `./ThongpariFlyNeuronSim --bridgetest` | PASS — capability layering, strict result bounds/presence, lossless bounded look splitting, pending-look cancellation on safety release, mouse-move delivery, focus/Esc/reconnect safety, remap persistence, Observe camera isolation |
+| `./ThongpariFlyNeuronSim --labtest` | PASS |
+| `./ThongpariFlyNeuronSim --v4test` | PASS — `ALL V4 SESSION TESTS PASS` |
+| `./ThongpariFlyNeuronSim --v4timingtest` | PASS — 60/120 FPS and stall invariance preserved |
+| `./ThongpariFlyNeuronSim --simtest` | PASS — whole-brain realtime regression remains within budget |
+| `./ThongpariFlyNeuronSim --behaviortest` | PASS — `ALL BEHAVIOR TESTS PASS` |
+| `./ThongpariFlyNeuronSim --gpucheck` | PASS — `GPUCHECK PASS` |
+| `./flygym-venv/bin/python flygym_bridge/test_v5.py` | PASS — strict V5.5 wire/result cases plus sessionless interactive input |
+| `./flygym-venv/bin/python flygym_bridge/test_v4.py` | PASS — pre-Begin/pre-reset rejection, pause/resume receive ordering, exact requested tick, idempotency, wrong session/epoch, pause neutralization, +Y basis, render-frame independence |
+| `NUMBA_DISABLE_JIT=1 ./flygym-venv/bin/python flygym_bridge/test_lab_real.py` | PASS — real 20 ms movement = 0.600000 mm and same-boundary activation+input starts from qpos spawn 24.0 mm |
+| `./flygym-venv/bin/python flygym_bridge/test_vision_real.py` | PASS — V5.4 eye visibility remains intact |
+| `./flygym-venv/bin/python flygym_bridge/test_lab.py` / `test_bridge.py` | PASS |
+| Python `py_compile` + `git diff --check` | PASS |
+
+This is still **automated + real-backend verification, not whole-V5 GUI completion**. A fresh manual app run must still confirm real Observe↔Participate click-through, keyboard-focus behavior in the live window, disconnect cleanup and the integrated performance/latency gate.
 
 ## V5.2 implementation start — common screen state
 

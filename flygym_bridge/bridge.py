@@ -16,6 +16,7 @@ from protocol import (
     decode_line, encode, BrainPacket, BodyPacket, LabCommand, LabStatePacket, LabEventPacket,
     LabCommandQueue, HelloPacket, SessionControlPacket, SessionStatePacket,
     ExperimentStepPacket, ExperimentStepResultPacket,
+    PlayerInputPacket, PlayerInputResultPacket, MAX_PLAYER_INPUT_QUEUE,
     WorldRenderRequestPacket, WorldRenderSnapshotPacket,
     RayPickRequestPacket, RayPickResultPacket,
     V4_EXPERIMENT_QUANTUM_TICKS, V4_PROTOCOL_VERSION,
@@ -40,9 +41,16 @@ class Bridge:
         self.pending_lab_responses = deque(maxlen=128)
         self.pending_session_controls = deque()
         self.pending_experiment_steps = deque()
+        self.pending_player_inputs = deque()
+        # Receiver-side generation preserves wire ordering across the otherwise
+        # separate SessionControl and PlayerInput queues. Begin/reset increment
+        # the generation as soon as they are received; PlayerInput records the
+        # generation current at its own arrival.
+        self.player_input_receive_generation = 0
         self.pending_view_queries = deque()
         self.session_control_cap = 32
         self.experiment_step_cap = 1
+        self.player_input_cap = MAX_PLAYER_INPUT_QUEUE
         self.view_query_cap = 64
         self.client_hello = None
         self.session_id = ""
@@ -53,9 +61,16 @@ class Bridge:
         self.last_step_seq = -1
         self.recent_step_results = OrderedDict()
         self.recent_command_results = OrderedDict()
+        self.recent_player_input_results = OrderedDict()
+        # A bounded result cache alone is insufficient for input idempotency:
+        # once an old ACK is evicted, replaying its seq must still never reapply
+        # movement/look. The monotonic watermark is reset with owner identity.
+        self.last_player_input_seq = -1
+        self.inflight_player_inputs = OrderedDict()
         self.recent_view_results = OrderedDict()
         self.snapshot_sources = OrderedDict()
         self.deferred_lab_commands = []
+        self.deferred_player_inputs = []
         self.recent_result_cap = 128
         self.snapshot_seq = 0
         self.brain_count = 0
@@ -92,6 +107,12 @@ class Bridge:
                         pkt, ok=False, state="error", error="session control queue full")
                     self.pending_lab_responses.append(response)
                 else:
+                    # PlayerInput has a separate receive queue. Every accepted
+                    # session-control packet advances a wire-order phase so
+                    # begin/reset/pause barriers can distinguish input received
+                    # before, between, or after queued controls.
+                    self.player_input_receive_generation += 1
+                    pkt._player_input_receive_generation = self.player_input_receive_generation
                     self.pending_session_controls.append(pkt)
         elif isinstance(pkt, ExperimentStepPacket):
             with self.lock:
@@ -102,6 +123,22 @@ class Bridge:
                         ok=False, error="experiment step queue full"))
                 else:
                     self.pending_experiment_steps.append(pkt)
+        elif isinstance(pkt, PlayerInputPacket):
+            with self.lock:
+                pkt._player_input_receive_generation = self.player_input_receive_generation
+                if len(self.pending_player_inputs) >= self.player_input_cap:
+                    self.pending_lab_responses.append(PlayerInputResultPacket(
+                        actor_id=pkt.actor_id,
+                        session_id=pkt.session_id,
+                        epoch=pkt.epoch,
+                        seq=pkt.seq,
+                        requested_tick=pkt.requested_tick,
+                        ok=False,
+                        status="queue_full",
+                        error="player input queue full",
+                    ))
+                else:
+                    self.pending_player_inputs.append(pkt)
         elif isinstance(pkt, (WorldRenderRequestPacket, RayPickRequestPacket)):
             with self.lock:
                 if len(self.pending_view_queries) >= self.view_query_cap:
@@ -454,6 +491,187 @@ class Bridge:
             self.pending_session_controls.clear()
         return out
 
+    def _drain_player_inputs(self):
+        with self.lock:
+            out = list(self.pending_player_inputs)
+            self.pending_player_inputs.clear()
+        return out
+
+    def _reject_player_inputs_before_generation(
+            self, generation, *, inclusive=False, status="rejected_pre_begin",
+            error="player input arrived before session begin"):
+        """Terminally reject PlayerInput on the stale side of a wire barrier."""
+        generation = int(generation)
+        with self.lock:
+            pending = list(self.pending_player_inputs)
+            self.pending_player_inputs.clear()
+        pending.extend(self.deferred_player_inputs)
+        self.deferred_player_inputs = []
+        keep = []
+        for request in pending:
+            received_generation = int(
+                getattr(request, "_player_input_receive_generation", 0))
+            stale = (received_generation <= generation if inclusive
+                     else received_generation < generation)
+            if not stale:
+                keep.append(request)
+                continue
+            key = (request.session_id, request.epoch, request.seq)
+            result = self._player_input_result(
+                request, ok=False, status=status, error=error)
+            self.inflight_player_inputs.pop(key, None)
+            self._remember(self.recent_player_input_results, key, result)
+            self._queue_lab_response(result)
+        with self.lock:
+            self.pending_player_inputs.extend(keep)
+
+    def _clear_player_input_pipeline(self, *, clear_pending=False, clear_current=True):
+        self.deferred_player_inputs = []
+        self.recent_player_input_results.clear()
+        self.inflight_player_inputs.clear()
+        self.last_player_input_seq = -1
+        if clear_pending:
+            with self.lock:
+                self.pending_player_inputs.clear()
+        if clear_current:
+            clear_fn = getattr(self.body, "clear_player_input", None)
+            if clear_fn is not None:
+                clear_fn()
+
+    def _player_input_result(self, request, *, ok, status, applied_tick=None, error=None):
+        return PlayerInputResultPacket(
+            actor_id=request.actor_id,
+            session_id=request.session_id,
+            epoch=request.epoch,
+            seq=request.seq,
+            requested_tick=request.requested_tick,
+            applied_tick=applied_tick,
+            ok=ok,
+            status=status,
+            error=error,
+        )
+
+    def _process_player_inputs(self, *, applied_tick, applied_epoch):
+        """Apply due input state exactly once at a simulation-owner boundary."""
+        # Canonicalize newly arrived seqs in *wire arrival order* before sorting by
+        # requested tick. Otherwise a retransmit that changes requested_tick could
+        # sort ahead of the original and hijack the idempotency key.
+        requests = list(self.deferred_player_inputs)
+        self.deferred_player_inputs = []
+        for request in self._drain_player_inputs():
+            key = (request.session_id, request.epoch, request.seq)
+            cached = self.recent_player_input_results.get(key)
+            if cached is not None:
+                self._queue_lab_response(cached)
+                continue
+            identity_matches = (
+                request.protocol_version >= V4_PROTOCOL_VERSION
+                and (
+                    (bool(self.session_id)
+                     and request.session_id == self.session_id
+                     and request.epoch == self.session_epoch)
+                    or (not self.session_id
+                        and request.session_id == ""
+                        and request.epoch == 0)
+                )
+            )
+            if not identity_matches:
+                # Let the normal validation path produce the precise rejection,
+                # but do not let foreign/stale traffic advance this owner's seq
+                # watermark and starve a legitimate low seq in the current epoch.
+                requests.append(request)
+                continue
+            if key in self.inflight_player_inputs:
+                # The first payload for one identity remains authoritative until
+                # it reaches its requested boundary or is rejected by a barrier.
+                continue
+            if request.seq <= self.last_player_input_seq:
+                # The original result may have aged out of the bounded cache, but
+                # the sequence watermark permanently prevents state reapplication
+                # inside this session/epoch/connection identity.
+                result = self._player_input_result(
+                    request, ok=False, status="rejected_replay",
+                    error="player input sequence already consumed")
+                self._remember(self.recent_player_input_results, key, result)
+                self._queue_lab_response(result)
+                continue
+            self.last_player_input_seq = request.seq
+            self.inflight_player_inputs[key] = request
+            requests.append(request)
+        requests.sort(key=lambda item: (item.requested_tick, item.seq))
+        for request in requests:
+            key = (request.session_id, request.epoch, request.seq)
+            cached = self.recent_player_input_results.get(key)
+            if cached is not None:
+                self.inflight_player_inputs.pop(key, None)
+                self._queue_lab_response(cached)
+                continue
+
+            def reject(message, status):
+                result = self._player_input_result(
+                    request, ok=False, status=status, error=message)
+                self.inflight_player_inputs.pop(key, None)
+                self._remember(self.recent_player_input_results, key, result)
+                self._queue_lab_response(result)
+
+            if request.protocol_version < V4_PROTOCOL_VERSION:
+                reject("unsupported protocol version", "rejected_protocol")
+                continue
+            if self.session_id:
+                if request.session_id != self.session_id:
+                    reject("wrong session", "rejected_session")
+                    continue
+                if request.epoch != self.session_epoch:
+                    reject("wrong epoch", "rejected_old_epoch")
+                    continue
+            elif request.session_id != "" or request.epoch != 0:
+                reject("session not active", "rejected_session")
+                continue
+
+            world = getattr(self.body, "lab_world", None)
+            player = getattr(world, "player", None)
+            if player is None or request.actor_id != getattr(player, "actor_id", None):
+                reject("wrong player actor", "rejected_actor")
+                continue
+
+            if self.session_paused:
+                reject("session paused", "rejected_paused")
+                continue
+
+            if self.session_mode == "deterministic" and self.session_id:
+                if request.requested_tick > applied_tick:
+                    if len(self.deferred_player_inputs) >= self.player_input_cap:
+                        reject("future player input queue full", "queue_full")
+                    else:
+                        self.deferred_player_inputs.append(request)
+                    continue
+                if request.requested_tick < applied_tick:
+                    reject("requested tick boundary already passed", "rejected_tick")
+                    continue
+            elif request.requested_tick > applied_tick:
+                # Interactive requested_tick is provenance from the latest backend
+                # snapshot, not a client-owned clock. Future claims fail closed.
+                reject("requested tick is in the future", "rejected_future_tick")
+                continue
+
+            if not getattr(player, "active", False):
+                reject("participant is not active", "rejected_inactive")
+                continue
+            set_input = getattr(self.body, "set_player_input", None)
+            if set_input is None:
+                reject("backend cannot apply player input", "rejected_backend")
+                continue
+            try:
+                set_input(request)
+            except Exception as exc:
+                reject(str(exc)[:400], "rejected")
+                continue
+            result = self._player_input_result(
+                request, ok=True, status="applied", applied_tick=applied_tick)
+            self.inflight_player_inputs.pop(key, None)
+            self._remember(self.recent_player_input_results, key, result)
+            self._queue_lab_response(result)
+
     def _pop_experiment_step(self):
         with self.lock:
             return self.pending_experiment_steps.popleft() if self.pending_experiment_steps else None
@@ -500,6 +718,13 @@ class Bridge:
                             request, ok=False, state="error",
                             error=f"body tick {body_tick} does not match requested tick {request.sim_tick}"))
                         continue
+                # SessionControl and PlayerInput use separate receive queues. Flush
+                # only inputs that were observed before this Begin on the wire;
+                # packets received after Begin carry this generation and survive.
+                begin_generation = int(
+                    getattr(request, "_player_input_receive_generation",
+                            self.player_input_receive_generation))
+                self._reject_player_inputs_before_generation(begin_generation)
                 self.session_id = request.session_id
                 self.session_epoch = request.epoch
                 self.session_tick = request.sim_tick
@@ -508,9 +733,16 @@ class Bridge:
                 self.last_step_seq = -1
                 self.recent_step_results.clear()
                 self.recent_command_results.clear()
+                self.recent_player_input_results.clear()
+                self.inflight_player_inputs.clear()
+                self.last_player_input_seq = -1
                 self.recent_view_results.clear()
                 self.snapshot_sources.clear()
                 self.deferred_lab_commands = []
+                self.deferred_player_inputs = []
+                clear_input = getattr(self.body, "clear_player_input", None)
+                if clear_input is not None:
+                    clear_input()
                 self._queue_lab_response(self._session_state_packet(request, state="running"))
                 continue
 
@@ -546,14 +778,32 @@ class Bridge:
                         request, ok=False, state="error",
                         error=f"reset failed: {str(exc)[:400]}"))
                     continue
+                # Reset promotes epoch ownership while PlayerInput arrives on a
+                # separate queue. Reject anything observed before this reset on
+                # the wire so a packet claiming the new epoch cannot become valid
+                # retroactively just because SessionControl drains first.
+                reset_generation = int(
+                    getattr(request, "_player_input_receive_generation",
+                            self.player_input_receive_generation))
+                self._reject_player_inputs_before_generation(
+                    reset_generation,
+                    status="rejected_pre_reset",
+                    error="player input arrived before session reset")
                 self.session_epoch = request.epoch
                 self.session_tick = request.sim_tick
                 self.last_step_seq = -1
                 self.recent_step_results.clear()
                 self.recent_command_results.clear()
+                self.recent_player_input_results.clear()
+                self.inflight_player_inputs.clear()
+                self.last_player_input_seq = -1
                 self.recent_view_results.clear()
                 self.snapshot_sources.clear()
                 self.deferred_lab_commands = []
+                self.deferred_player_inputs = []
+                clear_input = getattr(self.body, "clear_player_input", None)
+                if clear_input is not None:
+                    clear_input()
                 with self.lock:
                     self.pending_experiment_steps.clear()
                 # A reset is itself a pause-boundary transaction. It does not
@@ -568,6 +818,20 @@ class Bridge:
                 continue
             if request.action == "pause":
                 self.session_paused = True
+                clear_input = getattr(self.body, "clear_player_input", None)
+                if clear_input is not None:
+                    clear_input()
+                # Session controls and PlayerInput use separate queues. Reject
+                # input received before this pause *or while pause was the latest
+                # wire phase*, but preserve input received after a queued resume.
+                pause_generation = int(
+                    getattr(request, "_player_input_receive_generation",
+                            self.player_input_receive_generation))
+                self._reject_player_inputs_before_generation(
+                    pause_generation,
+                    inclusive=True,
+                    status="rejected_paused",
+                    error="player input crossed pause barrier")
                 self._queue_lab_response(self._session_state_packet(request, state="paused"))
             elif request.action == "resume":
                 self.session_paused = False
@@ -608,6 +872,7 @@ class Bridge:
         if substeps is None:
             return reject("experiment quantum is not exact on backend timestep")
         self._apply_lab_commands(applied_tick=request.sim_tick, applied_epoch=request.epoch)
+        self._process_player_inputs(applied_tick=request.sim_tick, applied_epoch=request.epoch)
         cmd = decode(request.brain)
         try:
             obs = self.body.step_exact(cmd, substeps, tempo=request.brain.tempo)
@@ -647,7 +912,9 @@ class Bridge:
             self.client_hello = None
             self.pending_session_controls.clear()
             self.pending_experiment_steps.clear()
+            self.pending_player_inputs.clear()
             self._reset_view_transport_state_locked()
+        self.inflight_player_inputs.clear()
         try:
             conn.sendall(encode(self._hello_packet()))
         except OSError:
@@ -719,6 +986,12 @@ class Bridge:
             # paused; pausing the receiver/owner thread itself would deadlock.
             self._process_session_controls()
             self._process_view_queries()
+            if self.session_paused:
+                # Inputs arriving after the pause ACK are rejected on the owner
+                # thread too; they are never retained for an implicit resume.
+                self._process_player_inputs(
+                    applied_tick=self._current_owner_tick(),
+                    applied_epoch=self.session_epoch)
 
             if self.session_mode == "deterministic":
                 step_request = None if self.session_paused else self._pop_experiment_step()
@@ -776,6 +1049,10 @@ class Bridge:
                 # Only this serve loop advances MuJoCo, so all LabWorld model/data
                 # mutations happen here on the simulation-owner thread.
                 self._apply_lab_commands()
+                self._process_player_inputs(
+                    applied_tick=self._current_owner_tick(),
+                    applied_epoch=self.session_epoch,
+                )
                 obs = self.body.step(cmd, dt, tempo=tempo)
                 self._collect_lab_events()
             except Exception as e:
@@ -823,6 +1100,22 @@ class Bridge:
         except OSError:
             pass
         receiver.join(timeout=0.1)
+        # Transport-owned work must never survive a dead socket. This is
+        # independent of whether the participant happened to be active: future
+        # PlayerInput can be deferred before activation, and a queued
+        # set_player_active LabCommand can likewise be waiting on a later tick.
+        # Preserve the logical V4 session for passive reconnect, but drop every
+        # un-applied command/input that belonged to the vanished transport.
+        self.deferred_lab_commands = []
+        self.deferred_player_inputs = []
+        self.inflight_player_inputs.clear()
+        self.lab_commands.drain()
+        with self.lock:
+            self.pending_session_controls.clear()
+            self.pending_experiment_steps.clear()
+            self.pending_player_inputs.clear()
+            self.pending_lab_responses.clear()
+            self._reset_view_transport_state_locked()
         # Participation is connection-owned in V5.4. A vanished UI must not
         # leave an invisible user's collidable body behind in the fly's world.
         # If participation was active, that connection also owned the V4 session
@@ -844,13 +1137,9 @@ class Bridge:
             self.last_step_seq = -1
             self.recent_step_results.clear()
             self.recent_command_results.clear()
-            self.deferred_lab_commands = []
-            self.lab_commands.drain()
-            with self.lock:
-                self.pending_session_controls.clear()
-                self.pending_experiment_steps.clear()
-                self.pending_lab_responses.clear()
-                self._reset_view_transport_state_locked()
+            self.recent_player_input_results.clear()
+            self.inflight_player_inputs.clear()
+            self.last_player_input_seq = -1
         # Connection-local counts make arrival/drop behavior visible.
         print(f"bridge: session brain={self.brain_count-brain_at_connect} "
               f"body={self.body_count-body_at_connect} "

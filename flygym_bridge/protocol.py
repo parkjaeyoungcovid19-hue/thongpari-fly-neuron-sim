@@ -20,6 +20,8 @@ WORLD_RENDER_REQUEST_TYPE = "world_render_request"
 WORLD_RENDER_SNAPSHOT_TYPE = "world_render_snapshot"
 RAY_PICK_REQUEST_TYPE = "ray_pick_request"
 RAY_PICK_RESULT_TYPE = "ray_pick_result"
+PLAYER_INPUT_TYPE = "player_input"
+PLAYER_INPUT_RESULT_TYPE = "player_input_result"
 
 V4_PROTOCOL_VERSION = 4
 V4_EXPERIMENT_QUANTUM_TICKS = 20
@@ -35,10 +37,18 @@ V5_VIEW_CAPABILITIES = {
 }
 V5_PLAYER_CAPABILITIES = {
     "player_body",
+    "player_input",
 }
 
 MAX_DISCRETE_LAB_COMMANDS = 128
 MAX_CONTINUOUS_LAB_SLOTS = 64
+MAX_PLAYER_INPUT_QUEUE = 128
+MAX_PLAYER_HELD_ACTIONS = 16
+MAX_PLAYER_ACTION_LEN = 32
+PLAYER_HELD_ACTIONS = {"interact"}
+# look_delta is [yaw_delta_rad, pitch_delta_rad]. Keep one packet bounded so a
+# malformed/high-rate pointer source cannot instantaneously flip the actor.
+MAX_PLAYER_LOOK_DELTA_RAD = math.pi / 4.0
 CONTINUOUS_LAB_OPS = {
     "move_object", "resize_object", "wind", "set_eye_state", "eye_state",
     "temperature", "set_temperature",
@@ -106,6 +116,15 @@ def _strict_vec(value, length, name):
     if not isinstance(value, (list, tuple)) or len(value) != length:
         raise ValueError(f"{name} must have length {length}")
     return [_strict_number(v, f"{name}[{i}]") for i, v in enumerate(value)]
+
+
+def _strict_actor_id(value):
+    if not isinstance(value, str):
+        raise ValueError("actor_id must be a string")
+    actor_id = value.strip()
+    if not actor_id or len(actor_id) > 64:
+        raise ValueError("actor_id is invalid")
+    return actor_id
 
 
 def _strict_unit_quat_xyzw(value, name):
@@ -566,6 +585,178 @@ class ExperimentStepResultPacket:
         if self.error is not None:
             out["error"] = self.error
         return out
+
+
+@dataclass
+class PlayerInputPacket:
+    """Tick-scheduled V5.5 participant input owned by the simulation timeline.
+
+    move_axes is [forward, right] in [-1, 1]. look_delta is
+    [yaw_delta_rad, pitch_delta_rad] and is consumed exactly once when this
+    packet becomes authoritative. held_actions is state only; V5.5 does not
+    synthesize interaction side effects from values such as "interact"/E.
+    """
+    protocol_version: int = V4_PROTOCOL_VERSION
+    actor_id: str = "player"
+    session_id: str = ""
+    epoch: int = 0
+    seq: int = 0
+    requested_tick: int = 0
+    move_axes: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    look_delta: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    held_actions: list[str] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "PlayerInputPacket":
+        if not isinstance(d, dict):
+            raise ValueError("player input must be an object")
+        protocol_version = _strict_required_int(d, "protocol_version", 0, 1_000_000)
+        actor_id = _strict_actor_id(d.get("actor_id"))
+        session_id = _strict_render_session_id(d)
+        epoch = _strict_required_int(d, "epoch", 0)
+        if (not session_id and epoch != 0) or (session_id and epoch < 1):
+            raise ValueError("player input session/epoch identity is invalid")
+        seq = _strict_required_int(d, "seq", 0, 2_147_483_647)
+        requested_tick = _strict_required_int(d, "requested_tick", 0, 10**15)
+        move_axes = _strict_vec(d.get("move_axes"), 2, "move_axes")
+        if any(v < -1.0 or v > 1.0 for v in move_axes):
+            raise ValueError("move_axes values must be in [-1,1]")
+        look_delta = _strict_vec(d.get("look_delta"), 2, "look_delta")
+        if any(abs(v) > MAX_PLAYER_LOOK_DELTA_RAD for v in look_delta):
+            raise ValueError("look_delta out of range")
+        raw_actions = d.get("held_actions")
+        if not isinstance(raw_actions, list) or len(raw_actions) > MAX_PLAYER_HELD_ACTIONS:
+            raise ValueError("held_actions must be a bounded array")
+        held_actions = []
+        for value in raw_actions:
+            if not isinstance(value, str):
+                raise ValueError("held_actions entries must be strings")
+            action = value.strip().lower()
+            if not action or len(action) > MAX_PLAYER_ACTION_LEN:
+                raise ValueError("held_actions entry is invalid")
+            if action not in PLAYER_HELD_ACTIONS:
+                raise ValueError("held_actions entry is unsupported")
+            if action not in held_actions:
+                held_actions.append(action)
+        return PlayerInputPacket(
+            protocol_version=protocol_version,
+            actor_id=actor_id,
+            session_id=session_id,
+            epoch=epoch,
+            seq=seq,
+            requested_tick=requested_tick,
+            move_axes=move_axes,
+            look_delta=look_delta,
+            held_actions=held_actions,
+        )
+
+    def to_dict(self) -> dict:
+        raw = {
+            "type": PLAYER_INPUT_TYPE,
+            "protocol_version": int(self.protocol_version),
+            "actor_id": self.actor_id,
+            "session_id": self.session_id,
+            "epoch": int(self.epoch),
+            "seq": int(self.seq),
+            "requested_tick": int(self.requested_tick),
+            "move_axes": list(self.move_axes),
+            "look_delta": list(self.look_delta),
+            "held_actions": list(self.held_actions),
+        }
+        validated = PlayerInputPacket.from_dict(raw)
+        raw["actor_id"] = validated.actor_id
+        raw["session_id"] = validated.session_id
+        raw["move_axes"] = validated.move_axes
+        raw["look_delta"] = validated.look_delta
+        raw["held_actions"] = validated.held_actions
+        return raw
+
+
+@dataclass
+class PlayerInputResultPacket:
+    """Compact authoritative ACK for one PlayerInput application/rejection."""
+    protocol_version: int = V4_PROTOCOL_VERSION
+    actor_id: str = "player"
+    session_id: str = ""
+    epoch: int = 0
+    seq: int = 0
+    requested_tick: int = 0
+    applied_tick: int | None = None
+    ok: bool = True
+    status: str = "applied"
+    error: str | None = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "PlayerInputResultPacket":
+        if not isinstance(d, dict):
+            raise ValueError("player input result must be an object")
+        protocol_version = _strict_required_int(d, "protocol_version", 0, 1_000_000)
+        if protocol_version < V4_PROTOCOL_VERSION:
+            raise ValueError("player input result protocol version is unsupported")
+        actor_id = _strict_actor_id(d.get("actor_id"))
+        session_id = _strict_render_session_id(d)
+        epoch = _strict_required_int(d, "epoch", 0)
+        if (not session_id and epoch != 0) or (session_id and epoch < 1):
+            raise ValueError("player input result session/epoch identity is invalid")
+        seq = _strict_required_int(d, "seq", 0, 2_147_483_647)
+        requested_tick = _strict_required_int(d, "requested_tick", 0, 10**15)
+        if "ok" not in d or not isinstance(d["ok"], bool):
+            raise ValueError("player input result ok must be boolean")
+        ok = d["ok"]
+        status = d.get("status")
+        if not isinstance(status, str) or not status.strip() or len(status) > 64:
+            raise ValueError("player input result status is invalid")
+        status = status.strip()
+        applied_tick = None
+        if "applied_tick" in d:
+            applied_tick = _strict_required_int(d, "applied_tick", 0, 10**15)
+        if ok:
+            if status != "applied" or applied_tick is None or "error" in d:
+                raise ValueError(
+                    "successful player input result requires status=applied, applied_tick, and no error")
+            error = None
+        else:
+            if "applied_tick" in d or status == "applied":
+                raise ValueError(
+                    "failed player input result must not contain applied_tick or status=applied")
+            error = d.get("error")
+            if (not isinstance(error, str) or not error.strip()
+                    or len(error) > 512):
+                raise ValueError("failed player input result requires nonempty string error")
+        return PlayerInputResultPacket(
+            protocol_version=protocol_version,
+            actor_id=actor_id,
+            session_id=session_id,
+            epoch=epoch,
+            seq=seq,
+            requested_tick=requested_tick,
+            applied_tick=applied_tick,
+            ok=ok,
+            status=status,
+            error=error,
+        )
+
+    def to_dict(self) -> dict:
+        raw = {
+            "type": PLAYER_INPUT_RESULT_TYPE,
+            "protocol_version": int(self.protocol_version),
+            "actor_id": self.actor_id,
+            "session_id": self.session_id,
+            "epoch": int(self.epoch),
+            "seq": int(self.seq),
+            "requested_tick": int(self.requested_tick),
+            "ok": self.ok,
+            "status": self.status,
+        }
+        if self.applied_tick is not None:
+            raw["applied_tick"] = int(self.applied_tick)
+        if self.error is not None:
+            raw["error"] = self.error
+        validated = PlayerInputResultPacket.from_dict(raw)
+        raw["actor_id"] = validated.actor_id
+        raw["session_id"] = validated.session_id
+        raw["status"] = validated.status
+        return raw
 
 
 @dataclass
@@ -1170,6 +1361,10 @@ def decode_line(line: bytes):
             return ExperimentStepPacket.from_dict(d)
         if kind == EXPERIMENT_STEP_RESULT_TYPE:
             return ExperimentStepResultPacket.from_dict(d)
+        if kind == PLAYER_INPUT_TYPE:
+            return PlayerInputPacket.from_dict(d)
+        if kind == PLAYER_INPUT_RESULT_TYPE:
+            return PlayerInputResultPacket.from_dict(d)
         if kind == WORLD_RENDER_REQUEST_TYPE:
             return WorldRenderRequestPacket.from_dict(d)
         if kind == WORLD_RENDER_SNAPSHOT_TYPE:

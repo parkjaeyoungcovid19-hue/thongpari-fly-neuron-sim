@@ -11,6 +11,36 @@ except Exception:
     LocomotorCommand = None
 
 
+def _set_player_input_state(lab_world, player_input):
+    player = lab_world.player
+    if player_input.actor_id != player.actor_id:
+        raise ValueError("wrong player actor")
+    if not player.active:
+        raise RuntimeError("participant is not active")
+    return player.set_input_state(
+        move_axes=player_input.move_axes,
+        look_delta=player_input.look_delta,
+        held_actions=player_input.held_actions,
+    )
+
+
+def _advance_player_input_motion(lab_world, sim_dt):
+    player = lab_world.player
+    pose = player.input_motion_pose(sim_dt)
+    if pose is None:
+        return False
+    lab_world.set_player_pose(
+        position_mm=pose["position_mm"],
+        orientation_quat_xyzw=pose["orientation_quat_xyzw"],
+    )
+    player.mark_input_pose_applied()
+    return True
+
+
+def _clear_player_input_state(lab_world):
+    lab_world.player.clear_input_state(reset_look=False)
+
+
 class MockBody:
     """Kinematic mock: no physics, deterministic-ish, bounded state."""
     def __init__(self):
@@ -39,6 +69,7 @@ class MockBody:
             tempo = 1.0
         self.last_tempo = max(0.2, min(2.0, tempo if math.isfinite(tempo) else 1.0))
         self.controller_left, self.controller_right = brain_to_descending(cmd)
+        self.advance_player_input(sim_dt)
         self.lab_world.pre_step(sim_dt)
         target_v = 0.03 * cmd.forward  # 0.03 m/s ~= brisk FlyGym walk
         if cmd.reverse:
@@ -118,6 +149,15 @@ class MockBody:
             return self.lab_world.set_player_active(active)
         return self.lab_world.apply_command(
             command, fly_position_mm=(self.x * 1000.0, self.y * 1000.0, 0.7))
+
+    def set_player_input(self, player_input):
+        return _set_player_input_state(self.lab_world, player_input)
+
+    def advance_player_input(self, sim_dt):
+        return _advance_player_input_motion(self.lab_world, sim_dt)
+
+    def clear_player_input(self):
+        _clear_player_input_state(self.lab_world)
 
     def reset_body(self):
         self.x = 0.0
@@ -548,6 +588,15 @@ class RealFlyBody:
             return self.lab_world.set_player_active(active)
         return self.lab_world.apply_command(command, fly_position_mm=self._thorax_position())
 
+    def set_player_input(self, player_input):
+        return _set_player_input_state(self.lab_world, player_input)
+
+    def advance_player_input(self, sim_dt):
+        return _advance_player_input_motion(self.lab_world, sim_dt)
+
+    def clear_player_input(self):
+        _clear_player_input_state(self.lab_world)
+
     def reset_body(self):
         """Reset fly/controller and participant pose while preserving the lab world.
 
@@ -618,10 +667,12 @@ class RealFlyBody:
         if n > self.max_physics_substeps:
             raise ValueError("physics substeps exceed maximum simulation chunk")
         wall_dt = max(0.0, float(wall_dt))
+        sim_dt = max(1e-6, n * self.sim.timestep)
         self._apply_controller_tempo(tempo)
         sig = brain_to_descending(cmd)
         self.last_cmd = sig
         self._configure_cpg_drive(sig)
+        self.advance_player_input(sim_dt)
         for _ in range(n):
             self._controller_substep(sig)
             self.lab_world.pre_step(self.sim.timestep)
@@ -634,7 +685,6 @@ class RealFlyBody:
         yaw_now = float(np.arctan2(h[1], h[0]))
         # Sim-time displacement: n substeps x timestep (wall clock lies when
         # ticks queue, e.g. under load or headless backlog).
-        sim_dt = max(1e-6, n * self.sim.timestep)
         if self.prev_xy is None:
             vx_raw, yaw_raw = 0.0, 0.0
         else:

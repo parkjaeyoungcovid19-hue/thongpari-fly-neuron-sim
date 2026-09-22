@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import math
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -11,6 +12,7 @@ from fly_body import MockBody
 from bridge import Bridge
 from lab_world import LabWorld
 from neural_decoder import LocomotorCommand
+from player_body import PLAYER_MOVE_SPEED_MM_S
 from protocol import (
     BrainPacket,
     ExperimentStepPacket,
@@ -18,10 +20,13 @@ from protocol import (
     HelloPacket,
     LabCommand,
     LabStatePacket,
+    PlayerInputPacket,
+    PlayerInputResultPacket,
     SessionControlPacket,
     SessionStatePacket,
     V4_EXPERIMENT_QUANTUM_TICKS,
     V4_PROTOCOL_VERSION,
+    WorldRenderRequestPacket,
     decode_line,
     encode,
 )
@@ -346,6 +351,506 @@ check("V5.4 resumed boundary applies deferred player disable",
       not player_bridge.body.lab_world.player.active
       and len(player_disable_acks) == 1 and player_disable_acks[0].applied_tick == 60,
       repr(player_disable_acks))
+
+
+# SessionControl and PlayerInput arrive on separate queues. Preserve their wire
+# ordering explicitly: a sessionful input received before Begin can never become
+# valid merely because the owner drains Begin first; an input received after Begin
+# must survive even if both are pending before the owner processes either queue.
+begin_order_bridge = Bridge(mode="mock")
+begin_order_bridge.body.lab_world.set_player_active(True)
+begin_order_bridge.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="begin-order", epoch=1, seq=1,
+    requested_tick=0, move_axes=[0.0, 0.0], look_delta=[0.2, 0.0],
+    held_actions=[],
+)))
+begin_order_bridge.handle_line(encode(SessionControlPacket(
+    session_id="begin-order", epoch=1, seq=1, sim_tick=0,
+    action="begin", mode="interactive")))
+begin_order_bridge._process_session_controls()
+pre_begin_responses = begin_order_bridge._drain_lab_responses()
+pre_begin_ack = next((p for p in pre_begin_responses
+                      if isinstance(p, PlayerInputResultPacket) and p.seq == 1), None)
+begin_order_bridge._process_player_inputs(applied_tick=0, applied_epoch=1)
+pre_begin_yaw = begin_order_bridge.body.lab_world.player.look_yaw_rad
+check(
+    "V5.5 sessionful PlayerInput received before Begin is terminally rejected",
+    isinstance(pre_begin_ack, PlayerInputResultPacket) and not pre_begin_ack.ok
+    and pre_begin_ack.status == "rejected_pre_begin"
+    and pre_begin_yaw == 0.0
+    and not begin_order_bridge.pending_player_inputs
+    and not begin_order_bridge.deferred_player_inputs,
+    f"ack={pre_begin_ack!r} yaw={pre_begin_yaw}",
+)
+
+begin_after_input_bridge = Bridge(mode="mock")
+begin_after_input_bridge.body.lab_world.set_player_active(True)
+begin_after_input_bridge.handle_line(encode(SessionControlPacket(
+    session_id="begin-after", epoch=1, seq=1, sim_tick=0,
+    action="begin", mode="interactive")))
+begin_after_input_bridge.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="begin-after", epoch=1, seq=1,
+    requested_tick=0, move_axes=[0.0, 0.0], look_delta=[0.2, 0.0],
+    held_actions=[],
+)))
+begin_after_input_bridge._process_session_controls()
+begin_after_input_bridge._drain_lab_responses()
+begin_after_input_bridge._process_player_inputs(applied_tick=0, applied_epoch=1)
+post_begin_ack = next((p for p in begin_after_input_bridge._drain_lab_responses()
+                       if isinstance(p, PlayerInputResultPacket) and p.seq == 1), None)
+check(
+    "V5.5 PlayerInput received after Begin survives separate queue ordering",
+    isinstance(post_begin_ack, PlayerInputResultPacket) and post_begin_ack.ok
+    and post_begin_ack.applied_tick == 0
+    and abs(begin_after_input_bridge.body.lab_world.player.look_yaw_rad - 0.2) < 1e-12,
+    f"ack={post_begin_ack!r} yaw={begin_after_input_bridge.body.lab_world.player.look_yaw_rad}",
+)
+
+# Reset is the same ownership problem for a promoted epoch. An input that claims
+# epoch N+1 but arrived before the reset must not become valid retroactively when
+# SessionControl drains first; an input received after reset must survive.
+reset_order_bridge = Bridge(mode="mock")
+reset_order_bridge.body.lab_world.set_player_active(True)
+reset_order_bridge.handle_line(encode(SessionControlPacket(
+    session_id="reset-order", epoch=1, seq=1, sim_tick=0,
+    action="begin", mode="interactive")))
+reset_order_bridge._process_session_controls()
+reset_order_bridge._drain_lab_responses()
+reset_order_bridge.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="reset-order", epoch=2, seq=1,
+    requested_tick=0, move_axes=[0.0, 0.0], look_delta=[0.3, 0.0],
+    held_actions=[],
+)))
+reset_order_bridge.handle_line(encode(SessionControlPacket(
+    session_id="reset-order", epoch=2, seq=2, sim_tick=0,
+    action="reset", mode="interactive", reset_scope=[])))
+reset_order_bridge._process_session_controls()
+reset_pre_responses = reset_order_bridge._drain_lab_responses()
+reset_pre_ack = next((p for p in reset_pre_responses
+                      if isinstance(p, PlayerInputResultPacket) and p.seq == 1), None)
+reset_order_bridge._process_player_inputs(applied_tick=0, applied_epoch=2)
+check(
+    "V5.5 PlayerInput received before reset cannot become valid in promoted epoch",
+    isinstance(reset_pre_ack, PlayerInputResultPacket) and not reset_pre_ack.ok
+    and reset_pre_ack.status == "rejected_pre_reset"
+    and abs(reset_order_bridge.body.lab_world.player.look_yaw_rad) < 1e-12,
+    f"ack={reset_pre_ack!r} yaw={reset_order_bridge.body.lab_world.player.look_yaw_rad}",
+)
+
+reset_after_input_bridge = Bridge(mode="mock")
+reset_after_input_bridge.body.lab_world.set_player_active(True)
+reset_after_input_bridge.handle_line(encode(SessionControlPacket(
+    session_id="reset-after", epoch=1, seq=1, sim_tick=0,
+    action="begin", mode="interactive")))
+reset_after_input_bridge._process_session_controls()
+reset_after_input_bridge._drain_lab_responses()
+reset_after_input_bridge.handle_line(encode(SessionControlPacket(
+    session_id="reset-after", epoch=2, seq=2, sim_tick=0,
+    action="reset", mode="interactive", reset_scope=[])))
+reset_after_input_bridge.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="reset-after", epoch=2, seq=1,
+    requested_tick=0, move_axes=[0.0, 0.0], look_delta=[0.3, 0.0],
+    held_actions=[],
+)))
+reset_after_input_bridge._process_session_controls()
+reset_after_input_bridge._drain_lab_responses()
+reset_after_input_bridge.handle_line(encode(SessionControlPacket(
+    session_id="reset-after", epoch=2, seq=3, sim_tick=0,
+    action="resume", mode="interactive")))
+reset_after_input_bridge._process_session_controls()
+reset_after_input_bridge._drain_lab_responses()
+reset_after_input_bridge._process_player_inputs(applied_tick=0, applied_epoch=2)
+reset_post_ack = next((p for p in reset_after_input_bridge._drain_lab_responses()
+                       if isinstance(p, PlayerInputResultPacket) and p.seq == 1), None)
+check(
+    "V5.5 PlayerInput received after reset survives separate queue ordering",
+    isinstance(reset_post_ack, PlayerInputResultPacket) and reset_post_ack.ok
+    and reset_post_ack.applied_tick == 0
+    and abs(reset_after_input_bridge.body.lab_world.player.look_yaw_rad - 0.3) < 1e-12,
+    f"ack={reset_post_ack!r} yaw={reset_after_input_bridge.body.lab_world.player.look_yaw_rad}",
+)
+
+# Pause/resume are also received on a separate queue from PlayerInput. If both
+# controls are pending before one owner drain, a fresh input received after the
+# resume must not be consumed by the earlier pause; input received between the
+# two controls must still be rejected by the pause barrier.
+pause_resume_order = Bridge(mode="mock")
+pause_resume_order.body.lab_world.set_player_active(True)
+pause_resume_order.handle_line(encode(SessionControlPacket(
+    session_id="pause-order", epoch=1, seq=1, sim_tick=0,
+    action="begin", mode="interactive")))
+pause_resume_order._process_session_controls()
+pause_resume_order._drain_lab_responses()
+pause_resume_order.handle_line(encode(SessionControlPacket(
+    session_id="pause-order", epoch=1, seq=2, sim_tick=0,
+    action="pause", mode="interactive")))
+pause_resume_order.handle_line(encode(SessionControlPacket(
+    session_id="pause-order", epoch=1, seq=3, sim_tick=0,
+    action="resume", mode="interactive")))
+pause_resume_order.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="pause-order", epoch=1, seq=1,
+    requested_tick=0, move_axes=[0.0, 0.0], look_delta=[0.2, 0.0],
+    held_actions=[],
+)))
+pause_resume_order._process_session_controls()
+pause_resume_order._drain_lab_responses()
+pause_resume_order._process_player_inputs(applied_tick=0, applied_epoch=1)
+pause_resume_fresh_ack = next(
+    (p for p in pause_resume_order._drain_lab_responses()
+     if isinstance(p, PlayerInputResultPacket) and p.seq == 1), None)
+check(
+    "V5.5 input received after queued resume survives earlier pause barrier",
+    not pause_resume_order.session_paused
+    and isinstance(pause_resume_fresh_ack, PlayerInputResultPacket)
+    and pause_resume_fresh_ack.ok
+    and abs(pause_resume_order.body.lab_world.player.look_yaw_rad - 0.2) < 1e-12,
+    f"ack={pause_resume_fresh_ack!r} paused={pause_resume_order.session_paused} "
+    f"yaw={pause_resume_order.body.lab_world.player.look_yaw_rad}",
+)
+
+pause_between_order = Bridge(mode="mock")
+pause_between_order.body.lab_world.set_player_active(True)
+pause_between_order.handle_line(encode(SessionControlPacket(
+    session_id="pause-between", epoch=1, seq=1, sim_tick=0,
+    action="begin", mode="interactive")))
+pause_between_order._process_session_controls()
+pause_between_order._drain_lab_responses()
+pause_between_order.handle_line(encode(SessionControlPacket(
+    session_id="pause-between", epoch=1, seq=2, sim_tick=0,
+    action="pause", mode="interactive")))
+pause_between_order.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="pause-between", epoch=1, seq=1,
+    requested_tick=0, move_axes=[0.0, 0.0], look_delta=[0.2, 0.0],
+    held_actions=[],
+)))
+pause_between_order.handle_line(encode(SessionControlPacket(
+    session_id="pause-between", epoch=1, seq=3, sim_tick=0,
+    action="resume", mode="interactive")))
+pause_between_order._process_session_controls()
+pause_between_responses = pause_between_order._drain_lab_responses()
+pause_between_ack = next(
+    (p for p in pause_between_responses
+     if isinstance(p, PlayerInputResultPacket) and p.seq == 1), None)
+pause_between_order._process_player_inputs(applied_tick=0, applied_epoch=1)
+check(
+    "V5.5 input received between pause and resume is terminally rejected",
+    not pause_between_order.session_paused
+    and isinstance(pause_between_ack, PlayerInputResultPacket)
+    and not pause_between_ack.ok and pause_between_ack.status == "rejected_paused"
+    and abs(pause_between_order.body.lab_world.player.look_yaw_rad) < 1e-12,
+    f"ack={pause_between_ack!r} paused={pause_between_order.session_paused} "
+    f"yaw={pause_between_order.body.lab_world.player.look_yaw_rad}",
+)
+
+
+# V5.5 PlayerInput is a distinct tick-scheduled control stream. Packet arrival or
+# rendering never accumulates distance: the held state is integrated exactly once
+# per simulation quantum using mm/s * simulation dt.
+input_bridge = Bridge(mode="mock")
+input_bridge.handle_line(encode(HelloPacket(role="swift", physics_timestep_s=None)))
+input_bridge.handle_line(encode(SessionControlPacket(
+    session_id="player-input-v5", epoch=1, seq=1, sim_tick=0,
+    action="begin", mode="deterministic")))
+input_bridge._process_session_controls(); input_bridge._drain_lab_responses()
+input_bridge.handle_line(encode(LabCommand(
+    seq=80, op="set_player_active", args={"value": 1.0},
+    session_id="player-input-v5", epoch=1, requested_tick=0,
+    protocol_version=V4_PROTOCOL_VERSION)))
+scheduled_input = PlayerInputPacket(
+    actor_id="player", session_id="player-input-v5", epoch=1, seq=81,
+    requested_tick=40, move_axes=[1.0, 0.0], look_delta=[0.1, 0.0],
+    held_actions=["interact"],
+)
+input_bridge.handle_line(encode(scheduled_input))
+# A retransmit with the same identity but altered payload/tick must never sort
+# ahead of and replace the first wire payload before its future boundary.
+input_bridge.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="player-input-v5", epoch=1, seq=81,
+    requested_tick=0, move_axes=[0.0, 1.0], look_delta=[0.3, 0.0],
+    held_actions=[],
+)))
+spawn = list(input_bridge.body.lab_world.player.spawn_position_mm)
+for seq, tick in ((300, 0), (301, 20)):
+    step_result = input_bridge._process_experiment_step(ExperimentStepPacket(
+        session_id="player-input-v5", epoch=1, seq=seq, sim_tick=tick,
+        quantum_ticks=20, brain=BrainPacket(t=tick / 1000.0)))
+    input_bridge._drain_lab_responses()
+check(
+    "V5.5 PlayerInput waits for exact requested deterministic tick",
+    step_result.ok and input_bridge.session_tick == 40
+    and input_bridge.body.lab_world.player.position_mm == spawn
+    and len(input_bridge.deferred_player_inputs) == 1,
+    repr(input_bridge.body.lab_world.player.input_state()),
+)
+input_bridge._process_experiment_step(ExperimentStepPacket(
+    session_id="player-input-v5", epoch=1, seq=302, sim_tick=40,
+    quantum_ticks=20, brain=BrainPacket(t=0.040)))
+tick40_responses = input_bridge._drain_lab_responses()
+tick40_ack = next((p for p in tick40_responses
+                   if isinstance(p, PlayerInputResultPacket) and p.seq == 81), None)
+tick40_pose = list(input_bridge.body.lab_world.player.position_mm)
+tick40_distance = math.hypot(tick40_pose[0] - spawn[0], tick40_pose[1] - spawn[1])
+check(
+    "V5.5 requested tick applies input once and integrates bounded mm/s",
+    isinstance(tick40_ack, PlayerInputResultPacket) and tick40_ack.ok
+    and tick40_ack.applied_tick == 40
+    and abs(tick40_distance - PLAYER_MOVE_SPEED_MM_S * 0.020) < 1e-9
+    and abs(input_bridge.body.lab_world.player.look_yaw_rad - 0.1) < 1e-12
+    and input_bridge.body.lab_world.player.input_held_actions == ["interact"]
+    and not input_bridge.body.lab_world.objects,
+    f"ack={tick40_ack!r} pose={tick40_pose}",
+)
+
+# Replaying the same seq returns the cached authoritative ACK. It must not apply
+# look_delta twice; held movement still advances normally with simulation time.
+input_bridge.handle_line(encode(scheduled_input))
+before_duplicate = list(input_bridge.body.lab_world.player.position_mm)
+input_bridge._process_experiment_step(ExperimentStepPacket(
+    session_id="player-input-v5", epoch=1, seq=303, sim_tick=60,
+    quantum_ticks=20, brain=BrainPacket(t=0.060)))
+duplicate_responses = input_bridge._drain_lab_responses()
+duplicate_ack = next((p for p in duplicate_responses
+                      if isinstance(p, PlayerInputResultPacket) and p.seq == 81), None)
+after_duplicate = list(input_bridge.body.lab_world.player.position_mm)
+duplicate_distance = math.hypot(
+    after_duplicate[0] - before_duplicate[0], after_duplicate[1] - before_duplicate[1])
+check(
+    "V5.5 duplicate PlayerInput is idempotent while held state advances by sim dt",
+    isinstance(duplicate_ack, PlayerInputResultPacket) and duplicate_ack.ok
+    and duplicate_ack.applied_tick == 40
+    and abs(input_bridge.body.lab_world.player.look_yaw_rad - 0.1) < 1e-12
+    and abs(duplicate_distance - PLAYER_MOVE_SPEED_MM_S * 0.020) < 1e-9,
+    f"ack={duplicate_ack!r} distance={duplicate_distance}",
+)
+
+# Wrong epoch is rejected before it can replace the held state.
+input_bridge.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="player-input-v5", epoch=2, seq=82,
+    requested_tick=80, move_axes=[0.0, 0.0], look_delta=[0.2, 0.0],
+    held_actions=[],
+)))
+before_wrong_epoch = list(input_bridge.body.lab_world.player.position_mm)
+input_bridge._process_experiment_step(ExperimentStepPacket(
+    session_id="player-input-v5", epoch=1, seq=304, sim_tick=80,
+    quantum_ticks=20, brain=BrainPacket(t=0.080)))
+wrong_epoch_responses = input_bridge._drain_lab_responses()
+wrong_epoch_ack = next((p for p in wrong_epoch_responses
+                        if isinstance(p, PlayerInputResultPacket) and p.seq == 82), None)
+after_wrong_epoch = list(input_bridge.body.lab_world.player.position_mm)
+check(
+    "V5.5 wrong-epoch PlayerInput is rejected without replacing held state",
+    isinstance(wrong_epoch_ack, PlayerInputResultPacket) and not wrong_epoch_ack.ok
+    and wrong_epoch_ack.status == "rejected_old_epoch"
+    and input_bridge.body.lab_world.player.input_move_axes == [1.0, 0.0]
+    and abs(input_bridge.body.lab_world.player.look_yaw_rad - 0.1) < 1e-12
+    and math.hypot(after_wrong_epoch[0] - before_wrong_epoch[0],
+                   after_wrong_epoch[1] - before_wrong_epoch[1]) > 0.0,
+    repr(wrong_epoch_ack),
+)
+
+input_bridge.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="other-player-session", epoch=1, seq=83,
+    requested_tick=100, move_axes=[0.0, 0.0], look_delta=[0.0, 0.0],
+    held_actions=[],
+)))
+input_bridge._process_player_inputs(applied_tick=100, applied_epoch=1)
+wrong_session_ack = next((p for p in input_bridge._drain_lab_responses()
+                          if isinstance(p, PlayerInputResultPacket) and p.seq == 83), None)
+check(
+    "V5.5 wrong-session PlayerInput is rejected without replacing held state",
+    isinstance(wrong_session_ack, PlayerInputResultPacket) and not wrong_session_ack.ok
+    and wrong_session_ack.status == "rejected_session"
+    and input_bridge.body.lab_world.player.input_move_axes == [1.0, 0.0]
+    and input_bridge.body.lab_world.player.input_held_actions == ["interact"],
+    repr(wrong_session_ack),
+)
+
+# Pause itself is a fail-safe neutralization boundary. Resume without a fresh
+# PlayerInput must not resurrect a previously held W/interact state.
+input_bridge.handle_line(encode(SessionControlPacket(
+    session_id="player-input-v5", epoch=1, seq=2, sim_tick=100,
+    action="pause", mode="deterministic")))
+input_bridge._process_session_controls(); input_bridge._drain_lab_responses()
+paused_pose = list(input_bridge.body.lab_world.player.position_mm)
+paused_step = input_bridge._process_experiment_step(ExperimentStepPacket(
+    session_id="player-input-v5", epoch=1, seq=305, sim_tick=100,
+    quantum_ticks=20, brain=BrainPacket(t=0.100)))
+input_bridge.handle_line(encode(SessionControlPacket(
+    session_id="player-input-v5", epoch=1, seq=3, sim_tick=100,
+    action="resume", mode="deterministic")))
+input_bridge._process_session_controls(); input_bridge._drain_lab_responses()
+resume_step = input_bridge._process_experiment_step(ExperimentStepPacket(
+    session_id="player-input-v5", epoch=1, seq=306, sim_tick=100,
+    quantum_ticks=20, brain=BrainPacket(t=0.100)))
+input_bridge._drain_lab_responses()
+resumed_pose = list(input_bridge.body.lab_world.player.position_mm)
+check(
+    "V5.5 pause neutralizes held input and resume without fresh input does not move",
+    not paused_step.ok and resume_step.ok
+    and input_bridge.body.lab_world.player.input_move_axes == [0.0, 0.0]
+    and input_bridge.body.lab_world.player.input_held_actions == []
+    and resumed_pose == paused_pose,
+    f"paused={paused_pose} resumed={resumed_pose}",
+)
+
+
+# Inputs queued before an accepted pause, and inputs arriving while paused, are
+# terminally rejected rather than retained to surprise the first resumed step.
+pause_queue_bridge = Bridge(mode="mock")
+pause_queue_bridge.handle_line(encode(HelloPacket(role="swift", physics_timestep_s=None)))
+pause_queue_bridge.handle_line(encode(SessionControlPacket(
+    session_id="pause-input-v5", epoch=1, seq=1, sim_tick=0,
+    action="begin", mode="deterministic")))
+pause_queue_bridge._process_session_controls(); pause_queue_bridge._drain_lab_responses()
+pause_queue_bridge.body.lab_world.set_player_active(True)
+queued_before_pause = PlayerInputPacket(
+    actor_id="player", session_id="pause-input-v5", epoch=1, seq=1,
+    requested_tick=40, move_axes=[1.0, 0.0], look_delta=[0.2, 0.0],
+    held_actions=["interact"],
+)
+pause_queue_bridge.handle_line(encode(queued_before_pause))
+pause_queue_bridge.handle_line(encode(SessionControlPacket(
+    session_id="pause-input-v5", epoch=1, seq=2, sim_tick=0,
+    action="pause", mode="deterministic")))
+pause_queue_bridge._process_session_controls()
+before_pause_responses = pause_queue_bridge._drain_lab_responses()
+before_pause_ack = next((p for p in before_pause_responses
+                         if isinstance(p, PlayerInputResultPacket) and p.seq == 1), None)
+pause_queue_bridge.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="pause-input-v5", epoch=1, seq=2,
+    requested_tick=0, move_axes=[1.0, 0.0], look_delta=[0.1, 0.0],
+    held_actions=["interact"],
+)))
+pause_queue_bridge._process_player_inputs(applied_tick=0, applied_epoch=1)
+during_pause_ack = next((p for p in pause_queue_bridge._drain_lab_responses()
+                         if isinstance(p, PlayerInputResultPacket) and p.seq == 2), None)
+pause_queue_bridge.handle_line(encode(SessionControlPacket(
+    session_id="pause-input-v5", epoch=1, seq=3, sim_tick=0,
+    action="resume", mode="deterministic")))
+pause_queue_bridge._process_session_controls(); pause_queue_bridge._drain_lab_responses()
+pause_queue_bridge.handle_line(encode(queued_before_pause))
+pause_queue_bridge._process_player_inputs(applied_tick=0, applied_epoch=1)
+replayed_pause_ack = next((p for p in pause_queue_bridge._drain_lab_responses()
+                           if isinstance(p, PlayerInputResultPacket) and p.seq == 1), None)
+pause_queue_start = list(pause_queue_bridge.body.lab_world.player.position_mm)
+pause_queue_step = pause_queue_bridge._process_experiment_step(ExperimentStepPacket(
+    session_id="pause-input-v5", epoch=1, seq=500, sim_tick=0,
+    quantum_ticks=20, brain=BrainPacket(t=0.0)))
+pause_queue_bridge._drain_lab_responses()
+pause_queue_end = list(pause_queue_bridge.body.lab_world.player.position_mm)
+check(
+    "V5.5 pause rejects queued-before/during input and cached replay cannot resurrect it",
+    isinstance(before_pause_ack, PlayerInputResultPacket) and not before_pause_ack.ok
+    and before_pause_ack.status == "rejected_paused"
+    and isinstance(during_pause_ack, PlayerInputResultPacket) and not during_pause_ack.ok
+    and during_pause_ack.status == "rejected_paused"
+    and isinstance(replayed_pause_ack, PlayerInputResultPacket) and not replayed_pause_ack.ok
+    and replayed_pause_ack.status == "rejected_paused"
+    and pause_queue_step.ok
+    and pause_queue_bridge.body.lab_world.player.input_move_axes == [0.0, 0.0]
+    and pause_queue_bridge.body.lab_world.player.input_held_actions == []
+    and pause_queue_start == pause_queue_end
+    and not pause_queue_bridge.pending_player_inputs
+    and not pause_queue_bridge.deferred_player_inputs
+    and not pause_queue_bridge.inflight_player_inputs,
+    f"before={before_pause_ack!r} during={during_pause_ack!r} replay={replayed_pause_ack!r}",
+)
+
+
+# recent_player_input_results is intentionally bounded. A replay older than that
+# cache must still be fail-closed by the monotonic seq watermark, not reapply look.
+eviction_bridge = Bridge(mode="mock")
+eviction_bridge.body.lab_world.set_player_active(True)
+for seq in range(1, 131):
+    eviction_bridge.handle_line(encode(PlayerInputPacket(
+        actor_id="player", session_id="", epoch=0, seq=seq, requested_tick=0,
+        move_axes=[0.0, 0.0], look_delta=([0.1, 0.0] if seq == 1 else [0.0, 0.0]),
+        held_actions=[],
+    )))
+    eviction_bridge._process_player_inputs(applied_tick=0, applied_epoch=0)
+    eviction_bridge._drain_lab_responses()
+eviction_yaw_before = eviction_bridge.body.lab_world.player.look_yaw_rad
+eviction_first_key = ("", 0, 1)
+eviction_was_pruned = eviction_first_key not in eviction_bridge.recent_player_input_results
+eviction_bridge.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="", epoch=0, seq=1, requested_tick=0,
+    move_axes=[0.0, 0.0], look_delta=[0.1, 0.0], held_actions=[],
+)))
+eviction_bridge._process_player_inputs(applied_tick=0, applied_epoch=0)
+eviction_replay = next((p for p in eviction_bridge._drain_lab_responses()
+                        if isinstance(p, PlayerInputResultPacket) and p.seq == 1), None)
+check(
+    "V5.5 replay remains idempotent after bounded result-cache eviction",
+    eviction_was_pruned
+    and isinstance(eviction_replay, PlayerInputResultPacket) and not eviction_replay.ok
+    and eviction_replay.status == "rejected_replay"
+    and eviction_bridge.last_player_input_seq == 130
+    and abs(eviction_bridge.body.lab_world.player.look_yaw_rad - eviction_yaw_before) < 1e-12
+    and abs(eviction_yaw_before - 0.1) < 1e-12,
+    f"replay={eviction_replay!r} yaw={eviction_yaw_before}",
+)
+
+
+# SiliconFly world convention is +Y left. Therefore at yaw=0, local +right must
+# move along world -Y, not +Y.
+basis_body = MockBody()
+basis_body.lab_world.set_player_active(True)
+basis_start = list(basis_body.lab_world.player.position_mm)
+basis_body.set_player_input(PlayerInputPacket(
+    actor_id="player", session_id="", epoch=0, seq=1, requested_tick=0,
+    move_axes=[0.0, 1.0], look_delta=[0.0, 0.0], held_actions=[],
+))
+basis_body.step_exact(LocomotorCommand(), 20)
+basis_end = list(basis_body.lab_world.player.position_mm)
+check(
+    "V5.5 right axis follows world convention (+Y left => right is -Y at yaw zero)",
+    abs(basis_end[0] - basis_start[0]) < 1e-12
+    and abs((basis_end[1] - basis_start[1]) + PLAYER_MOVE_SPEED_MM_S * 0.020) < 1e-9,
+    f"start={basis_start} end={basis_end}",
+)
+
+
+def player_trace_with_render_burst(render_burst):
+    b = Bridge(mode="mock")
+    b.handle_line(encode(HelloPacket(role="swift", physics_timestep_s=None)))
+    b.handle_line(encode(SessionControlPacket(
+        session_id="fps-independent", epoch=1, seq=1, sim_tick=0,
+        action="begin", mode="deterministic")))
+    b._process_session_controls(); b._drain_lab_responses()
+    b.body.lab_world.set_player_active(True)
+    start = list(b.body.lab_world.player.position_mm)
+    b.handle_line(encode(PlayerInputPacket(
+        actor_id="player", session_id="fps-independent", epoch=1, seq=1,
+        requested_tick=0, move_axes=[1.0, 1.0], look_delta=[0.0, 0.0],
+        held_actions=[],
+    )))
+    render_seq = 1000
+    for step_seq, tick in enumerate(range(0, 100, 20), start=400):
+        for _ in range(render_burst):
+            b.handle_line(encode(WorldRenderRequestPacket(
+                session_id="fps-independent", epoch=1, seq=render_seq)))
+            render_seq += 1
+            b._process_view_queries(); b._drain_lab_responses()
+        result = b._process_experiment_step(ExperimentStepPacket(
+            session_id="fps-independent", epoch=1, seq=step_seq, sim_tick=tick,
+            quantum_ticks=20, brain=BrainPacket(t=tick / 1000.0)))
+        if not result.ok:
+            return start, None
+        b._drain_lab_responses()
+    return start, list(b.body.lab_world.player.position_mm)
+
+
+fps_start, fps_no_render = player_trace_with_render_burst(0)
+_, fps_many_render = player_trace_with_render_burst(9)
+fps_distance = (None if fps_no_render is None else math.hypot(
+    fps_no_render[0] - fps_start[0], fps_no_render[1] - fps_start[1]))
+check(
+    "V5.5 player movement is render-frame-rate independent",
+    fps_no_render is not None and fps_many_render is not None
+    and all(abs(a - b) < 1e-12 for a, b in zip(fps_no_render, fps_many_render))
+    and abs(fps_distance - PLAYER_MOVE_SPEED_MM_S * 0.100) < 1e-9,
+    f"no_render={fps_no_render} many_render={fps_many_render} distance={fps_distance}",
+)
 
 # One logical reset advances one epoch. It is accepted only behind a pause
 # barrier; body/world reset happens on the owner thread and stale epoch traffic

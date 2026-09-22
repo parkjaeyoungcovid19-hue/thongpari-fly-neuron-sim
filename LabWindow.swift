@@ -250,6 +250,16 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private let worldViewer = WorldViewer(frame: .zero)
     private let worldViewerStatusLabel = NSTextField(wrappingLabelWithString: "3D world — waiting for V5.1 backend capability…")
     private let observationCameraMode = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let playerInputStatusLabel = NSTextField(wrappingLabelWithString: "Participant controls — waiting for V5.5 player_input capability…")
+    private let playerForwardKey = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let playerBackwardKey = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let playerLeftKey = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let playerRightKey = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let playerInteractKey = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let playerController = PlayerController()
+    private var playerCaptureArmed = false
+    private var lastPlayerInputConnectionGeneration: UInt64?
+    private var lastPlayerInputSeq: Int?
     private let arenaPlacement = LabArenaPlacementView(frame: .zero)
     private let createOnArenaClick = NSButton(checkboxWithTitle: "Create selected object when clicking arena", target: nil, action: nil)
     private var autoObjectSerial: [String: Int] = [:]
@@ -319,6 +329,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                          backing: .buffered, defer: false)
         w.title = "Thongpari Fly Neuron Sim — Virtual Fly Lab V5.2 Preview"
         w.minSize = NSSize(width: 760, height: 600)
+        PlayerInputFocusPolicy.prepareWindowForCapture(w)
         super.init(window: w)
         w.delegate = self
         buildUI()
@@ -356,6 +367,52 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             self.worldViewerStatusLabel.stringValue = "3D world — authoritative pick #\(seq) pending…"
             self.worldViewerStatusLabel.textColor = .secondaryLabelColor
         }
+        worldViewer.onPlayerKeyDown = { [weak self] keyCode, isRepeat in
+            guard let self else { return }
+            guard self.playerInputFocusAllowsCapture() else {
+                self.releasePlayerHeldInput(reason: "focus suppression")
+                return
+            }
+            if let intent = self.playerController.handleKeyDown(keyCode: keyCode, isRepeat: isRepeat) {
+                let isEscape = keyCode == PlayerController.escapeKeyCode
+                self.sendPlayerInput(
+                    intent,
+                    reason: isEscape ? "Esc safety release" : "key down",
+                    allowStaleSnapshotForRelease: isEscape,
+                    discardPendingLook: isEscape)
+                if isEscape {
+                    self.playerCaptureArmed = false
+                    _ = self.playerController.setCaptureEnabled(false)
+                    self.worldViewer.participateInputEnabled = false
+                    self.playerInputStatusLabel.stringValue = "Participant controls — capture released by Esc · click the 3D view to recapture"
+                }
+            }
+        }
+        worldViewer.onPlayerKeyUp = { [weak self] keyCode in
+            guard let self else { return }
+            if let intent = self.playerController.handleKeyUp(keyCode: keyCode) {
+                self.sendPlayerInput(intent, reason: "key up")
+            }
+        }
+        worldViewer.onPlayerLookDelta = { [weak self] dx, dy in
+            guard let self, self.playerInputFocusAllowsCapture() else { return }
+            if let intent = self.playerController.handleLook(deltaX: dx, deltaY: dy) {
+                self.sendPlayerInput(intent, reason: "look")
+            }
+        }
+        worldViewer.onPlayerFocusLost = { [weak self] in
+            self?.releasePlayerHeldInput(reason: "viewer focus lost")
+        }
+        worldViewer.onPlayerCaptureRequested = { [weak self] in
+            guard let self,
+                  self.viewState.mode == .participate,
+                  self.viewState.pendingMode == nil,
+                  self.bridge?.playerInputV5_5Available == true else { return }
+            self.playerCaptureArmed = true
+            _ = self.playerController.setCaptureEnabled(true)
+            self.worldViewer.participateInputEnabled = true
+            self.playerInputStatusLabel.stringValue = "Participant controls — CAPTURED · WASD move · mouse look · E interact · Esc release"
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 0.10, repeats: true) { [weak self] _ in
             self?.refresh()
         }
@@ -372,8 +429,13 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        releasePlayerHeldInput(reason: "window closed")
         // Keep the controller reusable from the menu; telemetry recording can
         // intentionally continue after the window is hidden.
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        releasePlayerHeldInput(reason: "window focus lost")
     }
 
     private func buildUI() {
@@ -476,8 +538,28 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         }
         switch requested {
         case .participate:
-            guard bridge?.playerV5_4Available == true,
-                  let id = send("set_player_active", value: 1) else {
+            guard bridge?.playerV5_4Available == true else {
+                viewState.rejectModeTransition()
+                viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+                renderViewState()
+                return
+            }
+            if bridge?.playerInputV5_5Available == true {
+                // Establish/promote the V4 identity before queueing the physical
+                // participant mutation. The bridge sends session-control packets
+                // ahead of LabCommands; doing this in the opposite order would
+                // let `begin` change the backend identity before an old-identity
+                // set_player_active command reached Python.
+                guard coordinator.ensureInteractivePlayerInputSession() else {
+                    viewState.rejectModeTransition()
+                    viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+                    playerInputStatusLabel.stringValue = "Participant controls — could not establish interactive input session"
+                    playerInputStatusLabel.textColor = .systemRed
+                    renderViewState()
+                    return
+                }
+            }
+            guard let id = send("set_player_active", value: 1) else {
                 viewState.rejectModeTransition()
                 viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
                 renderViewState()
@@ -491,6 +573,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             worldViewerStatusLabel.stringValue = "3D world — enabling backend participant probe…"
         case .observe:
             if viewState.mode == .participate {
+                releasePlayerHeldInput(reason: "mode exit")
                 guard let id = send("set_player_active", value: 0) else {
                     viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
                     return
@@ -512,7 +595,15 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         viewModeControl.setEnabled(bridge?.playerV5_4Available == true, forSegment: 1)
         viewModeControl.setEnabled(false, forSegment: 2)
         let playerAvailable = bridge?.playerV5_4Available == true
+        let playerInputAvailable = bridge?.playerInputV5_5Available == true
         let generation = bridge?.connectionGeneration ?? 0
+        if let previous = lastPlayerInputConnectionGeneration, previous != generation {
+            _ = playerController.setCaptureEnabled(false)
+            _ = playerController.releaseHeldInput(blockUntilFreshPress: true)
+            playerCaptureArmed = false
+            lastPlayerInputSeq = nil
+        }
+        lastPlayerInputConnectionGeneration = generation
         if participantCommandPending.clearIfViewerLifecycleInvalid(
             playerAvailable: playerAvailable,
             connectionGeneration: generation) {
@@ -521,12 +612,195 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         if !playerAvailable && viewState.mode == .participate {
             viewState.mode = .observe
         }
+
+        let wantsPlayerInputMode = viewState.mode == .participate
+            && viewState.pendingMode == nil && playerInputAvailable
+            && viewState.sessionPhase == .running
+        worldViewer.participateModeEnabled = wantsPlayerInputMode
+        if !wantsPlayerInputMode {
+            let hadCapture = playerController.captureEnabled
+                || playerCaptureArmed || worldViewer.participateInputEnabled
+            if hadCapture {
+                releasePlayerHeldInput(reason: "input capability/mode release")
+            } else {
+                _ = playerController.setCaptureEnabled(false)
+                playerCaptureArmed = false
+                worldViewer.participateInputEnabled = false
+            }
+        } else {
+            // Never steal an editor/control first responder when the async
+            // Participate snapshot arrives. Capture starts only from an explicit
+            // click in WorldViewer (onPlayerCaptureRequested).
+            let focused = playerInputFocusAllowsCapture()
+            let shouldCapture = playerCaptureArmed && focused
+            if shouldCapture {
+                _ = playerController.setCaptureEnabled(true)
+                worldViewer.participateInputEnabled = true
+            } else if playerCaptureArmed
+                        || playerController.captureEnabled
+                        || worldViewer.participateInputEnabled {
+                releasePlayerHeldInput(reason: "focus release")
+            } else {
+                _ = playerController.setCaptureEnabled(false)
+                worldViewer.participateInputEnabled = false
+            }
+        }
+
+        if viewState.mode == .participate {
+            if playerInputAvailable {
+                playerInputStatusLabel.stringValue = worldViewer.participateInputEnabled
+                    ? "Participant controls — CAPTURED · WASD move · mouse look · E interact · Esc release"
+                    : "Participant controls — released · click the 3D view to capture"
+                playerInputStatusLabel.textColor = worldViewer.participateInputEnabled ? .systemGreen : .secondaryLabelColor
+            } else {
+                playerInputStatusLabel.stringValue = "Participant controls — backend has V5.4 body but not V5.5 player_input"
+                playerInputStatusLabel.textColor = .systemOrange
+            }
+        } else {
+            playerInputStatusLabel.stringValue = "Participant controls — Observe mode; camera controls remain presentation-only"
+            playerInputStatusLabel.textColor = .secondaryLabelColor
+        }
         viewModeControl.selectedSegment = LabViewMode.allCases.firstIndex(of: viewState.mode) ?? 0
         viewStateLabel.stringValue = viewState.commonStatusLine
         viewStateLabel.textColor = viewState.sessionPhase == .failed ? .systemRed : .labelColor
         sessionStatusLabel.stringValue = viewState.sessionStatusLine
         sessionStatusLabel.textColor = viewState.sessionPhase == .failed ? .systemRed : .labelColor
         viewModeControl.selectedSegment = LabViewMode.allCases.firstIndex(of: viewState.mode) ?? 0
+    }
+
+    private func playerInputFocusAllowsCapture() -> Bool {
+        guard let window else { return false }
+        return PlayerInputFocusPolicy.allowsCapture(
+            windowIsKey: window.isKeyWindow,
+            firstResponder: window.firstResponder,
+            viewer: worldViewer)
+    }
+
+    private func playerInputEnvelope(allowStaleSnapshotForRelease: Bool = false)
+        -> (sessionID: String, epoch: Int, requestedTick: Int)? {
+        guard let bridge, bridge.playerInputV5_5Available else { return nil }
+        let session = coordinator.sessionSnapshot()
+        if session.mode == .deterministic {
+            guard session.phase == .running,
+                  let schedule = coordinator.labCommandSchedule() else { return nil }
+            // The deterministic schedule is already the authoritative exact
+            // owner boundary. Requiring a render snapshot here can strand a held
+            // key when focus is lost during a temporary viewer stall.
+            return (schedule.sessionID, schedule.epoch, schedule.requestedTick)
+        }
+
+        guard coordinator.ensureInteractivePlayerInputSession() else { return nil }
+        let current = coordinator.sessionSnapshot()
+        let maxSnapshotAge = allowStaleSnapshotForRelease
+            ? TimeInterval.greatestFiniteMagnitude : 1.0
+        guard current.mode == .interactive, current.phase == .running else { return nil }
+        if let snapshot = bridge.latestWorldRenderSnapshot(maxAge: maxSnapshotAge),
+           snapshot.ok,
+           snapshot.sessionID == current.sessionID,
+           snapshot.epoch == current.epoch {
+            if !allowStaleSnapshotForRelease && snapshot.player == nil { return nil }
+            return (current.sessionID, current.epoch, snapshot.simTick)
+        }
+        if allowStaleSnapshotForRelease {
+            // Safety neutralization must not depend on view freshness. Tick zero
+            // is a conservative interactive provenance floor: Python still
+            // validates session/epoch and applies at its current owner boundary,
+            // rejecting only client claims that are in the future.
+            return (current.sessionID, current.epoch, 0)
+        }
+        return nil
+    }
+
+    @discardableResult
+    private func sendPlayerInput(_ intent: PlayerInputIntent, reason: String,
+                                 allowStaleSnapshotForRelease: Bool = false,
+                                 discardPendingLook: Bool = false) -> Int? {
+        guard let bridge,
+              let envelope = playerInputEnvelope(
+                allowStaleSnapshotForRelease: allowStaleSnapshotForRelease) else {
+            playerInputStatusLabel.stringValue = "Participant controls — waiting for authoritative session snapshot before \(reason)"
+            playerInputStatusLabel.textColor = .systemOrange
+            return nil
+        }
+        guard let seq = bridge.sendPlayerInput(
+            sessionID: envelope.sessionID,
+            epoch: envelope.epoch,
+            requestedTick: envelope.requestedTick,
+            moveAxes: intent.moveAxes,
+            lookDelta: intent.lookDelta,
+            heldActions: intent.heldActions,
+            discardPendingLook: discardPendingLook) else {
+            playerInputStatusLabel.stringValue = "Participant controls — \(reason) was not queued"
+            playerInputStatusLabel.textColor = .systemOrange
+            return nil
+        }
+        lastPlayerInputSeq = seq
+        return seq
+    }
+
+    private func releasePlayerHeldInput(reason: String) {
+        playerCaptureArmed = false
+        _ = playerController.releaseHeldInput(blockUntilFreshPress: true)
+        _ = playerController.setCaptureEnabled(false)
+        worldViewer.participateInputEnabled = false
+        let neutral = playerController.heldIntent()
+        sendPlayerInput(neutral, reason: reason,
+                        allowStaleSnapshotForRelease: true,
+                        discardPendingLook: true)
+    }
+
+    private func playerKeyPopup(for action: PlayerControlAction) -> NSPopUpButton {
+        switch action {
+        case .forward: return playerForwardKey
+        case .backward: return playerBackwardKey
+        case .left: return playerLeftKey
+        case .right: return playerRightKey
+        case .interact: return playerInteractKey
+        }
+    }
+
+    private func configurePlayerKeyPopups() {
+        for action in PlayerControlAction.allCases {
+            let popup = playerKeyPopup(for: action)
+            popup.removeAllItems()
+            for choice in PlayerKeyChoice.remappable {
+                popup.addItem(withTitle: choice.title)
+                popup.lastItem?.representedObject = NSNumber(value: choice.keyCode)
+            }
+            popup.identifier = NSUserInterfaceItemIdentifier(action.rawValue)
+            popup.target = self
+            popup.action = #selector(playerKeyBindingChanged(_:))
+        }
+        syncPlayerKeyPopups()
+    }
+
+    private func syncPlayerKeyPopups() {
+        for action in PlayerControlAction.allCases {
+            let popup = playerKeyPopup(for: action)
+            let code = playerController.bindings.keyCode(for: action)
+            if let item = popup.itemArray.first(where: {
+                ($0.representedObject as? NSNumber)?.uint16Value == code
+            }) {
+                popup.select(item)
+            }
+        }
+    }
+
+    @objc private func playerKeyBindingChanged(_ sender: NSPopUpButton) {
+        guard let raw = sender.identifier?.rawValue,
+              let action = PlayerControlAction(rawValue: raw),
+              let number = sender.selectedItem?.representedObject as? NSNumber else {
+            syncPlayerKeyPopups()
+            return
+        }
+        if let neutral = playerController.rebind(action, to: number.uint16Value) {
+            sendPlayerInput(neutral, reason: "key remap",
+                            allowStaleSnapshotForRelease: true,
+                            discardPendingLook: true)
+        }
+        syncPlayerKeyPopups()
+        playerInputStatusLabel.stringValue = "Participant controls — key mapping saved · Esc remains fixed safety release"
+        playerInputStatusLabel.textColor = .secondaryLabelColor
     }
 
     private func tab(_ title: String, _ vc: NSViewController) -> NSTabViewItem {
@@ -678,6 +952,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         worldViewerStatusLabel.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
         worldViewerStatusLabel.textColor = .secondaryLabelColor
         worldViewerStatusLabel.maximumNumberOfLines = 2
+        playerInputStatusLabel.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        playerInputStatusLabel.textColor = .secondaryLabelColor
+        playerInputStatusLabel.maximumNumberOfLines = 2
         worldViewer.translatesAutoresizingMaskIntoConstraints = false
         worldViewer.heightAnchor.constraint(equalToConstant: 360).isActive = true
         worldViewer.widthAnchor.constraint(greaterThanOrEqualToConstant: 700).isActive = true
@@ -685,6 +962,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         observationCameraMode.target = self
         observationCameraMode.action = #selector(observationCameraModeChanged)
         selectPopupValue(observationCameraMode, WorldViewerCameraMode.orbit.rawValue)
+        configurePlayerKeyPopups()
         [objectX, objectY, objectZ, objectSize, objectSpeed, objectEndDistance].forEach { _ = field($0) }
         addPopupItems(objectShape, [
             ("Box", "box"),
@@ -702,12 +980,23 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         arenaPlacement.selectedPoint = (d(objectX), d(objectY))
         return page([
             section("3D world — backend snapshot", kind: .physical,
-                    help: "Read-only backend world view. Orbit/follow/free camera motion is presentation-only and never becomes a neural/world command. Right-drag rotates; Shift+right-drag pans in Orbit/Free; scroll zooms/dollies. A left click only sends an authoritative MuJoCo pick ray.",
+                    help: "Observe uses the presentation-only Orbit/follow/free camera. In V5.5 Participate, clicking the 3D view captures WASD/mouse/E input for the backend player; Esc releases capture. While captured, camera/pick gestures are suppressed rather than mixed with game input.",
                     views: [
                         row([label("Observation camera"), observationCameraMode,
                              button("Reset camera", #selector(resetObservationCamera))]),
                         worldViewer,
                         worldViewerStatusLabel
+                    ]),
+            section("Participant controls", kind: .physical,
+                    help: "Bindings are saved locally. Text fields and controls never consume movement input. Esc is a fixed safety key: it immediately neutralizes held input and releases capture; click the 3D view to capture again. E only reports the V5.5 interact action state; grab/place is not implemented until V5.6.",
+                    views: [
+                        row([label("Forward"), playerForwardKey,
+                             label("Backward"), playerBackwardKey,
+                             label("Left"), playerLeftKey,
+                             label("Right"), playerRightKey]),
+                        row([label("Interact"), playerInteractKey,
+                             label("Safety release"), label("Esc (fixed)")]),
+                        playerInputStatusLabel
                     ]),
             section("Click to place an object", kind: .physical,
                     help: "This top-down arena remains a minimap and coordinate helper. Choose a type first, then click the arena. Up is +X forward and left is +Y. With the checkbox on, one click creates the selected object; turn it off to pick coordinates only.",
@@ -1136,6 +1425,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         }
     }
     @objc private func resetWorld() {
+        releasePlayerHeldInput(reason: "world reset")
         clearEyePending()
         temperature.stringValue = "25"
         selectPopupValue(temperatureMode, "environment_only")
@@ -1147,6 +1437,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         recorder.mark(kind: "reset", detail: "world+modeled environment")
     }
     @objc private func resetBody() {
+        releasePlayerHeldInput(reason: "body reset")
         if !coordinator.requestDeterministicReset(scopes: ["body"]) { send("reset_body") }
         recorder.mark(kind: "reset", detail: "body")
     }
@@ -1155,6 +1446,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         recorder.mark(kind: "reset", detail: "brain")
     }
     @objc private func resetAll() {
+        releasePlayerHeldInput(reason: "full reset")
         clearEyePending()
         temperature.stringValue = "25"
         selectPopupValue(temperatureMode, "environment_only")
@@ -1387,6 +1679,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func startDeterministicSession() {
+        releasePlayerHeldInput(reason: "session change")
         if let error = coordinator.startDeterministicSession() {
             sessionStatusLabel.stringValue = "Session — deterministic unavailable: \(error)"
             sessionStatusLabel.textColor = .systemOrange
@@ -1400,6 +1693,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func pauseSession() {
+        releasePlayerHeldInput(reason: "pause")
         let before = coordinator.sessionSnapshot()
         coordinator.requestSessionPause()
         recorder.mark(kind: "pause_requested", detail: before.mode.rawValue,
@@ -1713,6 +2007,17 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         }
 
         renderViewState()
+
+        if let result = bridge?.latestPlayerInputResult(),
+           result.seq == lastPlayerInputSeq {
+            if result.ok {
+                playerInputStatusLabel.stringValue = "Participant controls — input #\(result.seq) applied at tick \(result.appliedTick ?? result.requestedTick)"
+                playerInputStatusLabel.textColor = .systemGreen
+            } else {
+                playerInputStatusLabel.stringValue = "Participant controls — input #\(result.seq) rejected: \(result.error ?? result.status)"
+                playerInputStatusLabel.textColor = .systemRed
+            }
+        }
 
         if window?.isVisible == true {
             neuralGraph.append([t.ratePop, t.rateLoom, t.rateFwd, t.rateMDN, t.rateGroom])

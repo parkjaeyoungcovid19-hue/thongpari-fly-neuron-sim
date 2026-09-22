@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from environment import ArenaConfig
 from fly_body import RealFlyBody
 from neural_decoder import LocomotorCommand
-from protocol import LabCommand
+from player_body import PLAYER_MOVE_SPEED_MM_S
+from protocol import LabCommand, PlayerInputPacket
 
 
 fails = []
@@ -328,6 +329,59 @@ try:
     body.sim.mj_data.qpos[:] = response_qpos
     body.sim.mj_data.qvel[:] = response_qvel
     body.sim.mj_data.time = response_time
+    world.reset_player_pose(preserve_active=True)
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+
+    # V5.5 real-backend proof: held movement is converted to mm/s and integrated
+    # by the same exact simulation quantum as the fly, not by render callbacks.
+    v55_player_start = np.asarray(world.render_player()["position_mm"], dtype=float)
+    body.set_player_input(PlayerInputPacket(
+        actor_id="player", session_id="real-v55", epoch=1, seq=1,
+        requested_tick=0, move_axes=[1.0, 0.0], look_delta=[0.0, 0.0],
+        held_actions=["interact"],
+    ))
+    v55_obs = body.step_exact(LocomotorCommand(forward=0.0), exact_substeps)
+    v55_player_end = np.asarray(world.render_player()["position_mm"], dtype=float)
+    v55_planar = float(np.linalg.norm((v55_player_end - v55_player_start)[:2]))
+    v55_expected = PLAYER_MOVE_SPEED_MM_S * v55_obs.sim_dt
+    check("V5.5 real participant movement uses simulation-time mm/s integration",
+          abs(v55_obs.sim_dt - quantum_s) < 1e-12
+          and abs(v55_planar - v55_expected) < 0.05
+          and world.player.input_held_actions == ["interact"],
+          f"moved={v55_planar:.6f}mm expected={v55_expected:.6f}mm sim_dt={v55_obs.sim_dt:.6f}")
+    body.clear_player_input()
+    world.reset_player_pose(preserve_active=True)
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+
+    # Same-owner-boundary regression: set_player_active() writes the free-joint
+    # qpos immediately but does not call mj_forward. PlayerInput must therefore
+    # base motion on qpos/internal owner state, not stale derived data.xpos.
+    world.set_player_active(False)
+    # Materialize the inactive far pose into derived xpos first. The following
+    # activation intentionally does *not* forward, recreating the old stale-xpos
+    # state exactly: qpos.x=24 while xpos.x=0.
+    mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
+    world.reset_player_pose(preserve_active=False)
+    world.set_player_active(True)
+    stale_xpos_before = float(body.sim.mj_data.xpos[player.body_id, 0])
+    authoritative_spawn_x = float(body.sim.mj_data.qpos[player.qpos_adr])
+    body.set_player_input(PlayerInputPacket(
+        actor_id="player", session_id="real-v55-boundary", epoch=1, seq=2,
+        requested_tick=0, move_axes=[1.0, 0.0], look_delta=[0.0, 0.0],
+        held_actions=[],
+    ))
+    same_boundary_obs = body.step_exact(LocomotorCommand(forward=0.0), exact_substeps)
+    same_boundary_x = float(world.render_player()["position_mm"][0])
+    check("V5.5 same-boundary activation+input uses free-joint qpos, not stale xpos",
+          abs(stale_xpos_before) < 1e-12
+          and abs(authoritative_spawn_x - 24.0) < 1e-12
+          and abs(same_boundary_obs.sim_dt - quantum_s) < 1e-12
+          and abs(same_boundary_x - 24.6) < 0.05
+          and abs(same_boundary_x - (authoritative_spawn_x +
+                                     PLAYER_MOVE_SPEED_MM_S * quantum_s)) < 0.05,
+          f"stale_xpos={stale_xpos_before:.6f} spawn_qpos={authoritative_spawn_x:.6f} "
+          f"end_x={same_boundary_x:.6f}")
+    body.clear_player_input()
     world.reset_player_pose(preserve_active=True)
     mujoco.mj_forward(body.sim.mj_model, body.sim.mj_data)
 

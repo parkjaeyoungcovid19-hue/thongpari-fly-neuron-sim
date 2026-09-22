@@ -146,6 +146,17 @@ enum WorldViewerCoordinates {
 
 final class WorldViewer: SCNView {
     var onPickRay: ((WorldViewerRay) -> Void)?
+    var onPlayerKeyDown: ((UInt16, Bool) -> Void)?
+    var onPlayerKeyUp: ((UInt16) -> Void)?
+    var onPlayerLookDelta: ((Double, Double) -> Void)?
+    var onPlayerFocusLost: (() -> Void)?
+    var onPlayerCaptureRequested: (() -> Void)?
+    var participateModeEnabled = false
+    var participateInputEnabled = false {
+        didSet {
+            if !participateInputEnabled { lastRightDragPoint = nil }
+        }
+    }
     override var acceptsFirstResponder: Bool { true }
 
     private let worldScene = SCNScene()
@@ -164,6 +175,7 @@ final class WorldViewer: SCNView {
     private var lastSceneExtent: CGFloat = 80
     private var lastFlyScenePosition: SCNVector3?
     private var needsInitialCameraFrame = true
+    private var playerTrackingArea: NSTrackingArea?
 
     override init(frame frameRect: NSRect, options: [String: Any]? = nil) {
         super.init(frame: frameRect, options: options)
@@ -219,6 +231,16 @@ final class WorldViewer: SCNView {
         let ambientNode = SCNNode()
         ambientNode.light = ambient
         worldScene.rootNode.addChildNode(ambientNode)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let playerTrackingArea { removeTrackingArea(playerTrackingArea) }
+        let area = NSTrackingArea(rect: .zero,
+                                  options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect],
+                                  owner: self, userInfo: nil)
+        addTrackingArea(area)
+        playerTrackingArea = area
     }
 
     private func cameraTargetForCurrentMode() -> SCNVector3 {
@@ -491,6 +513,12 @@ final class WorldViewer: SCNView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        if participateModeEnabled {
+            if !participateInputEnabled { onPlayerCaptureRequested?() }
+            // V5.6 owns world interaction. A Participate click is only an input
+            // capture gesture in V5.5, never an authoritative pick/grab command.
+            return
+        }
         guard currentSnapshotSource != nil else { return }
         let point = convert(event.locationInWindow, from: nil)
         let near = unprojectPoint(SCNVector3(Float(point.x), Float(point.y), 0))
@@ -507,10 +535,14 @@ final class WorldViewer: SCNView {
 
     override func rightMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        lastRightDragPoint = convert(event.locationInWindow, from: nil)
+        lastRightDragPoint = participateInputEnabled ? nil : convert(event.locationInWindow, from: nil)
     }
 
     override func rightMouseDragged(with event: NSEvent) {
+        if participateInputEnabled {
+            routePointerDelta(deltaX: Double(event.deltaX), deltaY: Double(event.deltaY), shift: false)
+            return
+        }
         let p = convert(event.locationInWindow, from: nil)
         guard let last = lastRightDragPoint else {
             lastRightDragPoint = p
@@ -531,6 +563,55 @@ final class WorldViewer: SCNView {
     }
 
     override func scrollWheel(with event: NSEvent) {
-        zoomObservationCamera(delta: Double(event.scrollingDeltaY))
+        routeScroll(delta: Double(event.scrollingDeltaY))
     }
+
+    override func mouseMoved(with event: NSEvent) {
+        guard participateInputEnabled, window?.firstResponder === self else {
+            super.mouseMoved(with: event)
+            return
+        }
+        routePointerDelta(deltaX: Double(event.deltaX), deltaY: Double(event.deltaY), shift: false)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard participateInputEnabled else {
+            super.keyDown(with: event)
+            return
+        }
+        onPlayerKeyDown?(event.keyCode, event.isARepeat)
+    }
+
+    override func keyUp(with event: NSEvent) {
+        guard participateInputEnabled else {
+            super.keyUp(with: event)
+            return
+        }
+        onPlayerKeyUp?(event.keyCode)
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let resigned = super.resignFirstResponder()
+        if resigned, participateInputEnabled { onPlayerFocusLost?() }
+        return resigned
+    }
+
+    /// Shared by AppKit handlers and --bridgetest so Participate pointer routing
+    /// is regression-testable without synthesizing window-server NSEvents.
+    func routePointerDelta(deltaX: Double, deltaY: Double, shift: Bool) {
+        if participateInputEnabled {
+            onPlayerLookDelta?(deltaX, deltaY)
+        } else if shift {
+            panObservationCamera(deltaX: deltaX, deltaY: deltaY)
+        } else {
+            rotateObservationCamera(deltaX: deltaX, deltaY: deltaY)
+        }
+    }
+
+    func routeScroll(delta: Double) {
+        guard !participateInputEnabled else { return }
+        zoomObservationCamera(delta: delta)
+    }
+
+    var pickEnabledForCurrentMode: Bool { !participateModeEnabled }
 }

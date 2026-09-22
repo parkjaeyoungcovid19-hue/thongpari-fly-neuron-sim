@@ -17,9 +17,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from bridge import Bridge
 from fly_body import RealFlyBody
+from player_body import PLAYER_MOVE_SPEED_MM_S
 from protocol import (
     HelloPacket,
     LabCommand,
+    PlayerInputPacket,
+    PlayerInputResultPacket,
     RayPickRequestPacket,
     RayPickResultPacket,
     SessionControlPacket,
@@ -125,6 +128,52 @@ check(
     repr(ray_req_rt),
 )
 
+player_input = PlayerInputPacket(
+    actor_id="player", session_id="", epoch=0, seq=9, requested_tick=25,
+    move_axes=[0.75, -0.25], look_delta=[0.2, -0.1],
+    held_actions=["interact"],
+)
+player_input_rt = decode_line(encode(player_input))
+check(
+    "V5.5 sessionless interactive PlayerInput strict round-trip",
+    isinstance(player_input_rt, PlayerInputPacket)
+    and player_input_rt.actor_id == "player"
+    and player_input_rt.session_id == ""
+    and player_input_rt.epoch == 0
+    and player_input_rt.move_axes == [0.75, -0.25]
+    and player_input_rt.look_delta == [0.2, -0.1]
+    and player_input_rt.held_actions == ["interact"],
+    repr(player_input_rt),
+)
+player_input_ack = PlayerInputResultPacket(
+    actor_id="player", session_id="", epoch=0, seq=9,
+    requested_tick=25, applied_tick=27, ok=True, status="applied",
+)
+player_input_ack_rt = decode_line(encode(player_input_ack))
+check(
+    "V5.5 PlayerInput result carries authoritative applied tick",
+    isinstance(player_input_ack_rt, PlayerInputResultPacket)
+    and player_input_ack_rt.seq == 9
+    and player_input_ack_rt.requested_tick == 25
+    and player_input_ack_rt.applied_tick == 27
+    and player_input_ack_rt.ok,
+    repr(player_input_ack_rt),
+)
+player_input_reject = PlayerInputResultPacket(
+    actor_id="player", session_id="", epoch=0, seq=10,
+    requested_tick=25, ok=False, status="rejected_tick", error="late input",
+)
+player_input_reject_rt = decode_line(encode(player_input_reject))
+check(
+    "V5.5 failed PlayerInput result round-trip has no applied tick and strict error",
+    isinstance(player_input_reject_rt, PlayerInputResultPacket)
+    and not player_input_reject_rt.ok
+    and player_input_reject_rt.applied_tick is None
+    and player_input_reject_rt.status == "rejected_tick"
+    and player_input_reject_rt.error == "late input",
+    repr(player_input_reject_rt),
+)
+
 bad_packets = [
     b'{"type":"world_render_request","protocol_version":4,"session_id":"","epoch":0}\n',
     b'{"type":"ray_pick_request","protocol_version":4,"session_id":"","epoch":0,"seq":1,"ray_origin_mm":[0,0,0],"ray_direction":[1,0,0]}\n',
@@ -136,10 +185,80 @@ bad_packets = [
     b'{"type":"world_render_snapshot","protocol_version":4,"session_id":"","epoch":0,"request_seq":1,"sim_tick":0,"ok":true,"snapshot_seq":1,"world_revision":0,"fly":{"id":"fly","position_mm":[0,0,0],"orientation_quat_xyzw":[0,0,0,2]},"objects":[]}\n',
     b'{"type":"world_render_snapshot","protocol_version":4,"session_id":"","epoch":0,"request_seq":1,"sim_tick":0,"ok":true,"snapshot_seq":1,"world_revision":0,"fly":{"id":"fly","position_mm":[0,0,0],"orientation_quat_xyzw":[0,0,0,1]},"objects":[],"player":{"id":"player","position_mm":[1,2,3],"orientation_quat_xyzw":[0,0,0,1],"collision_radius_mm":-1,"mode":"participate"}}\n',
     b'{"type":"world_render_snapshot","protocol_version":4,"session_id":"","epoch":0,"request_seq":1,"sim_tick":0,"ok":true,"snapshot_seq":1,"world_revision":0,"fly":{"id":"fly","position_mm":[0,0,0],"orientation_quat_xyzw":[0,0,0,1]},"objects":[],"player":{"id":"player","position_mm":[1,2,3],"orientation_quat_xyzw":[0,0,0,1],"collision_radius_mm":2.5}}\n',
+    b'{"type":"player_input","protocol_version":4,"actor_id":"player","session_id":"","epoch":1,"seq":1,"requested_tick":0,"move_axes":[0,0],"look_delta":[0,0],"held_actions":[]}\n',
+    b'{"type":"player_input","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"move_axes":[1.1,0],"look_delta":[0,0],"held_actions":[]}\n',
+    b'{"type":"player_input","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"move_axes":[0,0],"look_delta":[NaN,0],"held_actions":[]}\n',
+    b'{"type":"player_input","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"move_axes":[0,0],"look_delta":[1.0,0],"held_actions":[]}\n',
+    b'{"type":"player_input","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"move_axes":[0,0],"look_delta":[0,0],"held_actions":[7]}\n',
+    b'{"type":"player_input","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"move_axes":[0,0],"look_delta":[0,0],"held_actions":["escape"]}\n',
+    b'{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"applied_tick":0,"ok":true,"status":"queued"}\n',
+    b'{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"applied_tick":0,"ok":true,"status":"applied","error":null}\n',
+    b'{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"ok":true,"status":"applied"}\n',
+    b'{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"applied_tick":0,"ok":false,"status":"rejected","error":"bad"}\n',
+    b'{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"ok":false,"status":"applied","error":"bad"}\n',
+    b'{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"ok":false,"status":"rejected"}\n',
+    b'{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"ok":false,"status":"rejected","error":7}\n',
+    b'{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"ok":false,"status":"rejected","error":"   "}\n',
+    b'{"type":"player_input_result","protocol_version":0,"actor_id":"player","session_id":"","epoch":0,"seq":1,"requested_tick":0,"applied_tick":0,"ok":true,"status":"applied"}\n',
+    b'{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"   ","epoch":1,"seq":1,"requested_tick":0,"applied_tick":0,"ok":true,"status":"applied"}\n',
 ]
+bad_packets.append(
+    ('{"type":"player_input_result","protocol_version":4,"actor_id":"player",'
+     '"session_id":"","epoch":0,"seq":1,"requested_tick":0,"applied_tick":0,'
+     '"ok":true,"status":"' + (" " * 65) + 'applied"}\n').encode())
 check(
-    "strict V5 packets reject missing fields, NaN, bad lengths and invalid quaternion",
+    "strict V5 packets reject missing fields, NaN, bad lengths/ranges and invalid quaternion",
     all(decode_line(packet) is None for packet in bad_packets),
+)
+
+# Sessionless Participate is valid before Swift establishes a logical V4 session.
+# requested_tick is provenance from the latest backend snapshot: current/past is
+# accepted at the next owner boundary, a claimed future tick is rejected. Merely
+# rendering snapshots cannot integrate movement.
+interactive_input_bridge = Bridge(mode="mock")
+interactive_input_bridge.body.lab_world.set_player_active(True)
+interactive_input_bridge.body.t = 0.100
+interactive_start = list(interactive_input_bridge.body.lab_world.player.position_mm)
+interactive_input_bridge.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="", epoch=0, seq=30, requested_tick=95,
+    move_axes=[1.0, 0.0], look_delta=[0.0, 0.0], held_actions=["interact"],
+)))
+interactive_input_bridge._process_player_inputs(applied_tick=100, applied_epoch=0)
+interactive_input_results = interactive_input_bridge._drain_lab_responses()
+interactive_ack = next((p for p in interactive_input_results
+                        if isinstance(p, PlayerInputResultPacket)), None)
+for seq in range(31, 41):
+    interactive_input_bridge.handle_line(encode(WorldRenderRequestPacket(
+        session_id="", epoch=0, seq=seq)))
+    interactive_input_bridge._process_view_queries()
+    interactive_input_bridge._drain_lab_responses()
+interactive_after_renders = list(interactive_input_bridge.body.lab_world.player.position_mm)
+interactive_input_bridge.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="", epoch=0, seq=41, requested_tick=101,
+    move_axes=[0.0, 0.0], look_delta=[0.0, 0.0], held_actions=[],
+)))
+interactive_input_bridge._process_player_inputs(applied_tick=100, applied_epoch=0)
+future_result = next((p for p in interactive_input_bridge._drain_lab_responses()
+                      if isinstance(p, PlayerInputResultPacket)), None)
+interactive_input_bridge.body.step(interactive_input_bridge.last_cmd, 0.020)
+interactive_after_step = list(interactive_input_bridge.body.lab_world.player.position_mm)
+interactive_distance = math.hypot(
+    interactive_after_step[0] - interactive_start[0],
+    interactive_after_step[1] - interactive_start[1],
+)
+check(
+    "V5.5 sessionless interactive input uses backend tick provenance and simulation dt",
+    isinstance(interactive_ack, PlayerInputResultPacket) and interactive_ack.ok
+    and interactive_ack.applied_tick == 100
+    and interactive_ack.requested_tick == 95
+    and interactive_after_renders == interactive_start
+    and isinstance(future_result, PlayerInputResultPacket) and not future_result.ok
+    and future_result.status == "rejected_future_tick"
+    and abs(interactive_distance - PLAYER_MOVE_SPEED_MM_S * 0.020) < 1e-9
+    and interactive_input_bridge.body.lab_world.player.input_held_actions == ["interact"]
+    and not interactive_input_bridge.body.lab_world.objects,
+    f"ack={interactive_ack!r} future={future_result!r} start={interactive_start} "
+    f"renders={interactive_after_renders} step={interactive_after_step}",
 )
 
 
@@ -482,6 +601,105 @@ check(
     f"mode={disconnect_bridge.session_mode} player={disconnect_bridge.body.lab_world.state().get('player')!r} "
     f"stale={stale_participant_session!r}",
 )
+
+# V5.5 stale-input safety applies even when the participant is still inactive.
+# A future input and future activation can both be waiting when the socket dies;
+# neither is allowed to survive into a passive logical-session reconnect.
+passive_input_disconnect = Bridge(mode="mock")
+passive_input_disconnect.handle_line(encode(
+    HelloPacket(role="swift", physics_timestep_s=None)))
+passive_input_disconnect.handle_line(encode(SessionControlPacket(
+    session_id="passive-input-session", epoch=1, seq=1, sim_tick=0,
+    action="begin", mode="deterministic",
+)))
+passive_input_disconnect._process_session_controls()
+passive_input_disconnect._drain_lab_responses()
+passive_input_disconnect.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="passive-input-session", epoch=1, seq=10,
+    requested_tick=40, move_axes=[1.0, 0.0], look_delta=[0.2, 0.0],
+    held_actions=[],
+)))
+passive_input_disconnect._process_player_inputs(applied_tick=0, applied_epoch=1)
+passive_input_disconnect.handle_line(encode(LabCommand(
+    seq=11, op="set_player_active", args={"value": 1.0},
+    session_id="passive-input-session", epoch=1, requested_tick=40,
+    protocol_version=4,
+)))
+passive_client, passive_reader, passive_thread, passive_hello = start_transport(
+    passive_input_disconnect)
+time.sleep(0.03)
+stop_transport(passive_client, passive_thread)
+passive_input_disconnect._apply_lab_commands(applied_tick=40, applied_epoch=1)
+passive_input_disconnect._process_player_inputs(applied_tick=40, applied_epoch=1)
+check(
+    "V5.5 passive disconnect drops deferred input and queued activation",
+    isinstance(passive_hello, HelloPacket)
+    and passive_input_disconnect.session_id == "passive-input-session"
+    and passive_input_disconnect.session_epoch == 1
+    and not passive_input_disconnect.body.lab_world.player.active
+    and not passive_input_disconnect.deferred_player_inputs
+    and not passive_input_disconnect.deferred_lab_commands
+    and passive_input_disconnect.lab_commands.stats()["discrete_pending"] == 0,
+    f"session={passive_input_disconnect.session_id!r}/"
+    f"{passive_input_disconnect.session_epoch} "
+    f"active={passive_input_disconnect.body.lab_world.player.active} "
+    f"input={passive_input_disconnect.deferred_player_inputs!r} "
+    f"lab={passive_input_disconnect.deferred_lab_commands!r} "
+    f"queue={passive_input_disconnect.lab_commands.stats()!r}",
+)
+passive_input_disconnect.running = False
+
+# The PlayerInput result cache is bounded, but the logical session may survive a
+# passive transport reconnect. Preserve its sequence watermark so a replay whose
+# cached ACK was evicted still cannot mutate the participant after reconnect.
+replay_disconnect = Bridge(mode="mock")
+replay_disconnect.handle_line(encode(SessionControlPacket(
+    session_id="replay-session", epoch=1, seq=1, sim_tick=0,
+    action="begin", mode="interactive",
+)))
+replay_disconnect._process_session_controls()
+replay_disconnect._drain_lab_responses()
+replay_disconnect.body.lab_world.set_player_active(True)
+for replay_seq in range(1, replay_disconnect.recent_result_cap + 3):
+    replay_disconnect.handle_line(encode(PlayerInputPacket(
+        actor_id="player", session_id="replay-session", epoch=1,
+        seq=replay_seq, requested_tick=0,
+        move_axes=[0.0, 0.0], look_delta=[0.0, 0.0],
+        held_actions=[],
+    )))
+    replay_disconnect._process_player_inputs(applied_tick=0, applied_epoch=1)
+    replay_disconnect._drain_lab_responses()
+replay_watermark = replay_disconnect.last_player_input_seq
+old_replay_key = ("replay-session", 1, 1)
+old_replay_evicted = old_replay_key not in replay_disconnect.recent_player_input_results
+replay_disconnect.body.lab_world.set_player_active(False)
+replay_client, replay_reader, replay_thread, replay_hello = start_transport(replay_disconnect)
+stop_transport(replay_client, replay_thread)
+replay_disconnect.body.lab_world.set_player_active(True)
+replay_disconnect.handle_line(encode(PlayerInputPacket(
+    actor_id="player", session_id="replay-session", epoch=1,
+    seq=1, requested_tick=0,
+    move_axes=[0.0, 0.0], look_delta=[0.25, 0.0],
+    held_actions=[],
+)))
+replay_disconnect._process_player_inputs(applied_tick=0, applied_epoch=1)
+replay_ack = next((p for p in replay_disconnect._drain_lab_responses()
+                   if isinstance(p, PlayerInputResultPacket) and p.seq == 1), None)
+check(
+    "V5.5 passive reconnect preserves PlayerInput replay watermark after cache eviction",
+    isinstance(replay_hello, HelloPacket)
+    and replay_disconnect.session_id == "replay-session"
+    and replay_disconnect.session_epoch == 1
+    and old_replay_evicted
+    and replay_disconnect.last_player_input_seq == replay_watermark
+    and isinstance(replay_ack, PlayerInputResultPacket)
+    and not replay_ack.ok and replay_ack.status == "rejected_replay"
+    and abs(replay_disconnect.body.lab_world.player.look_yaw_rad) < 1e-12,
+    f"watermark={replay_disconnect.last_player_input_seq}/{replay_watermark} "
+    f"evicted={old_replay_evicted} ack={replay_ack!r} "
+    f"yaw={replay_disconnect.body.lab_world.player.look_yaw_rad}",
+)
+replay_disconnect.running = False
 
 
 # Reconnect regression: view request sequence numbers are connection-local. A

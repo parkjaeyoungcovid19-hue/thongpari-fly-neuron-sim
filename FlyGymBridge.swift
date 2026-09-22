@@ -11,6 +11,7 @@
 //   FlyGymSensoryMap, reusing the existing ascend/sens input paths.
 
 import Foundation
+import Cocoa
 import Darwin
 
 // MARK: - Packets (mirror flygym_bridge/protocol.py)
@@ -60,12 +61,17 @@ enum FlyGymPlayerProtocolV5_4 {
     static let capabilities = ["player_body"]
 }
 
+enum FlyGymPlayerInputProtocolV5_5 {
+    static let capabilities = ["player_input"]
+}
+
 struct FlyGymHelloPacket: Codable, FlyGymStampedPacket {
     var type: String = "hello"
     var protocolVersion: Int = FlyGymProtocolV4.version
     var role: String = "swift"
     var capabilities: [String] = FlyGymProtocolV4.capabilities
         + FlyGymViewerProtocolV5_1.capabilities + FlyGymPlayerProtocolV5_4.capabilities
+        + FlyGymPlayerInputProtocolV5_5.capabilities
     var physicsTimestepS: Double?
     var supportedQuantumTicks: [Int] = [FlyGymProtocolV4.experimentQuantumTicks]
     var receivedAt: Date = Date()
@@ -93,6 +99,11 @@ struct FlyGymHelloPacket: Codable, FlyGymStampedPacket {
     var supportsPlayerV5_4: Bool {
         guard supportsWorldViewerV5_1 else { return false }
         return Set(FlyGymPlayerProtocolV5_4.capabilities).isSubset(of: Set(capabilities))
+    }
+
+    var supportsPlayerInputV5_5: Bool {
+        guard supportsPlayerV5_4 else { return false }
+        return Set(FlyGymPlayerInputProtocolV5_5.capabilities).isSubset(of: Set(capabilities))
     }
 }
 
@@ -343,6 +354,18 @@ func parseLabEventLine(_ line: Data) -> LabEventNotice? {
     return try? JSONDecoder().decode(LabEventNotice.self, from: line)
 }
 
+private func decodePlayerInputLine(_ line: Data) -> PlayerInputPacket? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "player_input" else { return nil }
+    return try? JSONDecoder().decode(PlayerInputPacket.self, from: line)
+}
+
+func parsePlayerInputResultLine(_ line: Data) -> PlayerInputResult? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "player_input_result" else { return nil }
+    return try? JSONDecoder().decode(PlayerInputResult.self, from: line)
+}
+
 func parseHelloLine(_ line: Data) -> FlyGymHelloPacket? {
     guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
           tag.type == "hello" else { return nil }
@@ -511,6 +534,7 @@ fileprivate enum FlyGymSendLane: Int {
     case experimentStep = 4
     case worldRender = 5
     case rayPick = 6
+    case playerInput = 7
 }
 
 fileprivate struct FlyGymPendingSend {
@@ -551,6 +575,8 @@ final class FlyGymBridge {
     private var pendingExperimentStep: Data?
     private var pendingWorldRenderRequest: Data?
     private var pendingRayPicks: [Data] = []
+    private var pendingPlayerInput: Data?
+    private var pendingPlayerLookRemainder = [0.0, 0.0]
     private let labQueueCap = 32
     private let controlQueueCap = 16
     private let rayPickQueueCap = 8
@@ -566,6 +592,7 @@ final class FlyGymBridge {
     private var _latestExperimentStepResult: FlyGymExperimentStepResultPacket?
     private var _latestWorldRenderSnapshot: WorldRenderSnapshot?
     private var _latestRayPickResult: RayPickResult?
+    private var _latestPlayerInputResult: PlayerInputResult?
     private var requestedSessionID: String?
     private var requestedEpoch: Int?
     private var requestedSessionMode: LabSessionMode?
@@ -573,6 +600,7 @@ final class FlyGymBridge {
     private var nextSessionControlSeq = 1
     private var nextLabID = 1
     private var nextViewerSeq = 1
+    private var nextPlayerInputSeq = 1
     private var lastSend = Date.distantPast
     private var lastNormalBrainSendAt = Date.distantPast
     private var lastBodyAt: Date?
@@ -617,6 +645,13 @@ final class FlyGymBridge {
         return hello.supportsPlayerV5_4
     }
 
+    var playerInputV5_5Available: Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard _connected, let hello = _serverHello,
+              hello.connectionGeneration == _connectionGeneration else { return false }
+        return hello.supportsPlayerInputV5_5
+    }
+
     func serverHello() -> FlyGymHelloPacket? {
         lock.lock(); defer { lock.unlock() }
         guard let hello = _serverHello, _connected,
@@ -649,6 +684,14 @@ final class FlyGymBridge {
     func latestRayPickResult(maxAge: TimeInterval = FlyGymBridge.labDiscreteFreshMaxAge) -> RayPickResult? {
         lock.lock(); defer { lock.unlock() }
         guard let result = _latestRayPickResult,
+              _connected, result.connectionGeneration == _connectionGeneration,
+              max(0, Date().timeIntervalSince(result.receivedAt)) < maxAge else { return nil }
+        return result
+    }
+
+    func latestPlayerInputResult(maxAge: TimeInterval = FlyGymBridge.labDiscreteFreshMaxAge) -> PlayerInputResult? {
+        lock.lock(); defer { lock.unlock() }
+        guard let result = _latestPlayerInputResult,
               _connected, result.connectionGeneration == _connectionGeneration,
               max(0, Date().timeIntervalSince(result.receivedAt)) < maxAge else { return nil }
         return result
@@ -868,12 +911,16 @@ final class FlyGymBridge {
             _latestLabEvent = nil
             _latestWorldRenderSnapshot = nil
             _latestRayPickResult = nil
+            _latestPlayerInputResult = nil
             lastBodyAt = nil
             bodyIntervals.removeAll(keepingCapacity: true)
             outstandingExperimentStepSeq = nil
             pendingExperimentStep = nil
             pendingWorldRenderRequest = nil
             pendingRayPicks.removeAll(keepingCapacity: true)
+            pendingPlayerInput = nil
+            pendingPlayerLookRemainder = [0.0, 0.0]
+            nextPlayerInputSeq = 1
         } else if action == "reset", requestedSessionID == sessionID {
             // Reset is the one lifecycle control that intentionally changes the
             // simulation epoch. Promote the expected epoch before the packet is
@@ -888,12 +935,16 @@ final class FlyGymBridge {
             _latestLabEvent = nil
             _latestWorldRenderSnapshot = nil
             _latestRayPickResult = nil
+            _latestPlayerInputResult = nil
             lastBodyAt = nil
             bodyIntervals.removeAll(keepingCapacity: true)
             outstandingExperimentStepSeq = nil
             pendingExperimentStep = nil
             pendingWorldRenderRequest = nil
             pendingRayPicks.removeAll(keepingCapacity: true)
+            pendingPlayerInput = nil
+            pendingPlayerLookRemainder = [0.0, 0.0]
+            nextPlayerInputSeq = 1
         }
         pendingControl.append(data)
         return seq
@@ -980,6 +1031,108 @@ final class FlyGymBridge {
         return seq
     }
 
+    /// V5.5 continuous participant state. Axes/held state are latest-wins while
+    /// unsent look deltas are accumulated so sender throttling cannot silently
+    /// discard mouse motion. Deterministic experiment steps never overtake this
+    /// lane when the input targets their boundary.
+    private func splitPlayerLook(_ total: [Double]) -> (chunk: [Double], remainder: [Double]) {
+        let limit = PlayerInputPacket.maxLookDelta
+        let chunk = total.map { max(-limit, min(limit, $0)) }
+        return (chunk, [total[0] - chunk[0], total[1] - chunk[1]])
+    }
+
+    private func allocatePlayerInputSeqLocked() -> Int? {
+        guard nextPlayerInputSeq >= 0,
+              nextPlayerInputSeq <= PlayerInputPacket.maxSeq else { return nil }
+        let seq = nextPlayerInputSeq
+        nextPlayerInputSeq = seq == PlayerInputPacket.maxSeq ? PlayerInputPacket.maxSeq + 1 : seq + 1
+        return seq
+    }
+
+    private func promotePlayerLookRemainderLocked(afterSent data: Data) {
+        guard pendingPlayerInput == nil,
+              pendingPlayerLookRemainder.count == 2,
+              (pendingPlayerLookRemainder[0] != 0 || pendingPlayerLookRemainder[1] != 0),
+              let prior = decodePlayerInputLine(data),
+              let seq = allocatePlayerInputSeqLocked() else { return }
+        let split = splitPlayerLook(pendingPlayerLookRemainder)
+        let packet = PlayerInputPacket(
+            protocolVersion: prior.protocolVersion,
+            actorID: prior.actorID,
+            sessionID: prior.sessionID,
+            epoch: prior.epoch,
+            seq: seq,
+            requestedTick: prior.requestedTick,
+            moveAxes: prior.moveAxes,
+            lookDelta: split.chunk,
+            heldActions: prior.heldActions)
+        guard let encoded = encodeLine(packet) else { return }
+        pendingPlayerInput = encoded
+        pendingPlayerLookRemainder = split.remainder
+    }
+
+    @discardableResult
+    func sendPlayerInput(actorID: String = "player", sessionID: String, epoch: Int,
+                         requestedTick: Int, moveAxes: [Double], lookDelta: [Double],
+                         heldActions: [String], discardPendingLook: Bool = false) -> Int? {
+        guard moveAxes.count == 2, moveAxes.allSatisfy(\.isFinite),
+              lookDelta.count == 2, lookDelta.allSatisfy(\.isFinite),
+              sessionID.count <= 128, epoch >= 0,
+              requestedTick >= 0, requestedTick <= PlayerInputPacket.maxTick else { return nil }
+
+        lock.lock()
+        guard _connected, let hello = _serverHello,
+              hello.connectionGeneration == _connectionGeneration,
+              hello.supportsPlayerInputV5_5 else { lock.unlock(); return nil }
+        if let expectedSession = requestedSessionID {
+            guard sessionID == expectedSession, epoch == requestedEpoch else {
+                lock.unlock(); return nil
+            }
+        } else {
+            guard sessionID.isEmpty, epoch == 0 else { lock.unlock(); return nil }
+        }
+        let protocolVersion = max(FlyGymProtocolV4.version, hello.protocolVersion)
+
+        if discardPendingLook {
+            // Safety release (Esc/focus/mode loss) supersedes any unsent mouse
+            // motion. A neutral packet must not inherit a stale look delta or
+            // remainder that was captured before release.
+            pendingPlayerInput = nil
+            pendingPlayerLookRemainder = [0.0, 0.0]
+        }
+        var mergedLook = [
+            lookDelta[0] + pendingPlayerLookRemainder[0],
+            lookDelta[1] + pendingPlayerLookRemainder[1],
+        ]
+        if let pendingPlayerInput,
+           let previous = decodePlayerInputLine(pendingPlayerInput),
+           previous.actorID == actorID,
+           previous.sessionID == sessionID,
+           previous.epoch == max(0, epoch) {
+            mergedLook[0] += previous.lookDelta[0]
+            mergedLook[1] += previous.lookDelta[1]
+        }
+        guard mergedLook.allSatisfy(\.isFinite),
+              let seq = allocatePlayerInputSeqLocked() else {
+            lock.unlock(); return nil
+        }
+        let split = splitPlayerLook(mergedLook)
+        let packet = PlayerInputPacket(protocolVersion: protocolVersion,
+                                       actorID: actorID,
+                                       sessionID: sessionID,
+                                       epoch: epoch,
+                                       seq: seq,
+                                       requestedTick: requestedTick,
+                                       moveAxes: moveAxes,
+                                       lookDelta: split.chunk,
+                                       heldActions: heldActions)
+        guard let data = encodeLine(packet) else { lock.unlock(); return nil }
+        pendingPlayerInput = data
+        pendingPlayerLookRemainder = split.remainder
+        lock.unlock()
+        return seq
+    }
+
     /// Enqueue one ordered experiment command. AppKit calls this directly; it
     /// performs only JSON encoding and a bounded in-memory append.
     @discardableResult
@@ -1039,6 +1192,7 @@ final class FlyGymBridge {
         return (pending == nil ? 0 : 1) + (pendingEscape == nil ? 0 : 1)
             + pendingLab.count + pendingControl.count + (pendingExperimentStep == nil ? 0 : 1)
             + (pendingWorldRenderRequest == nil ? 0 : 1) + pendingRayPicks.count
+            + (pendingPlayerInput == nil ? 0 : 1)
     }
 
 
@@ -1054,8 +1208,11 @@ final class FlyGymBridge {
         _latestExperimentStepResult = nil
         _latestWorldRenderSnapshot = nil
         _latestRayPickResult = nil
+        _latestPlayerInputResult = nil
         outstandingExperimentStepSeq = nil
         pendingExperimentStep = nil
+        pendingPlayerInput = nil
+        pendingPlayerLookRemainder = [0.0, 0.0]
         lastBodyAt = nil
         bodyIntervals.removeAll(keepingCapacity: true)
     }
@@ -1103,6 +1260,8 @@ final class FlyGymBridge {
         pendingControl.removeAll(keepingCapacity: true)
         pendingWorldRenderRequest = nil
         pendingRayPicks.removeAll(keepingCapacity: true)
+        pendingPlayerInput = nil
+        pendingPlayerLookRemainder = [0.0, 0.0]
         if let hello = encodeLine(FlyGymHelloPacket()) {
             pendingControl.append(hello)
         }
@@ -1123,6 +1282,10 @@ final class FlyGymBridge {
         // first; otherwise the step lane could overtake a requested-tick command
         // and force it to apply one quantum late. Wall time may slow down here —
         // deterministic experiment order must not.
+        if pendingExperimentStep != nil, let input = pendingPlayerInput {
+            pendingPlayerInput = nil
+            return FlyGymPendingSend(lane: .playerInput, data: input)
+        }
         if pendingExperimentStep != nil, !pendingLab.isEmpty {
             return FlyGymPendingSend(lane: .lab, data: pendingLab.removeFirst())
         }
@@ -1138,6 +1301,10 @@ final class FlyGymBridge {
            pendingLab.isEmpty || now.timeIntervalSince(lastNormalBrainSendAt) >= maxNormalBrainGap {
             pending = nil
             return FlyGymPendingSend(lane: .brain, data: brain)
+        }
+        if let input = pendingPlayerInput {
+            pendingPlayerInput = nil
+            return FlyGymPendingSend(lane: .playerInput, data: input)
         }
         if !pendingLab.isEmpty {
             return FlyGymPendingSend(lane: .lab, data: pendingLab.removeFirst())
@@ -1183,6 +1350,10 @@ final class FlyGymBridge {
         case .rayPick:
             pendingRayPicks.insert(item.data, at: 0)
             if pendingRayPicks.count > rayPickQueueCap { pendingRayPicks.removeLast() }
+        case .playerInput:
+            // Continuous state is latest-wins. Never restore an older packet over
+            // a newer key/focus transition that arrived during send().
+            if pendingPlayerInput == nil { pendingPlayerInput = item.data }
         }
     }
 
@@ -1196,6 +1367,25 @@ final class FlyGymBridge {
                 lock.unlock(); return true
             }
             _serverHello = hello
+            if !hello.supportsPlayerInputV5_5 {
+                pendingPlayerInput = nil
+                pendingPlayerLookRemainder = [0.0, 0.0]
+            }
+            lock.unlock()
+            return true
+        }
+        if var result = parsePlayerInputResultLine(line) {
+            result.receivedAt = receivedAt
+            result.connectionGeneration = generation
+            lock.lock()
+            guard currentConnectionLocked(fd: fd, generation: generation) else {
+                lock.unlock(); return true
+            }
+            if !matchesViewerSessionLocked(sessionID: result.sessionID, epoch: result.epoch) {
+                staleSessionPacketCount += 1
+                lock.unlock(); return true
+            }
+            _latestPlayerInputResult = result
             lock.unlock()
             return true
         }
@@ -1421,11 +1611,31 @@ final class FlyGymBridge {
         markDown(fd, generation: generation)
     }
 
+    fileprivate func setNextPlayerInputSeqForTesting(_ value: Int) {
+        lock.lock(); defer { lock.unlock() }
+        nextPlayerInputSeq = value
+    }
+
     fileprivate func dequeueLaneForTesting(at now: Date) -> FlyGymSendLane? {
         lock.lock(); defer { lock.unlock() }
         guard let item = dequeueNextLocked(now: now) else { return nil }
         if item.lane == .brain { lastNormalBrainSendAt = now }
+        if item.lane == .playerInput {
+            // Test dequeue models a successful production send so any bounded
+            // look remainder is promoted exactly as sendLoop would do.
+            promotePlayerLookRemainderLocked(afterSent: item.data)
+        }
         return item.lane
+    }
+
+    fileprivate func dequeueSendForTesting(at now: Date) -> (FlyGymSendLane, Data)? {
+        lock.lock(); defer { lock.unlock() }
+        guard let item = dequeueNextLocked(now: now) else { return nil }
+        if item.lane == .brain { lastNormalBrainSendAt = now }
+        if item.lane == .playerInput {
+            promotePlayerLookRemainderLocked(afterSent: item.data)
+        }
+        return (item.lane, item.data)
     }
 
     // MARK: threads
@@ -1513,6 +1723,8 @@ final class FlyGymBridge {
                         experimentStepSentCount += 1
                     case .worldRender, .rayPick:
                         break
+                    case .playerInput:
+                        promotePlayerLookRemainderLocked(afterSent: d)
                     }
                     lastSend = sentAt
                 }
@@ -1945,6 +2157,277 @@ func runBridgeTest() {
               playerAvailable: true, connectionGeneration: 42)
           && !pendingGeneration.isPending)
 
+    // V5.5 PlayerInput wire/capability + continuous latest-state semantics.
+    let v55Hello = #"{"type":"hello","protocol_version":4,"role":"python","capabilities":["applied_tick","deterministic_experiment","epoch","pause_barrier","world_render_snapshot","ray_pick","player_body","player_input"],"physics_timestep_s":0.001,"supported_quantum_ticks":[20]}"#
+    let v55Bridge = FlyGymBridge()
+    _ = v55Bridge.beginConnectionForTesting()
+    _ = v55Bridge.dequeueLaneForTesting(at: Date()) // Swift hello
+    _ = v55Bridge.receiveLineForTesting(Data(v55Hello.utf8))
+    check("V5.5 player input requires explicit layered capability",
+          v55Bridge.playerV5_4Available && v55Bridge.playerInputV5_5Available)
+
+    let v55Seq1 = v55Bridge.sendPlayerInput(sessionID: "", epoch: 0,
+                                            requestedTick: 95,
+                                            moveAxes: [1, 0], lookDelta: [0.10, 0.05],
+                                            heldActions: ["interact"])
+    let v55Seq2 = v55Bridge.sendPlayerInput(sessionID: "", epoch: 0,
+                                            requestedTick: 100,
+                                            moveAxes: [0, -1], lookDelta: [-0.03, 0.02],
+                                            heldActions: [])
+    let coalescedSend = v55Bridge.dequeueSendForTesting(at: Date().addingTimeInterval(0.02))
+    let coalescedInput = coalescedSend.flatMap { decodePlayerInputLine($0.1) }
+    check("V5.5 PlayerInput coalesces axes/held latest-wins and accumulates look once",
+          v55Seq1 != nil && v55Seq2 != nil
+          && coalescedSend?.0 == .playerInput
+          && coalescedInput?.seq == v55Seq2
+          && coalescedInput?.requestedTick == 100
+          && coalescedInput?.moveAxes == [0, -1]
+          && abs((coalescedInput?.lookDelta[0] ?? 9) - 0.07) < 1e-12
+          && abs((coalescedInput?.lookDelta[1] ?? 9) - 0.07) < 1e-12
+          && coalescedInput?.heldActions.isEmpty == true)
+
+    let v55LargeLook = FlyGymBridge()
+    _ = v55LargeLook.beginConnectionForTesting()
+    _ = v55LargeLook.dequeueLaneForTesting(at: Date())
+    _ = v55LargeLook.receiveLineForTesting(Data(v55Hello.utf8))
+    _ = v55LargeLook.sendPlayerInput(sessionID: "", epoch: 0,
+                                     requestedTick: 0, moveAxes: [0, 0],
+                                     lookDelta: [0.7, -0.7], heldActions: [])
+    _ = v55LargeLook.sendPlayerInput(sessionID: "", epoch: 0,
+                                     requestedTick: 0, moveAxes: [0, 0],
+                                     lookDelta: [0.7, -0.7], heldActions: [])
+    let largeLookSend1 = v55LargeLook.dequeueSendForTesting(at: Date().addingTimeInterval(0.01))
+    let largeLookSend2 = v55LargeLook.dequeueSendForTesting(at: Date().addingTimeInterval(0.02))
+    let largeLook1 = largeLookSend1.flatMap { decodePlayerInputLine($0.1) }
+    let largeLook2 = largeLookSend2.flatMap { decodePlayerInputLine($0.1) }
+    check("V5.5 coalesced look above per-packet bound is split without loss",
+          largeLookSend1?.0 == .playerInput && largeLookSend2?.0 == .playerInput
+          && largeLook1 != nil && largeLook2 != nil
+          && abs((largeLook1!.lookDelta[0] + largeLook2!.lookDelta[0]) - 1.4) < 1e-12
+          && abs((largeLook1!.lookDelta[1] + largeLook2!.lookDelta[1]) + 1.4) < 1e-12
+          && abs(largeLook1!.lookDelta[0]) <= PlayerInputPacket.maxLookDelta
+          && abs(largeLook2!.lookDelta[0]) <= PlayerInputPacket.maxLookDelta
+          && largeLook2!.seq > largeLook1!.seq
+          && v55LargeLook.dequeueSendForTesting(at: Date().addingTimeInterval(0.03)) == nil)
+
+    let v55ReleaseLook = FlyGymBridge()
+    _ = v55ReleaseLook.beginConnectionForTesting()
+    _ = v55ReleaseLook.dequeueLaneForTesting(at: Date())
+    _ = v55ReleaseLook.receiveLineForTesting(Data(v55Hello.utf8))
+    _ = v55ReleaseLook.sendPlayerInput(sessionID: "", epoch: 0,
+                                       requestedTick: 0, moveAxes: [0, 0],
+                                       lookDelta: [0.7, -0.7], heldActions: [])
+    let releaseSeq = v55ReleaseLook.sendPlayerInput(
+        sessionID: "", epoch: 0, requestedTick: 0,
+        moveAxes: [0, 0], lookDelta: [0, 0], heldActions: [],
+        discardPendingLook: true)
+    let releaseSend = v55ReleaseLook.dequeueSendForTesting(
+        at: Date().addingTimeInterval(0.01))
+    let releasePacket = releaseSend.flatMap { decodePlayerInputLine($0.1) }
+    check("V5.5 safety release discards pending mouse look and remainder",
+          releaseSeq != nil
+          && releaseSend?.0 == .playerInput
+          && releasePacket?.lookDelta == [0, 0]
+          && releasePacket?.moveAxes == [0, 0]
+          && releasePacket?.heldActions.isEmpty == true
+          && v55ReleaseLook.dequeueSendForTesting(
+              at: Date().addingTimeInterval(0.02)) == nil)
+
+    let v55AckLine = #"{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":2,"requested_tick":100,"applied_tick":101,"ok":true,"status":"applied"}"#
+    let v55BadSuccess = #"{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":2,"requested_tick":100,"ok":true,"status":"applied"}"#
+    let v55BadFailure = #"{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":2,"requested_tick":100,"ok":false,"status":"rejected"}"#
+    let v55BadSuccessStatus = #"{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":2,"requested_tick":100,"applied_tick":101,"ok":true,"status":"queue_full"}"#
+    let v55BadFailureApplied = #"{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":2,"requested_tick":100,"applied_tick":101,"ok":false,"status":"rejected","error":"no"}"#
+    let v55BadFailureStatus = #"{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":2,"requested_tick":100,"ok":false,"status":"applied","error":"no"}"#
+    let v55BadSuccessNullError = #"{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":2,"requested_tick":100,"applied_tick":101,"ok":true,"status":"applied","error":null}"#
+    let v55BadFailureNullTick = #"{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":2,"requested_tick":100,"applied_tick":null,"ok":false,"status":"rejected","error":"no"}"#
+    let v55BadSeqBound = #"{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":2147483648,"requested_tick":100,"applied_tick":101,"ok":true,"status":"applied"}"#
+    let v55BadTickBound = #"{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"","epoch":0,"seq":2,"requested_tick":1000000000000001,"applied_tick":1000000000000001,"ok":true,"status":"applied"}"#
+    let v55BadProtocol = #"{"type":"player_input_result","protocol_version":0,"actor_id":"player","session_id":"","epoch":0,"seq":2,"requested_tick":100,"applied_tick":101,"ok":true,"status":"applied"}"#
+    let v55BadBlankSession = #"{"type":"player_input_result","protocol_version":4,"actor_id":"player","session_id":"   ","epoch":1,"seq":2,"requested_tick":100,"applied_tick":101,"ok":true,"status":"applied"}"#
+    let v55PaddedStatus = String(repeating: " ", count: 65) + "applied"
+    let v55BadStatusBound = "{\"type\":\"player_input_result\",\"protocol_version\":4,\"actor_id\":\"player\",\"session_id\":\"\",\"epoch\":0,\"seq\":2,\"requested_tick\":100,\"applied_tick\":101,\"ok\":true,\"status\":\"\(v55PaddedStatus)\"}"
+    let v55LongError = String(repeating: "x", count: 513)
+    let v55BadErrorBound = "{\"type\":\"player_input_result\",\"protocol_version\":4,\"actor_id\":\"player\",\"session_id\":\"\",\"epoch\":0,\"seq\":2,\"requested_tick\":100,\"ok\":false,\"status\":\"rejected\",\"error\":\"\(v55LongError)\"}"
+    let parsedV55Ack = parsePlayerInputResultLine(Data(v55AckLine.utf8))
+    check("V5.5 PlayerInput result strict schema carries applied tick",
+          parsedV55Ack?.ok == true && parsedV55Ack?.seq == 2
+          && parsedV55Ack?.requestedTick == 100 && parsedV55Ack?.appliedTick == 101
+          && parsePlayerInputResultLine(Data(v55BadSuccess.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadFailure.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadSuccessStatus.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadFailureApplied.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadFailureStatus.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadSuccessNullError.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadFailureNullTick.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadSeqBound.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadTickBound.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadProtocol.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadBlankSession.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadStatusBound.utf8)) == nil
+          && parsePlayerInputResultLine(Data(v55BadErrorBound.utf8)) == nil)
+    _ = v55Bridge.receiveLineForTesting(Data(v55AckLine.utf8))
+    check("V5.5 accepted result is generation stamped",
+          v55Bridge.latestPlayerInputResult()?.appliedTick == 101
+          && v55Bridge.latestPlayerInputResult()?.connectionGeneration == v55Bridge.connectionGeneration)
+
+    let v55SeqBounds = FlyGymBridge()
+    _ = v55SeqBounds.beginConnectionForTesting()
+    _ = v55SeqBounds.dequeueLaneForTesting(at: Date())
+    _ = v55SeqBounds.receiveLineForTesting(Data(v55Hello.utf8))
+    v55SeqBounds.setNextPlayerInputSeqForTesting(PlayerInputPacket.maxSeq)
+    let maxWireSeq = v55SeqBounds.sendPlayerInput(
+        sessionID: "", epoch: 0, requestedTick: 0,
+        moveAxes: [0, 0], lookDelta: [0, 0], heldActions: [])
+    let exhaustedWireSeq = v55SeqBounds.sendPlayerInput(
+        sessionID: "", epoch: 0, requestedTick: 0,
+        moveAxes: [0, 0], lookDelta: [0, 0], heldActions: [])
+    let maxWirePacket = v55SeqBounds.dequeueSendForTesting(
+        at: Date().addingTimeInterval(0.01)).flatMap { decodePlayerInputLine($0.1) }
+    check("V5.5 outbound PlayerInput never exceeds Python seq bound",
+          maxWireSeq == PlayerInputPacket.maxSeq
+          && exhaustedWireSeq == nil
+          && maxWirePacket?.seq == PlayerInputPacket.maxSeq)
+
+    // Deterministic boundary ordering: queued PlayerInput must reach Python before
+    // the body quantum it targets, exactly like tick-scheduled LabCommands.
+    let v55Order = FlyGymBridge()
+    _ = v55Order.beginConnectionForTesting()
+    _ = v55Order.dequeueLaneForTesting(at: Date())
+    _ = v55Order.receiveLineForTesting(Data(v55Hello.utf8))
+    _ = v55Order.sendSessionControl(action: "begin", sessionID: "v55-order",
+                                    epoch: 1, simTick: 0, mode: .deterministic)
+    _ = v55Order.dequeueLaneForTesting(at: Date().addingTimeInterval(0.01))
+    let orderedInput = v55Order.sendPlayerInput(sessionID: "v55-order", epoch: 1,
+                                                requestedTick: 0, moveAxes: [1, 0],
+                                                lookDelta: [0, 0], heldActions: [])
+    let orderedStep = v55Order.sendExperimentStep(sessionID: "v55-order", epoch: 1,
+                                                  seq: 1, simTick: 0, signals: BrainSignals())
+    let firstV55Lane = v55Order.dequeueLaneForTesting(at: Date().addingTimeInterval(0.02))
+    let secondV55Lane = v55Order.dequeueLaneForTesting(at: Date().addingTimeInterval(0.03))
+    check("V5.5 deterministic PlayerInput cannot be overtaken by experiment step",
+          orderedInput != nil && orderedStep
+          && firstV55Lane == .playerInput && secondV55Lane == .experimentStep)
+
+    // PlayerController focus safety and stale-key suppression are independent of
+    // render FPS/window-server event repetition.
+    let playerDefaultsName = "SiliconFly.PlayerInput.bridgetest.\(UUID().uuidString)"
+    let playerDefaults = UserDefaults(suiteName: playerDefaultsName)!
+    playerDefaults.removePersistentDomain(forName: playerDefaultsName)
+    let controller = PlayerController(defaults: playerDefaults, lookRadiansPerPoint: 0.01)
+    _ = controller.setCaptureEnabled(true)
+    let forwardCode = controller.bindings.keyCode(for: .forward)
+    let rightCode = controller.bindings.keyCode(for: .right)
+    let interactCode = controller.bindings.keyCode(for: .interact)
+    let forwardDown = controller.handleKeyDown(keyCode: forwardCode, isRepeat: false)
+    let diagonalDown = controller.handleKeyDown(keyCode: rightCode, isRepeat: false)
+    let interactDown = controller.handleKeyDown(keyCode: interactCode, isRepeat: false)
+    let localEscNeutral = controller.handleKeyDown(keyCode: PlayerController.escapeKeyCode,
+                                                   isRepeat: false)
+    let staleRepeat = controller.handleKeyDown(keyCode: forwardCode, isRepeat: true)
+    _ = controller.handleKeyUp(keyCode: forwardCode)
+    let freshForward = controller.handleKeyDown(keyCode: forwardCode, isRepeat: false)
+    check("V5.5 WASD/E state is bounded and Esc is local neutral safety release",
+          forwardDown?.moveAxes == [1, 0]
+          && diagonalDown?.moveAxes == [1, 1]
+          && interactDown?.heldActions == ["interact"]
+          && localEscNeutral?.isNeutral == true
+          && localEscNeutral?.heldActions.isEmpty == true
+          && staleRepeat == nil && freshForward?.moveAxes == [1, 0])
+
+    let focusNeutral = controller.releaseHeldInput(blockUntilFreshPress: true)
+    _ = controller.setCaptureEnabled(false)
+    _ = controller.setCaptureEnabled(true)
+    let focusStaleRepeat = controller.handleKeyDown(keyCode: forwardCode, isRepeat: true)
+    _ = controller.handleKeyUp(keyCode: forwardCode)
+    let focusFreshPress = controller.handleKeyDown(keyCode: forwardCode, isRepeat: false)
+    check("V5.5 focus loss neutralizes held state and never revives stale repeats",
+          focusNeutral?.isNeutral == true && focusStaleRepeat == nil
+          && focusFreshPress?.moveAxes == [1, 0])
+
+    let lookIntent = controller.handleLook(deltaX: 10, deltaY: -5)
+    check("V5.5 mouse look follows +Y-left world basis and bounded radians",
+          abs((lookIntent?.lookDelta[0] ?? 9) + 0.10) < 1e-12
+          && abs((lookIntent?.lookDelta[1] ?? 9) - 0.05) < 1e-12)
+
+    let originalForward = controller.bindings.keyCode(for: .forward)
+    let originalRight = controller.bindings.keyCode(for: .right)
+    _ = controller.rebind(.forward, to: originalRight, defaults: playerDefaults)
+    let reloadedBindings = PlayerKeyBindings(defaults: playerDefaults)
+    let swappedPersisted = reloadedBindings.keyCode(for: .forward) == originalRight
+        && reloadedBindings.keyCode(for: .right) == originalForward
+    _ = controller.rebind(.forward, to: PlayerController.escapeKeyCode, defaults: playerDefaults)
+    check("V5.5 remap persists unique swaps while Esc stays reserved",
+          swappedPersisted && controller.bindings.keyCode(for: .forward) == originalRight)
+    playerDefaults.set(Int(PlayerController.escapeKeyCode),
+                       forKey: PlayerKeyBindings.preferencePrefix + PlayerControlAction.forward.rawValue)
+    let escapedStoredBinding = PlayerKeyBindings(defaults: playerDefaults)
+    check("V5.5 corrupt persisted Esc binding fails safely to non-Esc mapping",
+          escapedStoredBinding.keyCode(for: .forward) != PlayerController.escapeKeyCode)
+    playerDefaults.removePersistentDomain(forName: playerDefaultsName)
+
+    let focusViewer = WorldViewer(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+    let focusField = NSTextField(string: "W should type, not walk")
+    let focusButton = NSButton(title: "Control", target: nil, action: nil)
+    let focusWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 180),
+                               styleMask: [.titled], backing: .buffered, defer: false)
+    PlayerInputFocusPolicy.prepareWindowForCapture(focusWindow)
+    check("V5.5 Participate window enables ordinary mouse-move delivery",
+          focusWindow.acceptsMouseMovedEvents)
+    check("V5.5 text/control focus suppresses capture",
+          PlayerInputFocusPolicy.allowsCapture(windowIsKey: true,
+                                               firstResponder: focusViewer,
+                                               viewer: focusViewer)
+          && !PlayerInputFocusPolicy.allowsCapture(windowIsKey: true,
+                                                   firstResponder: focusField,
+                                                   viewer: focusViewer)
+          && !PlayerInputFocusPolicy.allowsCapture(windowIsKey: true,
+                                                   firstResponder: focusButton,
+                                                   viewer: focusViewer)
+          && !PlayerInputFocusPolicy.allowsCapture(windowIsKey: false,
+                                                   firstResponder: focusViewer,
+                                                   viewer: focusViewer))
+
+    var participateLookCallbacks = 0
+    focusViewer.onPlayerLookDelta = { _, _ in participateLookCallbacks += 1 }
+    focusViewer.participateModeEnabled = true
+    focusViewer.participateInputEnabled = true
+    let captureCameraBefore = focusViewer.cameraState
+    focusViewer.routePointerDelta(deltaX: 12, deltaY: -4, shift: false)
+    focusViewer.routeScroll(delta: 9)
+    let captureCameraAfter = focusViewer.cameraState
+    focusViewer.participateInputEnabled = false
+    focusViewer.routePointerDelta(deltaX: 5, deltaY: 2, shift: false)
+    let releasedCameraChanged = focusViewer.cameraState != captureCameraAfter
+    check("V5.5 Participate capture is exclusive from pick/Observe camera gestures",
+          participateLookCallbacks == 1
+          && captureCameraAfter == captureCameraBefore
+          && !focusViewer.pickEnabledForCurrentMode
+          && releasedCameraChanged)
+
+    // Reconnect invalidates both pending input/result state and the Coordinator's
+    // interactive owner identity. A fresh transport generation must begin a fresh
+    // V4 interactive session before accepting new input.
+    let reconnectBridge = FlyGymBridge()
+    _ = reconnectBridge.beginConnectionForTesting()
+    _ = reconnectBridge.dequeueLaneForTesting(at: Date())
+    _ = reconnectBridge.receiveLineForTesting(Data(v55Hello.utf8))
+    let reconnectCoordinator = Coordinator(bounds: CGSize(width: 100, height: 100), sim: nil)
+    reconnectCoordinator.flyGym = reconnectBridge
+    let firstInteractiveReady = reconnectCoordinator.ensureInteractivePlayerInputSession()
+    let firstInteractiveID = reconnectCoordinator.sessionSnapshot().sessionID
+    reconnectBridge.disconnectForTesting()
+    let clearedAfterDisconnect = reconnectBridge.latestPlayerInputResult() == nil
+        && !reconnectBridge.playerInputV5_5Available
+    _ = reconnectBridge.beginConnectionForTesting()
+    _ = reconnectBridge.dequeueLaneForTesting(at: Date())
+    _ = reconnectBridge.receiveLineForTesting(Data(v55Hello.utf8))
+    let secondInteractiveReady = reconnectCoordinator.ensureInteractivePlayerInputSession()
+    let secondInteractiveID = reconnectCoordinator.sessionSnapshot().sessionID
+    check("V5.5 reconnect starts fresh interactive owner session and clears stale input state",
+          firstInteractiveReady && secondInteractiveReady && clearedAfterDisconnect
+          && firstInteractiveID != secondInteractiveID)
+
     // V5.3 observation camera is strictly presentation-only. Exercise the same
     // camera APIs used by right-drag/Shift-right-drag/scroll while wiring the
     // existing pick callback to a real V5-capable bridge. Any accidental pick,
@@ -2312,7 +2795,7 @@ func runBridgeTest() {
                 labSends += 1
             case .escape:
                 break
-            case .control, .experimentStep, .worldRender, .rayPick:
+            case .control, .experimentStep, .worldRender, .rayPick, .playerInput:
                 break
             }
         }

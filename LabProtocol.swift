@@ -69,6 +69,148 @@ struct LabCommand: Codable {
     }
 }
 
+/// V5.5 Swift -> Python participant control state. Movement is stateful and
+/// tick-scheduled; the backend integrates distance from simulation time. Look is
+/// an incremental yaw/pitch delta in radians and is coalesced by the bridge.
+struct PlayerInputPacket: Codable, Equatable {
+    static let maxSeq = 2_147_483_647
+    static let maxTick = 1_000_000_000_000_000
+    static let maxProtocolVersion = 1_000_000
+    static let maxLookDelta = Double.pi / 4.0
+
+    var type: String = "player_input"
+    var protocolVersion: Int = FlyGymProtocolV4.version
+    var actorID: String = "player"
+    var sessionID: String
+    var epoch: Int
+    var seq: Int
+    var requestedTick: Int
+    var moveAxes: [Double]
+    var lookDelta: [Double]
+    var heldActions: [String]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case protocolVersion = "protocol_version"
+        case actorID = "actor_id"
+        case sessionID = "session_id"
+        case epoch, seq
+        case requestedTick = "requested_tick"
+        case moveAxes = "move_axes"
+        case lookDelta = "look_delta"
+        case heldActions = "held_actions"
+    }
+
+    init(protocolVersion: Int = FlyGymProtocolV4.version,
+         actorID: String = "player", sessionID: String, epoch: Int, seq: Int,
+         requestedTick: Int, moveAxes: [Double], lookDelta: [Double],
+         heldActions: [String]) {
+        self.protocolVersion = min(Self.maxProtocolVersion,
+                                   max(FlyGymProtocolV4.version, protocolVersion))
+        let trimmedActor = actorID.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.actorID = trimmedActor.isEmpty ? "player" : String(trimmedActor.prefix(64))
+        self.sessionID = String(sessionID.prefix(128))
+        self.epoch = max(0, epoch)
+        self.seq = min(Self.maxSeq, max(0, seq))
+        self.requestedTick = min(Self.maxTick, max(0, requestedTick))
+        self.moveAxes = Self.boundedPair(moveAxes, limit: 1.0)
+        self.lookDelta = Self.boundedPair(lookDelta, limit: Self.maxLookDelta)
+        var seen = Set<String>()
+        self.heldActions = heldActions.compactMap { raw -> String? in
+            let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard value == "interact", seen.insert(value).inserted else { return nil }
+            return value
+        }
+    }
+
+    private static func boundedPair(_ values: [Double], limit: Double) -> [Double] {
+        guard values.count == 2 else { return [0.0, 0.0] }
+        return values.map { value in
+            guard value.isFinite else { return 0.0 }
+            return max(-limit, min(limit, value))
+        }
+    }
+}
+
+/// Python -> Swift authoritative result for one PlayerInput packet. This ACK is
+/// diagnostic/scheduling evidence only; player pose and Participate mode remain
+/// owned by WorldRenderSnapshot.
+struct PlayerInputResult: Decodable, FlyGymStampedPacket {
+    var type: String = "player_input_result"
+    var protocolVersion: Int
+    var actorID: String
+    var sessionID: String
+    var epoch: Int
+    var seq: Int
+    var requestedTick: Int
+    var appliedTick: Int?
+    var ok: Bool
+    var status: String
+    var error: String?
+    var receivedAt: Date = Date()
+    var connectionGeneration: UInt64 = 0
+
+    enum CodingKeys: String, CodingKey {
+        case type, epoch, seq, ok, status, error
+        case protocolVersion = "protocol_version"
+        case actorID = "actor_id"
+        case sessionID = "session_id"
+        case requestedTick = "requested_tick"
+        case appliedTick = "applied_tick"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type = try c.decode(String.self, forKey: .type)
+        guard type == "player_input_result" else {
+            throw DecodingError.dataCorruptedError(forKey: .type, in: c,
+                                                   debugDescription: "wrong player input result type")
+        }
+        protocolVersion = try c.decode(Int.self, forKey: .protocolVersion)
+        actorID = try c.decode(String.self, forKey: .actorID).trimmingCharacters(in: .whitespacesAndNewlines)
+        sessionID = try c.decode(String.self, forKey: .sessionID)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        epoch = try c.decode(Int.self, forKey: .epoch)
+        seq = try c.decode(Int.self, forKey: .seq)
+        requestedTick = try c.decode(Int.self, forKey: .requestedTick)
+        let hasAppliedTick = c.contains(.appliedTick)
+        appliedTick = try c.decodeIfPresent(Int.self, forKey: .appliedTick)
+        ok = try c.decode(Bool.self, forKey: .ok)
+        let rawStatus = try c.decode(String.self, forKey: .status)
+        status = rawStatus.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasError = c.contains(.error)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        guard protocolVersion >= FlyGymProtocolV4.version,
+              protocolVersion <= PlayerInputPacket.maxProtocolVersion,
+              !actorID.isEmpty, actorID.count <= 64,
+              sessionID.count <= 128,
+              ((sessionID.isEmpty && epoch == 0) || (!sessionID.isEmpty && epoch >= 1)),
+              seq >= 0, seq <= PlayerInputPacket.maxSeq,
+              requestedTick >= 0, requestedTick <= PlayerInputPacket.maxTick,
+              !status.isEmpty, rawStatus.count <= 64 else {
+            throw DecodingError.dataCorrupted(.init(codingPath: c.codingPath,
+                                                    debugDescription: "invalid player input result fields"))
+        }
+        if ok {
+            guard status == "applied", hasAppliedTick,
+                  let appliedTick, appliedTick >= 0,
+                  appliedTick <= PlayerInputPacket.maxTick,
+                  !hasError, error == nil else {
+                throw DecodingError.dataCorrupted(.init(codingPath: c.codingPath,
+                                                        debugDescription: "successful player input result requires applied_tick and no error"))
+            }
+        } else {
+            guard !hasAppliedTick, appliedTick == nil, status != "applied", hasError,
+                  let error,
+                  !error.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  error.count <= 512 else {
+                throw DecodingError.dataCorrupted(.init(codingPath: c.codingPath,
+                                                        debugDescription: "failed player input result requires rejection status/error and no applied_tick"))
+            }
+        }
+    }
+}
+
 /// Python -> Swift acknowledgement for one LabCommand.
 struct LabAck: Decodable, FlyGymStampedPacket {
     var type: String = "lab_ack"

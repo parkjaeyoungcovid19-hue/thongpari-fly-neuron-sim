@@ -607,6 +607,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     private var resumeAfterDeterministicReset = false
     private var deterministicResetCompletions: [() -> Void] = []
     private var interactiveSessionStarted = false
+    private var interactiveSessionGeneration: UInt64?
 
     let sim: MetalSim?
     var flyGym: FlyGymBridge?
@@ -673,6 +674,42 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     func sessionSnapshot() -> LabSessionSnapshot { labSession.snapshot() }
 
     func labCommandSchedule() -> LabCommandSchedule? { labSession.commandSchedule() }
+
+    /// V5.5 game input uses an explicit V4 interactive session when available so
+    /// session/epoch rejection remains meaningful outside deterministic runs. The
+    /// actual requested tick still comes from the latest atomic backend snapshot.
+    @discardableResult
+    func ensureInteractivePlayerInputSession() -> Bool {
+        let current = labSession.snapshot()
+        if current.mode == .deterministic { return current.phase != .failed }
+        guard let bridge = flyGym, bridge.playerInputV5_5Available else { return false }
+
+        let generation = bridge.connectionGeneration
+        lock.lock()
+        let alreadyStarted = interactiveSessionStarted && interactiveSessionGeneration == generation
+        if interactiveSessionStarted && interactiveSessionGeneration != generation {
+            interactiveSessionStarted = false
+            interactiveSessionGeneration = nil
+        }
+        lock.unlock()
+        if alreadyStarted { return true }
+
+        let tick = sim?.simMs ?? 0
+        let start = labSession.beginNew(mode: .interactive, initialTick: tick)
+        labSession.markInteractiveRunning(at: tick)
+        guard bridge.sendSessionControl(action: "begin", sessionID: start.sessionID,
+                                        epoch: start.epoch, simTick: tick,
+                                        mode: .interactive) != nil else {
+            labSession.fail("failed to queue interactive player-input session begin")
+            return false
+        }
+        lock.lock()
+        interactiveSessionStarted = true
+        interactiveSessionGeneration = generation
+        lock.unlock()
+        ensureDeterministicDriver()
+        return true
+    }
 
     func noteLabAck(_ ack: LabAck?) {
         guard let ack, ack.ok else { return }
@@ -876,6 +913,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
             return
         }
         interactiveSessionStarted = true
+        interactiveSessionGeneration = bridge.connectionGeneration
         _ = labSession.requestPause()
         if let seq = bridge.sendSessionControl(action: "pause", sessionID: start.sessionID,
                                                epoch: start.epoch, simTick: tick,

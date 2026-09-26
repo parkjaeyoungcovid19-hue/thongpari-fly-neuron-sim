@@ -1,0 +1,4 @@
+same 100pt movement: one event=-0.4 ten events=-0.39999999999999997 expected=-0.4
+event partition invariant: true
+keyUp local neutral=true; held=[0.0, 0.0]
+second keyUp yields retry=false

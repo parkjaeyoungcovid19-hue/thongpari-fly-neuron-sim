@@ -1,0 +1,6 @@
+test_bridge exit=0 pass=45 fail=0 0s
+test_lab exit=0 pass=55 fail=0 1s
+test_v4 exit=0 pass=48 fail=0 1s
+test_v5 exit=0 pass=32 fail=0 0s
+test_lab_real exit=0 pass=64 fail=0 17s
+test_vision_real exit=0 pass=14 fail=0 2s

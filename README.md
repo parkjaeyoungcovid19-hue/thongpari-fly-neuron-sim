@@ -9,7 +9,7 @@
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-111111?style=flat-square">
   <img alt="Swift" src="https://img.shields.io/badge/frontend-Swift%20%2B%20Metal-F05138?style=flat-square">
   <img alt="FlyGym" src="https://img.shields.io/badge/body-FlyGym%202.1%20%2B%20MuJoCo-5C7CFA?style=flat-square">
-  <img alt="status" src="https://img.shields.io/badge/V5.5-participant%20input%20verified-2E8B57?style=flat-square">
+  <img alt="status" src="https://img.shields.io/badge/V5.5.1-one--window%20lab%20%C2%B7%20acceptance%20pending-E8A33D?style=flat-square">
 </p>
 
 <p align="center">
@@ -28,7 +28,7 @@ The goal is not to fake convincing animal behavior. The V2 feature set is preser
 
 ### Current V5 status
 
-V5.1–V5.5 are now implemented in the repository. The current V5.5 milestone adds a backend-owned participant body and deterministic player input without moving authority into the Swift renderer:
+V5.1–V5.5.1 are now implemented in the repository. V5.1–V5.5 add a backend-owned participant body and deterministic player input without moving authority into the Swift renderer; V5.5.1 gathers everything into one macOS window:
 
 - **V5.1** — read-only SceneKit 3D viewport driven by atomic backend snapshots, plus authoritative ray picking;
 - **V5.2** — shared Observe / Participate screen state and common selection/session state;
@@ -36,9 +36,11 @@ V5.1–V5.5 are now implemented in the repository. The current V5.5 milestone ad
 - **V5.4** — a real free-joint participant body compiled into the same MuJoCo world as the fly and LabObjects, including real collision and rendered-eye visibility;
 - **V5.5** — WASD movement, mouse look, E held-action state and Esc safety release, with focus-safe capture, persistent key remapping, strict Swift/Python PlayerInput wire validation, deterministic requested-tick scheduling, replay/idempotency protection and disconnect neutralization.
 
-V5.5 movement is integrated from **simulation time**, not render FPS or key-repeat rate. Mouse-look deltas are accumulated exactly once; if coalescing exceeds the per-packet bound they are split into valid packets rather than clipped. Esc, focus loss, mode exit, capability loss and reconnect discard stale held state and any unsent look remainder before a neutral packet is sent.
+- **V5.5.1** — one-window app: the Lab is the only window, with a source-list sidebar, an always-visible world canvas that shows MuJoCo's own offscreen rendering of the real NeuroMechFly body, and an inspector that follows the sidebar. The app owns a headless real FlyGym backend on a private loopback port; no MuJoCo viewer, floating brain panel or desktop overlay opens. The 3D brain point cloud moved into the Brain page. Adds English/Korean interface language, a Finder launcher and an app bundle.
 
-**Next milestone: V5.6 — authoritative grab / place interaction.** V5.5 carries E only as the held `interact` action contract; grab/place is intentionally not implemented yet.
+V5.5 movement is integrated from **simulation time**, not render FPS or key-repeat rate. Mouse-look deltas are kept raw and accumulated exactly once; the same total pointer motion gives the same rotation however the OS partitions the events, and deltas above the per-packet bound are split into valid packets rather than clipped. Esc, focus loss, mode exit, capability loss and reconnect discard stale held state and any unsent look remainder before a neutral packet is sent; ordinary key-up also sends its neutral state even when the render snapshot is stale.
+
+**Next: finish V5.5.1 acceptance, then V5.6.** The 2026-09-26 independent check (below) found one open blocker: the participant body still penetrates walls and bounces back after release (audit F-02). Integrated GUI acceptance and performance are also still open. V5.6 grab/place does not start until V5.5.1 is accepted.
 
 ---
 
@@ -60,17 +62,17 @@ V5.5 movement is integrated from **simulation time**, not render FPS or key-repe
 
 ## The lab
 
-The V2 Lab window is organized around five jobs rather than around implementation details:
+Since V5.5.1 the Lab is a single standard macOS window: a toolbar (Observe / Participate, run / pause, record, language), a source-list sidebar, the live 3D world canvas in the middle with an event timeline and status line beneath it, and an inspector on the right. Choosing a sidebar item changes only the inspector; the canvas, its camera and the current selection stay as they are. The sidebar is organized around five jobs rather than around implementation details:
 
-**World** — spawn and move boxes, spheres, walls and food markers; approach objects toward the fly; reset the world or body.
+**World** — spawn and move boxes, spheres, walls and food markers (including a small top-down placement map); approach objects toward the fly; reset the world or body.
 
 **Stimuli** — cover either eye, flash an eye, apply wind, touch the thorax/head/abdomen/legs, and change temperature mode.
 
-**Brain** — directly stimulate selected neural populations such as GF, DNa, MDN, DNp09, DNg11, LC4/LPLC2 and the currently exposed sensory receptor groups.
+**Brain** — the 139,255-neuron 3D point cloud with spike flashes and neuron selection, plus direct stimulation of selected populations such as GF, DNa, MDN, DNp09, DNg11, LC4/LPLC2 and the currently exposed sensory receptor groups.
 
-**Live Data** — inspect source state, receptor drive/spike rates, decoded `BrainSignals`, left/right controller output, packet age, sim/wall timing and measured body motion.
+**Data** — inspect source state, receptor drive/spike rates, decoded `BrainSignals`, left/right controller output, packet age, sim/wall timing and measured body motion.
 
-**Experiments** — run built-in looming/wind/touch/direct-neural presets, add trial markers, replay the previous preset and record telemetry to disk.
+**Experiment** — run built-in looming/wind/touch/direct-neural presets, add trial markers, replay the previous preset and record telemetry to disk.
 
 The UI deliberately separates three kinds of intervention:
 
@@ -162,27 +164,38 @@ cd thongpari-fly-neuron-sim
 
 If your Python 3.12 lives somewhere else, use that interpreter instead.
 
-### 3. Launch the full V2 lab
+### 3. Launch the lab
 
-From Finder, the recommended entry point is:
+From Finder, double-click this file in the repository root:
 
 ```text
-Thongpari Fly Neuron Sim 실험실.command
+Virtual Fly Lab.command
 ```
 
 CLI equivalent:
 
 ```sh
-./run_flygym.sh --flygym
+./run_flygym.sh
 ```
 
-The launcher starts the Python bridge, the real FlyGym / MuJoCo backend, Thongpari Fly Neuron Sim and the Lab window. A cold FlyGym viewer launch can take a while to prewarm; the app keeps retrying the connection while the backend initializes.
+This rebuilds the app if any Swift source is newer than the binary, then runs `./ThongpariFlyNeuronSim --lab`. The app starts its own real FlyGym / MuJoCo backend headless on a private loopback port, shows it inside the one Lab window, and stops it on quit. The backend also exits by itself if the app dies. A cold backend start can take a while to prewarm; the window shows progress until the backend is ready.
 
-For development without the real body:
+To build a Finder app bundle that uses this checkout (`dist/Thongpari Virtual Fly Lab.app`):
 
 ```sh
-./run_flygym.sh --mock
+./package_app.sh
 ```
+
+Other launch modes:
+
+| Command | Use |
+|---|---|
+| `./run_flygym.sh --mock` | kinematic mock body, no MuJoCo — quick UI checks |
+| `./run_flygym.sh --viewer` | development only: also opens MuJoCo's own viewer window |
+| `./run_flygym.sh --bridge-only` | only a real headless bridge on `127.0.0.1:17841`, for `--labloop` / `--v4loop` or `./ThongpariFlyNeuronSim --flygym` (Lab against that external bridge) |
+| `./ThongpariFlyNeuronSim` | the original desktop-overlay fly with its floating brain window |
+
+If macOS "Optimize Mac Storage" has offloaded `flygym-venv` to iCloud, the first backend start downloads each Python file on demand and can take many minutes. Keep the project folder downloaded.
 
 ---
 
@@ -202,6 +215,23 @@ Telemetry includes neural rates, modeled sensory drive, receptor EMA spike rates
 ---
 
 ## Validation status
+
+### V5.5.1 one-window app status — 2026-09-26
+
+V5.5.1 is **implemented, and automated + real-backend checks pass; release acceptance is not complete.** An independent check on commit `ce1105c` is recorded in [`notes/validation/v5-5-1-independent-2026-09-26/`](notes/validation/v5-5-1-independent-2026-09-26/README.md).
+
+| Gate | Result |
+|---|---|
+| Build + Swift suite (`--bridgetest --labtest --v4test --v4timingtest --simtest --behaviortest --gpucheck`) | all pass |
+| Python suite (`test_bridge`, `test_lab`, `test_v4`, `test_v5`, real-MuJoCo `test_lab_real`, `test_vision_real`) | all pass |
+| TCP loops, each on a fresh backend (mock bridge/lab/v4 loop, real-headless lab/v4 loop) | 5 / 5 pass |
+| App bundle launch | one visible window (`Virtual Fly Lab`), backend on a private port, no MuJoCo/brain/overlay window; normal Quit and a killed app both leave no backend process |
+| Mouse-look partitioning (audit F-03) | fixed: one 100 pt event and ten 10 pt events both give −0.40 rad |
+| Key-up with a stale snapshot (audit F-01) | fixed in code; the refused-send retry case is still open |
+| Participant wall collision (audit F-02) | **open blocker** — still penetrates 1.66 mm into a wall and moves 83 mm back after release, unchanged from 2026-09-22 |
+| Integrated GUI flows 2–7 and GUI performance (plan §7) | **pending** — not yet run on the live window |
+
+V5.5.1 is complete only when F-02 is fixed (or participant movement is explicitly restricted), the GUI flows and performance gates pass, and `docs/reports/V5_5_1_COMPLETION_REPORT.md` records the evidence.
 
 ### V5.5 participant input status — 2026-09-22
 
@@ -315,10 +345,22 @@ The project is therefore best used for **controlled comparisons inside the same 
 
 ```text
 .
-├── main.swift                     app coordinator / brain ↔ body loop
+├── Virtual Fly Lab.command        Finder launcher (runs run_flygym.sh)
+├── run_flygym.sh                  CLI launcher: one-window Lab / mock / viewer / bridge-only
+├── package_app.sh                 builds dist/Thongpari Virtual Fly Lab.app
+├── main.swift                     app coordinator / brain ↔ body loop / launch modes
 ├── MetalSim.swift                 GPU FlyWire spiking simulation
-├── FlyGymBridge.swift             Swift TCP bridge and body feedback
-├── LabWindow.swift                Virtual Fly Lab UI
+├── FlyGymService.swift            app-owned backend process on a private port
+├── FlyGymBridge.swift             Swift TCP transport, queues, connection lifecycle
+├── FlyGymPackets.swift            wire packets, typed decoders, body/sensory mapping
+├── BridgeDiagnostics.swift        --bridgetest / --bridgeloop / --v4loop / --labloop
+├── LabWindow.swift                Virtual Fly Lab window, inspector pages, commands
+├── LabChrome.swift                source-list sidebar and inspector building blocks
+├── WorldViewer.swift              3D canvas: camera, selection, participate input
+├── MuJoCoCanvas.swift             shows MuJoCo's offscreen frames inside the canvas
+├── BrainView.swift                139k-neuron 3D brain view (embedded in Brain page)
+├── LabLocalization.swift          English / Korean interface strings
+├── NeuronGuide.swift, FlyMood.swift  plain-language neuron and mood readouts
 ├── LabProtocol.swift              lab state / telemetry / tests
 ├── PlayerController.swift         V5.5 WASD / mouse-look / focus / remap state
 ├── ExperimentRecorder.swift       events + CSV recording
@@ -326,6 +368,7 @@ The project is therefore best used for **controlled comparisons inside the same 
 ├── MotorReadout.swift             neural population rate → BrainSignals boundary
 ├── flygym_bridge/
 │   ├── bridge.py                  Python server
+│   ├── view_stream.py             MuJoCo offscreen render stream for the Lab canvas
 │   ├── fly_body.py                mock + real FlyGym body
 │   ├── player_body.py             V5.4/V5.5 participant physics + movement
 │   ├── lab_world.py               world / stimuli / source state
@@ -340,7 +383,7 @@ The project is therefore best used for **controlled comparisons inside the same 
 └── flygym_bridge/README.md         bridge internals and protocol notes
 ```
 
-For detailed controls and exact preset values, see **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. The **[V4–V14 sequential roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** and detailed per-version plans define the participant Viewer, environment editing, neural interpretation and external I/O extension path. V4 is complete; V5.1–V5.5 are implemented and V5.6 grab/place is next. V6–V14 remain planned. Bridge internals and protocol details are in **[flygym_bridge/README.md](flygym_bridge/README.md)**.
+For detailed controls and exact preset values, see **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. The **[V4–V14 sequential roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** and detailed per-version plans define the participant Viewer, environment editing, neural interpretation and external I/O extension path. V4 is complete; V5.1–V5.5.1 are implemented, V5.5.1 acceptance (F-02 fix, GUI and performance gates) comes next, and V5.6 grab/place follows it. V6–V14 remain planned. Bridge internals and protocol details are in **[flygym_bridge/README.md](flygym_bridge/README.md)**.
 
 ---
 

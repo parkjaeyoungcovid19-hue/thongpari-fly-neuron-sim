@@ -1,0 +1,7 @@
+bridgetest exit=0 2s
+labtest exit=0 1s
+v4test exit=0 0s
+v4timingtest exit=0 1s
+simtest exit=0 16s
+behaviortest exit=0 1s
+gpucheck exit=0 15s

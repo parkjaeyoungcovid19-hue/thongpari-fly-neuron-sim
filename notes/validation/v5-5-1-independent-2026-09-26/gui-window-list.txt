@@ -1,0 +1,2 @@
+8254 layer=3 onscreen=false name=Fly Brain — FlyWire v783 (click = stimulate) w=340 h=304
+8254 layer=0 onscreen=1 name=Virtual Fly Lab w=1320 h=820

@@ -591,9 +591,6 @@ class RealFlyBody:
     def set_player_input(self, player_input):
         return _set_player_input_state(self.lab_world, player_input)
 
-    def advance_player_input(self, sim_dt):
-        return _advance_player_input_motion(self.lab_world, sim_dt)
-
     def clear_player_input(self):
         _clear_player_input_state(self.lab_world)
 
@@ -672,11 +669,17 @@ class RealFlyBody:
         sig = brain_to_descending(cmd)
         self.last_cmd = sig
         self._configure_cpg_drive(sig)
-        self.advance_player_input(sim_dt)
-        for _ in range(n):
-            self._controller_substep(sig)
-            self.lab_world.pre_step(self.sim.timestep)
-            self.sim.step()
+        # F-02: the participant is moved by a bounded force servo on every
+        # native substep, never by a quantum-sized qpos write before physics.
+        player_start = self.lab_world.begin_player_quantum()
+        try:
+            for _ in range(n):
+                self._controller_substep(sig)
+                self.lab_world.pre_step(self.sim.timestep)
+                self.lab_world.player_substep()
+                self.sim.step()
+        finally:
+            self.lab_world.end_player_quantum(player_start)
         # --- observe: velocity from thorax displacement (mm -> m/s) ---
         pos = self.sim.get_body_positions('fly')
         xy_mm = pos.mean(axis=0)[:2]

@@ -671,7 +671,26 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         return actions
     }
 
-    func sessionSnapshot() -> LabSessionSnapshot { labSession.snapshot() }
+    /// UI/recorder view of the session. A deterministic session's tick is the
+    /// lockstep tick. An interactive session has no lockstep tick: LabSession
+    /// keeps only the tick it began at, so report the backend world clock (body
+    /// simulation time, the same clock as render snapshots and player-input
+    /// ticks) instead of that frozen start tick.
+    func sessionSnapshot() -> LabSessionSnapshot {
+        var snapshot = labSession.snapshot()
+        guard snapshot.mode == .interactive else { return snapshot }
+        // Read the bridge before taking our lock so the two locks never nest.
+        let body = flyGym?.latestBody(maxAge: .greatestFiniteMagnitude)
+        lock.lock(); defer { lock.unlock() }
+        if let body, body.simTime.isFinite, body.simTime >= 0 {
+            lastInteractiveWorldTick = Int((body.simTime * 1000.0).rounded())
+        }
+        // Right after a session begin the bridge has no body packet yet; keep
+        // the last world time rather than falling back to the begin tick.
+        if let tick = lastInteractiveWorldTick { snapshot.simTick = tick }
+        return snapshot
+    }
+    private var lastInteractiveWorldTick: Int?
 
     func labCommandSchedule() -> LabCommandSchedule? { labSession.commandSchedule() }
 

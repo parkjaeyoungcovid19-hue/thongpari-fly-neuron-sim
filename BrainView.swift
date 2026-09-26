@@ -225,6 +225,10 @@ final class BrainWindowController {
     private let brainGroup: SCNNode
     private let view: BrainSCNView
     var embeddedView: BrainSCNView { view }
+    /// Called after a click stimulates a cluster (indices, cluster name,
+    /// strength, duration ms) so a host such as the Lab can record the direct
+    /// neural intervention. The stimulation itself happens here either way.
+    var onClickStimulus: (([Int], String, Float, Int) -> Void)?
     private let stimRing: SCNNode
     private let label = NSTextField(labelWithString: "")
     private var labelHider: DispatchWorkItem?
@@ -320,12 +324,15 @@ final class BrainWindowController {
         neigh.sort { $0.d < $1.d }
         let picked = neigh.prefix(PICK_MAX).map { $0.i }   // never empty: the anchor is in it
 
-        sim.stimulate(picked, strength: 0.25, durationMs: 400)
+        let strength: Float = 0.25, durationMs = 400
+        sim.stimulate(picked, strength: strength, durationMs: durationMs)
         for k in stride(from: 0, to: picked.count, by: max(1, picked.count / 24)) {
             driver.flash(neuron: picked[k], isGF: false)   // light the whole ball, not its core
         }
         flashRing(at: anchor)
-        showLabel(regionName(for: picked))
+        let name = regionName(for: picked)
+        showLabel(name)
+        onClickStimulus?(picked, name, strength, durationMs)
     }
 
     /// A role population is 2-210 neurons out of 139k, so it never wins a plain

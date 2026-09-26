@@ -1,0 +1,21 @@
+realbody: prewarming full body pipeline
+realbody: ready
+PASS  F-02 free space keeps 20 ms = 0.6 mm and 30 mm/s: first_quantum=0.5730mm steady=30.0000mm/s
+PASS  F-02 look-only input does not translate the participant: moved=0.000e+00mm
+PASS  F-02 head-on wall bounded at 1 ms quanta: touched_wall=True peak_substep_penetration=0.0245mm center_x=26.5071mm limit=26.5
+PASS  F-02 head-on wall bounded at 5 ms quanta: touched_wall=True peak_substep_penetration=0.0245mm center_x=26.5071mm limit=26.5
+PASS  F-02 head-on wall bounded at 20 ms quanta: touched_wall=True peak_substep_penetration=0.0245mm center_x=26.5071mm limit=26.5
+PASS  F-02 head-on wall: release settles at the wall surface: x=26.5000mm rest_x=26.5000 offset=-0.0000mm speed=0.0000mm/s
+PASS  F-02 oblique wall approach slides with bounded penetration: peak_substep_penetration=0.0214mm center=[26.5062, 8.613, 8.0] slide_y=16.613mm
+PASS  F-02 sliding contact never rotates the participant away from look: max|xquat-look|=0.000e+00
+PASS  F-02 oblique wall: release settles at the wall surface: x=26.5000mm rest_x=26.5000 offset=-0.0000mm speed=0.0000mm/s
+PASS  F-02 box corner approach bounded: peak_substep_penetration=0.0246mm center=[26.2373, -3.7627, 8.0]
+PASS  F-02 box corner release comes to rest: speed=0.0000mm/s
+PASS  F-02 held push into fly thorax stays bounded: touched=True peak_substep_penetration=0.7998mm thorax_shift=0.857mm
+PASS  F-02 fly contact release comes to rest: speed=0.0000mm/s
+PASS  F-02 servo force cleared after each quantum: xfrc=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+PASS  F-02 deactivation mid-hold parks participant with no input or force: axes=[0.0, 0.0]
+PASS  F-02 reset_body clears held input and servo state: pos=[24.0, 0.0, 2.5] spawn=[24.0, 0.0, 2.5] speed=0.0
+PASS  F-02 servo motion is deterministic for identical input: max_abs_diff=0.000e+00mm
+PASS  F-02 servo respects the +/-1000 mm participant workspace: x=1000.0280mm speed=0.0000mm/s
+ALL PLAYER COLLISION TESTS PASS

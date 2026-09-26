@@ -1,0 +1,21 @@
+realbody: prewarming full body pipeline
+realbody: ready
+PASS  F-02 free space keeps 20 ms = 0.6 mm and 30 mm/s: first_quantum=0.6000mm steady=30.0000mm/s
+PASS  F-02 look-only input does not translate the participant: moved=0.000e+00mm
+FAIL  F-02 head-on wall bounded at 1 ms quanta: touched_wall=True peak_substep_penetration=4.5000mm center_x=83.6344mm limit=26.5
+FAIL  F-02 head-on wall bounded at 5 ms quanta: touched_wall=True peak_substep_penetration=4.5000mm center_x=78.0887mm limit=26.5
+FAIL  F-02 head-on wall bounded at 20 ms quanta: touched_wall=True peak_substep_penetration=2.2575mm center_x=28.1575mm limit=26.5
+FAIL  F-02 head-on wall: release settles at the wall surface: x=7.3775mm rest_x=26.5000 offset=+19.1225mm speed=41.5600mm/s
+FAIL  F-02 oblique wall approach slides with bounded penetration: peak_substep_penetration=1.9551mm center=[27.9355, 14.5, 8.0] slide_y=22.500mm
+PASS  F-02 sliding contact never rotates the participant away from look: max|xquat-look|=3.634e-19
+FAIL  F-02 oblique wall: release settles at the wall surface: x=9.9395mm rest_x=26.5000 offset=+16.5605mm speed=35.9920mm/s
+FAIL  F-02 box corner approach bounded: peak_substep_penetration=2.2572mm center=[44.564, 7.982, 8.0]
+PASS  F-02 box corner release comes to rest: speed=0.0000mm/s
+FAIL  F-02 held push into fly thorax stays bounded: touched=True peak_substep_penetration=2.0873mm thorax_shift=0.006mm
+PASS  F-02 fly contact release comes to rest: speed=0.0000mm/s
+PASS  F-02 servo force cleared after each quantum: xfrc=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+PASS  F-02 deactivation mid-hold parks participant with no input or force: axes=[0.0, 0.0]
+PASS  F-02 reset_body clears held input and servo state: pos=[24.0, 0.0, 2.5] spawn=[24.0, 0.0, 2.5] speed=0.0
+PASS  F-02 servo motion is deterministic for identical input: max_abs_diff=0.000e+00mm
+PASS  F-02 servo respects the +/-1000 mm participant workspace: x=1000.0000mm speed=0.0000mm/s
+8 FAILURES: ['F-02 head-on wall bounded at 1 ms quanta', 'F-02 head-on wall bounded at 5 ms quanta', 'F-02 head-on wall bounded at 20 ms quanta', 'F-02 head-on wall: release settles at the wall surface', 'F-02 oblique wall approach slides with bounded penetration', 'F-02 oblique wall: release settles at the wall surface', 'F-02 box corner approach bounded', 'F-02 held push into fly thorax stays bounded']

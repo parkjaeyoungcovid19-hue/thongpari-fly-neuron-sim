@@ -1,9 +1,18 @@
 # Virtual Fly Lab V5 — implementation progress
 
-Prepared: **2026-09-13** · updated **2026-09-22**
+Prepared: **2026-09-13** · updated **2026-09-26**
 V4 baseline: `e900b272e1df4131edba51476f0d213a8d166ca1` (`Complete Virtual Fly Lab V4 deterministic sessions`)
 V5 preparation commit: `3faf942` (`Prepare Virtual Fly Lab V5 implementation`)
-Status: **V5.5 AUTOMATED + REAL-BACKEND VERIFIED — deterministic participant input, focus safety and key remapping are implemented on the V5.4 MuJoCo body. V5.6 grab/place is next; fresh integrated GUI acceptance still remains a separate gate.**
+Status: **V5.5.1 implemented; F-02 코드 수정·자동/실제 backend 회귀 통과, 실제 GUI 참여 동선은 미확인. V5.5.1 인수 미완료이며 V5.6은 시작 전이다.**
+
+Current next step (2026-09-26): complete V5.5.1 acceptance under [the unified-app plan](../plans/VIRTUAL_FLY_LAB_V5_5_1_UNIFIED_APP_PLAN.md) §7. The F-02 working-tree fix passed the new 18/18 real MuJoCo collision checks (per-substep penetration, look ownership, reset/deactivate, determinism, workspace bound), existing Python mock/real regressions, and five fresh-backend TCP loops; the same new test failed eight checks against HEAD `dc768e4` ([evidence](../../notes/validation/f02-fix-2026-09-26/README.md)). This is code and backend verification, not GUI acceptance. GUI flows 2–7 and integrated performance remain pending, and `V5_5_1_COMPLETION_REPORT.md` does not yet exist. Do not start V5.6 until those gates pass and the completion report records the result.
+
+| Level | Current V5.5.1 judgment |
+|---|---|
+| Implemented | One-window Lab and the uncommitted F-02 code fix exist in the current working tree. |
+| Automated verified | Existing automated regression and the new F-02 collision test passed in the recorded run. |
+| Real backend verified | Real MuJoCo collision/legacy tests and fresh mock/real-headless TCP loops passed in the recorded run. |
+| GUI accepted | **No** — real participation flow, GUI flows 2–7, and integrated performance are pending. |
 
 ## Start gate
 
@@ -29,10 +38,13 @@ These checks confirm the committed V4 scheduling/session baseline before V5 work
 | V5.3 | 관찰 camera + eye sample provenance | automated_verified | `WorldViewer.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `LabProtocol.swift`, `flygym_bridge/{protocol,fly_body,test_bridge,test_lab_real}.py` | build, Swift bridge/lab/V4/timing/sim/behavior/GPU, Python V5/V4/lab/bridge PASS; fresh real lab/vision now PASS under V5.4 verification | integrated GUI acceptance remains separate |
 | V5.4 | 실제 사용자 참여체 | automated_real_verified | `FlyGymBridge.swift`, `LabWindow.swift`, `flygym_bridge/{player_body,lab_world,fly_body,protocol,bridge,test_v5,test_lab_real,test_vision_real}.py` | strict player wire/capability tests, real eye pixel delta, real semantic ray, real MuJoCo fly contact, reset/disconnect lifecycle, full V4/neural regression PASS | fresh integrated GUI click-through remains before whole-V5 completion; movement input intentionally deferred to V5.5 |
 | V5.5 | WASD/look/E/Esc 및 focus handling | automated_real_verified | `PlayerController.swift`, `LabProtocol.swift`, `LabWindow.swift`, `WorldViewer.swift`, `FlyGymBridge.swift`, `main.swift`, `build.sh`, `flygym_bridge/{protocol,bridge,player_body,fly_body,test_v5,test_v4,test_lab_real}.py` | strict PlayerInput/result wire tests, pre-Begin/session-generation ordering, requested_tick/idempotency/pause regressions, focus/Esc/reconnect stale-key release, remap persistence, real simulation-time movement and same-boundary free-joint pose proof, full V4/neural regression PASS | fresh integrated GUI click-through remains before whole-V5 completion; V5.6 grab/place intentionally not started |
+| V5.5.1 | 한 창 Lab 및 F-02 충돌 수정 | implemented; automated + real-backend verified; GUI pending | `main.swift`, `FlyGymService.swift`, `LabWindow.swift`, `MuJoCoCanvas.swift`, `flygym_bridge/{player_body,lab_world,fly_body,test_player_collision_real}.py` | [2026-09-26 independent check](../../notes/validation/v5-5-1-independent-2026-09-26/README.md); [F-02 fix logs](../../notes/validation/f02-fix-2026-09-26/README.md): 18/18 collision PASS, HEAD negative control 8 FAIL; F-01 held-input reconcile in `LabWindow.swift` (GUI unverified), Python real/mock + fresh TCP PASS | GUI flows 2–7, integrated performance and completion report pending; V5.6 blocked |
 | V5.6 | 집기/놓기 | planned | 미정 | 미실행 | authoritative backend ray/hit/contact required |
 | V5.7 | 기존 activity card 연결 | planned | 미정 | 미실행 | reuse existing telemetry only; no new state model |
 
 No V6 terrain/environment editor, V7 neuron inspector, V8 module host, V9 checkpoint, or V11 desire/emotion model is pulled forward into this version.
+
+The implementation notes below record work from **2026-09-13 to 2026-09-22**. Their then-current wording and stage-specific next steps are historical; the 2026-09-26 status above controls the next work.
 
 ## V5.3 automated verification — observation camera + raw-eye provenance
 
@@ -147,7 +159,7 @@ The first V5.2 slice is now in the working tree. It deliberately does **not** cr
 
 Fresh focused checks after this first V5.2 slice: `./build.sh`, `--bridgetest`, `--labtest`, `--v4test`, and `git diff --check` all PASS. `--bridgetest` now includes V5.2 fixtures for pause/timeline consistency, shared authoritative object selection, and selection reconciliation after a newer snapshot.
 
-## V5.1 implementation evidence — current working tree
+## V5.1 implementation evidence — historical 2026-09-13 to 2026-09-22
 
 The first runtime slice now exists. It deliberately stops before player movement/input:
 
@@ -290,4 +302,4 @@ Do not create `PlayerController.swift`, `WorldInteraction.swift` and `player_bod
 
 The final V5 user path remains: enter participation mode → move a real participant body near the fly → place/move an object → verify the participant/object can appear through the actual eye path and contact is physical → inspect existing neural/activity telemetry → pause without advancing world/brain/player tick → return to observation mode, all from one integrated Lab viewer.
 
-The next work is **finish V5.1 GUI/focus/performance acceptance**, not V5.2 or V6 work.
+Historical next step in the **2026-09-13 to 2026-09-22 V5.1 notes**: finish V5.1 GUI/focus/performance acceptance before the next stage. The current next step is the V5.5.1 acceptance stated at the top of this report.

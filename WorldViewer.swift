@@ -332,8 +332,10 @@ final class WorldViewer: SCNView {
         let p = pose.positionMM
         let r = pose.radiusMM
         if cameraState.mode == .firstPerson {
-            // Just in front of the body's surface, so the body never fills the view.
-            let eye = (0..<3).map { p[$0] + forward[$0] * r * 1.05 }
+            // Inside the collision sphere, mirroring view_stream.py's
+            // FIRST_PERSON_EYE_FRACTION: an eye outside it enters a wall the
+            // body is pressed against. The first-person frame hides the sphere.
+            let eye = (0..<3).map { p[$0] + forward[$0] * r * 0.6 }
             return (eye, (0..<3).map { eye[$0] + forward[$0] * 10 })
         }
         let h = hypot(forward[0], forward[1])

@@ -1,0 +1,5 @@
+realbody: prewarming full body pipeline
+realbody: ready
+inactive: best 37.39 ms wall per 20 ms quantum
+active+moving: best 39.34 ms wall per 20 ms quantum
+active+idle: best 38.22 ms wall per 20 ms quantum

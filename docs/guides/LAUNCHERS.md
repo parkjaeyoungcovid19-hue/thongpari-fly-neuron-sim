@@ -1,55 +1,42 @@
 # Thongpari Fly Neuron Sim 실행 파일 안내
 
-Virtual Fly Lab을 사용할 때는 **`Thongpari Fly Neuron Sim 실험실.command`를 기본 런처로 사용한다.** Finder에서 더블클릭하면 실제 FlyGym/MuJoCo bridge와 `ThongpariFlyNeuronSim --flygym`을 함께 실행하며 Lab 창도 자동으로 열린다.
+Virtual Fly Lab의 기본 진입점은 저장소 루트의 **`Virtual Fly Lab.command`**다. Finder에서 더블클릭하면 `run_flygym.sh`를 호출한다. CLI에서는 저장소 루트에서 `./run_flygym.sh`를 사용한다. `flygym-venv/bin/python`이 필요하며, 두 경로 모두 필요하면 Swift 실행 파일을 다시 빌드한 뒤 `./ThongpariFlyNeuronSim --lab`을 실행한다.
 
-## 1. 권장: `Thongpari Fly Neuron Sim 실험실.command`
+기본 `--lab` 모드에서는 앱이 비공개 loopback 포트의 실제 FlyGym/MuJoCo **headless bridge**를 소유한다. MuJoCo viewer 창을 별도로 띄우지 않고 한 Lab 창에 세계를 표시하며, 앱 종료 시 자식 bridge를 정리한다. 첫 backend 준비에는 시간이 걸릴 수 있다. 사용법은 [`VIRTUAL_FLY_LAB_GUIDE.md`](VIRTUAL_FLY_LAB_GUIDE.md)를 참고한다.
 
-사용 순서:
+## 실행 모드
 
-1. Finder에서 저장소 루트의 `Thongpari Fly Neuron Sim 실험실.command`를 더블클릭한다.
-2. 열린 Terminal 창을 유지한다.
-3. FlyGym/MuJoCo viewer와 Thongpari Fly Neuron Sim이 시작되고 Virtual Fly Lab 창이 자동으로 열리면 실험을 진행한다.
+| 명령 | 경로와 용도 |
+|---|---|
+| `./run_flygym.sh` | 기본 한 창 Lab + 앱 소유 실제 headless bridge, 비공개 포트 |
+| `./run_flygym.sh --mock` | 한 창 Lab + 앱 소유 mock bridge; MuJoCo 없는 UI 점검용 |
+| `./run_flygym.sh --viewer` | **개발 진단용** 실제 backend + 별도 MuJoCo viewer 창; 기본 한 창 동선이 아님 |
+| `./run_flygym.sh --bridge-only` | 앱 없이 실제 headless bridge만 `127.0.0.1:17841`에서 실행; 외부 연결/진단용 |
+| `./ThongpariFlyNeuronSim --flygym` | 이미 실행 중인 **외부** `127.0.0.1:17841` bridge에 연결하는 Lab 창; bridge를 시작하거나 소유하지 않음 |
+| `./ThongpariFlyNeuronSim` | 기존 데스크톱 오버레이 파리 모드; 통합 Lab 진입점이 아님 |
 
-이 경로에서 World / Stimuli / Brain / Live Data / Experiments 전체 기능, built-in presets, replay, recording을 사용할 수 있다. 자세한 조작법은 [`VIRTUAL_FLY_LAB_GUIDE.md`](VIRTUAL_FLY_LAB_GUIDE.md)를 본다.
+외부 bridge 모드는 첫 Terminal에서 `./run_flygym.sh --bridge-only`를 실행한 뒤, 다른 Terminal에서 `./ThongpariFlyNeuronSim --flygym`을 실행한다. `--bridge-only`는 17841 포트에 기존 listener가 있으면 종료한다. 기존 사용자 listener를 중단하지 않는다.
 
-## 2. `Thongpari Fly Neuron Sim 바로 실행.command`
+`run_flygym.sh`는 이전 런처의 `--flygym`과 `--flygym-headless`를 입력으로 받아들이지만 둘 다 현재 기본 headless Lab 경로와 같다. `bridge.py` 자체의 플래그는 다르다: `--mock`은 mock body, `--flygym-headless`는 실제 body와 viewer 없는 bridge, `--flygym`은 실제 body와 **별도 MuJoCo viewer**를 뜻한다. 앱 소유 bridge에는 `THONGPARI_BRIDGE_PORT`, headless 렌더에는 `THONGPARI_RENDER_PORT`, 부모 종료 감시에는 `THONGPARI_PARENT_PID`가 설정된다. 직접 실행한 외부 bridge의 기본 포트는 17841이다.
 
-일반 Thongpari Fly Neuron Sim + 실제 FlyGym/MuJoCo body를 실행하는 보조 바로가기다. 내부 실행 경로는 역시 `./run_flygym.sh --flygym`이다. Lab 작업 목적이라면 이름이 명확한 `Thongpari Fly Neuron Sim 실험실.command`를 우선 사용한다.
-
-## 3. CLI launch
-
-실제 body + interactive viewer:
-
-```sh
-./run_flygym.sh --flygym
-```
-
-mock body:
+Finder용 앱 bundle이 필요하면 저장소 루트에서 다음을 실행한다. `package_app.sh`는 이 checkout을 가리키는 `dist/Thongpari Virtual Fly Lab.app`을 만든다.
 
 ```sh
-./run_flygym.sh --mock
+./package_app.sh
 ```
 
-실제 body를 viewer 없이 실행:
+## 진단
 
-```sh
-./run_flygym.sh --flygym-headless
-```
-
-`run_flygym.sh`는 bridge를 먼저 띄우고 `./ThongpariFlyNeuronSim --flygym`을 실행한 뒤 앱 종료 시 bridge 프로세스를 정리한다.
-
-## 4. Lab test modes
-
-socket 없이 Swift lab command queue/state parsing/direct-neural role mapping을 검사:
+소켓을 사용하지 않는 Swift Lab 검사:
 
 ```sh
 ./ThongpariFlyNeuronSim --labtest
 ```
 
-실제 TCP lab protocol loop를 검사하려면 bridge를 별도 Terminal에서 먼저 띄운다.
+실제 TCP Lab 검사는 **새 진단용 bridge**를 별도 Terminal에서 시작한 뒤 실행한다. 기존 세션이 붙은 bridge에 검사 명령을 보내지 않는다.
 
 ```sh
-./flygym-venv/bin/python flygym_bridge/bridge.py --mock
+./run_flygym.sh --bridge-only
 ```
 
 다른 Terminal에서:
@@ -58,42 +45,17 @@ socket 없이 Swift lab command queue/state parsing/direct-neural role mapping�
 ./ThongpariFlyNeuronSim --labloop
 ```
 
-`--labloop`는 실제 `lab_command`/ack/state/event 경로를 통해 고유한 sphere를 생성하고 wind, flash, touch, source timer 만료를 검사한 뒤 **자신이 만든 sphere만 삭제한다.** 기존 사용자 body/world를 reset하지 않는다. 만료 판정은 wall sleep이 아니라 body packet의 MuJoCo simulation time을 사용하며 packet generation/age도 진단에 포함한다. real bridge를 이미 띄운 상태에서도 사용할 수 있다.
+`--labloop`는 자체 객체의 생성·삭제와 자극 ACK/만료를 검사한다. 다른 진단을 연속 실행할 때는 각각 새 backend를 사용한다. 정적 검사와 Python 회귀의 상세 절차는 [`../reports/OVERALL_AUDIT_AND_FIX_PLAN_2026-09-22.md`](../reports/OVERALL_AUDIT_AND_FIX_PLAN_2026-09-22.md)를 참고한다.
 
-기존 bridge 진단도 그대로 사용할 수 있다.
+기존 소켓 없는 bridge 검사와 Python Lab/preset 검사는 다음 경로에 있다.
 
 ```sh
 ./ThongpariFlyNeuronSim --bridgetest
-./ThongpariFlyNeuronSim --bridgeloop   # bridge.py --mock 필요
-```
-
-Python Lab 검사:
-
-```sh
-python3 flygym_bridge/test_lab.py
+./flygym-venv/bin/python flygym_bridge/test_lab.py
 ./flygym-venv/bin/python flygym_bridge/test_lab_real.py
+./flygym-venv/bin/python flygym_bridge/validate_experiment_presets.py
 ```
 
-## 5. Preset JSON validation
+Swift 소스를 바꾼 뒤 직접 실행 파일이 오래됐다면 `./build.sh`로 갱신한다. 기본 런처와 패키징 스크립트는 실행 파일이 없거나 빌드 입력보다 오래되면 다시 빌드한다.
 
-내장 UI preset과 동기화해 둔 독립 참조 사양은 `flygym_bridge/experiment_presets.json`이다. UI는 현재 JSON을 읽지 않고 `LabWindow.runPreset`의 built-in 값을 직접 실행한다.
-
-JSON 검증:
-
-```sh
-python3 flygym_bridge/validate_experiment_presets.py
-```
-
-## 6. 빌드가 오래된 경우
-
-Swift 소스를 수정한 뒤 실행 파일이 갱신되지 않았다면:
-
-```sh
-./build.sh
-```
-
-그 다음 `Thongpari Fly Neuron Sim 실험실.command`를 다시 실행한다.
-
-## 7. 첫 실제 실행에서 연결이 늦을 때
-
-FlyGym viewer는 첫 시작에서 JIT/그래픽 준비를 먼저 할 수 있다. 그동안 Thongpari Fly Neuron Sim brain simulation은 계속 돌고 bridge 연결은 재시도된다. Terminal에 실제 오류가 없다면 같은 실행을 유지하면 준비 완료 후 연결된다.
+위 모드 구분은 런처와 인수 처리 소스에서 확인했다. 이 안내를 따라 새 checkout에서 Finder 실행을 다시 검증했는지는 **미확인**이다.

@@ -1,9 +1,9 @@
 """Backend-owned V5 participant probe living in the same MuJoCo world as the fly.
 
-V5.4 intentionally stops before game input. This actor is a small collidable
-free-joint sphere whose pose is owned by the simulation process. V5.5 can later
-move the exact same body from tick-scheduled PlayerInput without changing the
-render/collision contract established here.
+This actor is a small collidable free-joint sphere whose pose is owned by the
+simulation process. V5.5 PlayerInput moves it: the mock body integrates the pose
+kinematically, while the real MuJoCo body drives it through a bounded per-substep
+force servo so contacts are resolved by the solver (F-02).
 """
 from __future__ import annotations
 
@@ -26,6 +26,21 @@ PLAYER_RGBA = (0.58, 0.22, 0.86, 1.0)
 # bounded planar speed regardless of render/input packet frequency.
 PLAYER_MOVE_SPEED_MM_S = 30.0
 PLAYER_MAX_PITCH_DEG = 85.0
+# F-02 (2026-09-22 audit): the real body is driven by a bounded force servo on
+# every native MuJoCo substep instead of a per-quantum qpos write. The solver
+# therefore sees a finite push and can resolve contact inside the quantum.
+# With no held input the servo target is zero velocity, so a released
+# participant comes to rest instead of drifting on an unbalanced contact impulse.
+PLAYER_SERVO_TIME_CONSTANT_S = 0.001
+PLAYER_SERVO_MAX_ACCEL_MM_S2 = PLAYER_MOVE_SPEED_MM_S / PLAYER_SERVO_TIME_CONSTANT_S
+# Stiffer participant contact than MuJoCo's default (0.02 s). A default-stiffness
+# contact yields ~0.6 mm steady penetration under the full servo push; 0.002 s is
+# still 20x the 0.1 ms FlyGym timestep. The high solmix makes geom-geom contacts
+# with ordinary LabObjects use this value. Explicit fly pairs keep their own
+# solref, so the V5.4 fly contact response is unchanged.
+PLAYER_CONTACT_SOLREF = (0.002, 1.0)
+PLAYER_WORKSPACE_LIMIT_MM = 1000.0
+PLAYER_CONTACT_SOLMIX = 100.0
 
 
 def _finite_vec3(value, fallback):
@@ -110,6 +125,8 @@ class PlayerBody:
             # sufficient to add a geom to MuJoCo's generic collision candidates.
             contype=1,
             conaffinity=1,
+            solref=list(PLAYER_CONTACT_SOLREF),
+            solmix=PLAYER_CONTACT_SOLMIX,
         )
 
     def install_fly_contact_pairs(self, world, fly):
@@ -272,6 +289,79 @@ class PlayerBody:
     def mark_input_pose_applied(self):
         self._look_dirty = False
 
+    # ------------------------------------------------------------------
+    # Real MuJoCo body: native-substep servo (F-02)
+    # ------------------------------------------------------------------
+    def commanded_velocity_mm_s(self):
+        """World-frame planar velocity requested by the held move axes."""
+        forward, right = self.input_move_axes
+        yaw = self.look_yaw_rad
+        fx, fy = math.cos(yaw), math.sin(yaw)
+        # World +Y is left, so local +right points toward -Y at yaw=0.
+        rx, ry = math.sin(yaw), -math.cos(yaw)
+        return [(forward * fx + right * rx) * PLAYER_MOVE_SPEED_MM_S,
+                (forward * fy + right * ry) * PLAYER_MOVE_SPEED_MM_S,
+                0.0]
+
+    def begin_physics_quantum(self):
+        """Prepare one exact simulation quantum; returns the start position.
+
+        Position is never written here. Only a pending look change is applied to
+        the free-joint orientation, which does not alter the sphere's collision
+        volume.
+        """
+        if not self.active or not self._bound:
+            return None
+        start = [float(v) for v in self.data.qpos[self.qpos_adr:self.qpos_adr + 3]]
+        look_changed = self._look_dirty
+        self._look_dirty = False
+        return {"position_mm": start, "look_changed": look_changed}
+
+    def apply_servo_substep(self):
+        """Write the bounded servo force for the next native mj_step."""
+        if not self.active or not self._bound:
+            return
+        mass = float(self.model.body_mass[self.body_id])
+        dstart = self.dof_adr
+        target = self.commanded_velocity_mm_s()
+        # Same +/-1000 mm workspace bound as set_pose(): stop driving outward.
+        for i in range(2):
+            pos = float(self.data.qpos[self.qpos_adr + i])
+            if (pos >= PLAYER_WORKSPACE_LIMIT_MM and target[i] > 0.0) or \
+                    (pos <= -PLAYER_WORKSPACE_LIMIT_MM and target[i] < 0.0):
+                target[i] = 0.0
+        current = self.data.qvel[dstart:dstart + 3]
+        accel = [(target[i] - float(current[i])) / PLAYER_SERVO_TIME_CONSTANT_S
+                 for i in range(3)]
+        mag = math.sqrt(sum(a * a for a in accel))
+        if mag > PLAYER_SERVO_MAX_ACCEL_MM_S2:
+            scale = PLAYER_SERVO_MAX_ACCEL_MM_S2 / mag
+            accel = [a * scale for a in accel]
+        self.data.xfrc_applied[self.body_id, :3] = [mass * a for a in accel]
+        self.data.xfrc_applied[self.body_id, 3:] = 0.0
+        self._hold_look_orientation()
+
+    def _hold_look_orientation(self):
+        """Orientation is owned by look input, not by contact torque."""
+        q = self.orientation_quat_xyzw
+        self.data.qpos[self.qpos_adr + 3:self.qpos_adr + 7] = [q[3], q[0], q[1], q[2]]
+        self.data.qvel[self.dof_adr + 3:self.dof_adr + 6] = 0.0
+
+    def end_physics_quantum(self, start):
+        """Remove the servo force and adopt the solver's pose as owner state."""
+        if not self._bound:
+            return False
+        self.data.xfrc_applied[self.body_id, :] = 0.0
+        if not self.active or start is None:
+            return False
+        # The last mj_step may have applied a contact torque; restore the look
+        # orientation so render/eye pose never shows physics-driven rotation.
+        self._hold_look_orientation()
+        self.position_mm = [float(v) for v in
+                            self.data.qpos[self.qpos_adr:self.qpos_adr + 3]]
+        moved = math.dist(self.position_mm, start["position_mm"]) > 1e-6
+        return moved or bool(start["look_changed"])
+
     def input_state(self):
         return {
             "move_axes": list(self.input_move_axes),
@@ -285,7 +375,8 @@ class PlayerBody:
         """Owner-thread pose setter reserved for V5.5 tick-scheduled input."""
         if position_mm is not None:
             raw = _finite_vec3(position_mm, self.position_mm)
-            self.position_mm = [max(-1000.0, min(1000.0, v)) for v in raw]
+            self.position_mm = [max(-PLAYER_WORKSPACE_LIMIT_MM, min(PLAYER_WORKSPACE_LIMIT_MM, v))
+                                for v in raw]
         if orientation_quat_xyzw is not None:
             self.orientation_quat_xyzw = _unit_quat_xyzw(orientation_quat_xyzw)
         if mode is not None and self.active:

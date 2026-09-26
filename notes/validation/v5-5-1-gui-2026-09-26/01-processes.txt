@@ -1,0 +1,4 @@
+26650     1 /private/var/folders/jm/qrd14_n943sdnsjnn5y8gljh0000gn/T/AppTranslocation/42A59CAD-8E50-44FD-80DD-D696C08BA1FB/d/Thongpari Virtual Fly Lab.app/Contents/MacOS/ThongpariFlyNeuronSim
+26652 26650 /Users/apgx/Documents/Codex Projects/초파리/flygym-venv/bin/python /Users/apgx/Documents/Codex Projects/M-aM^DM^NM-aM^EM-)M-aM^DM^QM-aM^EM-!M-aM^DM^EM-aM^EM-5/siliconfly/flygym_bridge/b
+mjpython  26652 apgx    6u  IPv4 0x61a618d687410f51      0t0  TCP 127.0.0.1:55938 (LISTEN)
+mjpython  26652 apgx   11u  IPv4 0x6040d3b39bd7e203      0t0  TCP 127.0.0.1:55937 (LISTEN)

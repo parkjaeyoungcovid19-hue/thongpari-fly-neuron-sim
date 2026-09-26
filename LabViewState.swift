@@ -254,7 +254,7 @@ struct LabTimelineEntry: Equatable {
         let applied = appliedTick.map { " @t\($0)" } ?? ""
         let note = message.isEmpty || message == "ok" ? "" : " · \(message)"
         let what = detail.isEmpty ? action : "\(action) \(detail)"
-        // Interactive sessions have no requested tick (0); show the applied one alone.
+        // A tick of 0 means none was known when the row was created.
         let tick = requestedTick > 0 ? "t\(requestedTick)  " : ""
         return "\(tick)\(id)\(what) — \(status.title)\(applied)\(note)"
     }

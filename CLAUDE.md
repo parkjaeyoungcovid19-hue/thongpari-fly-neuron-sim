@@ -53,14 +53,14 @@ When the main conversation runs on Fable 5, keep Fable lean and push heavy work 
 
 ```sh
 ./build.sh                      # bare swiftc, -swift-version 5, no Xcode project (never xcodebuild)
-./SiliconFly                    # menu-bar 🪰; quit from there
-./SiliconFly --simtest          # sim invariants + throughput bench        (~10 s)
-./SiliconFly --behaviortest     # 17 end-to-end sim→body checks            (~2 s)
-./SiliconFly --gpucheck         # GPU vs an independent CPU reference      (~12 s)
-./SiliconFly --brainstats 4     # rest-regime diagnostics over 4 s of sim  (~2 s)
-./SiliconFly --snapshot f.png   # offscreen fly render
-./SiliconFly --brainshot b.png  # offscreen brain render
-./SiliconFly --seed 0x1234      # pin the sim seed (decimal or 0x hex) for any mode
+./ThongpariFlyNeuronSim                    # menu-bar 🪰; quit from there
+./ThongpariFlyNeuronSim --simtest          # sim invariants + throughput bench        (~10 s)
+./ThongpariFlyNeuronSim --behaviortest     # 17 end-to-end sim→body checks            (~2 s)
+./ThongpariFlyNeuronSim --gpucheck         # GPU vs an independent CPU reference      (~12 s)
+./ThongpariFlyNeuronSim --brainstats 4     # rest-regime diagnostics over 4 s of sim  (~2 s)
+./ThongpariFlyNeuronSim --snapshot f.png   # offscreen fly render
+./ThongpariFlyNeuronSim --brainshot b.png  # offscreen brain render
+./ThongpariFlyNeuronSim --seed 0x1234      # pin the sim seed (decimal or 0x hex) for any mode
 ```
 
 Always run `--simtest`, `--behaviortest` **and** `--gpucheck` after any sim, ETL

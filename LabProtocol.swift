@@ -1546,7 +1546,8 @@ func runLabTest() {
     if let snap = parseWorldRenderSnapshotLine(Data(yawLeft.utf8)) { viewer.apply(snapshot: snap) }
     viewer.setObservationCameraMode(.firstPerson)
     let eye = viewer.mujocoCamera
-    let eyeOK = zip(eye.positionMM, [24.0, 2.625, 2.5]).allSatisfy { abs($0 - $1) < 1e-3 }
+    // Eye at 0.6 x radius, inside the collision sphere (view_stream.py mirrors it).
+    let eyeOK = zip(eye.positionMM, [24.0, 1.5, 2.5]).allSatisfy { abs($0 - $1) < 1e-3 }
         && zip(eye.forward, [0.0, 1.0, 0.0]).allSatisfy { abs($0 - $1) < 1e-3 }
         && eye.anchor == "participant_first"
     viewer.rotateObservationCamera(deltaX: 40, deltaY: 10)

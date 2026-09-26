@@ -339,6 +339,18 @@ class LabWorld:
         if was_active and self.player.active:
             self._bump_revision(structural=False)
 
+    def begin_player_quantum(self):
+        return self.player.begin_physics_quantum()
+
+    def player_substep(self):
+        self.player.apply_servo_substep()
+
+    def end_player_quantum(self, start):
+        changed = self.player.end_physics_quantum(start)
+        if changed:
+            self._bump_revision(structural=False)
+        return changed
+
     def render_player(self):
         return self.player.render_pose()
 

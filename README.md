@@ -247,7 +247,7 @@ Key verified properties:
 - disconnect drops transport-owned deferred input and queued participant activation;
 - WASD/E held state is latest-wins while mouse-look deltas are accumulated exactly once and split losslessly above the per-packet bound;
 - Esc, focus loss, mode exit, capability loss, key remapping and reconnect send/leave a neutral state and discard pending mouse-look/remainder;
-- text fields and controls suppress movement capture; selecting Participate visibly stays pending until the backend participant snapshot confirms it, then capture begins immediately if the 3D viewer still owns focus. Esc/focus release requires a 3D-view click to recapture, and ordinary AppKit `mouseMoved` delivery is enabled;
+- text fields and controls suppress movement capture; selecting Participate visibly stays pending until the backend participant snapshot confirms it, then a click on the 3D view starts capture (V5.5.1: selecting Participate no longer captures by itself, so moving the pointer to the canvas does not turn the view). Esc/focus release likewise requires a 3D-view click to recapture, and ordinary AppKit `mouseMoved` delivery is enabled;
 - real participant motion uses the free-joint `qpos` as the authoritative same-boundary base, avoiding stale derived-pose jumps;
 - the participant collides with generic LabObjects and the fly in real MuJoCo and remains visible in the real FlyGym eye render.
 

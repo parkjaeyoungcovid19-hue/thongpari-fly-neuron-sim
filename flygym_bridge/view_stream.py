@@ -37,6 +37,7 @@ HEADER = struct.Struct("<4sIIQI")
 MAGIC = b"MJF1"
 MAX_PIXELS = 1200 * 800          # keeps GPU readback modest on an 8 GB M2 Air
 MIN_SIDE = 64
+FIRST_PERSON_EYE_FRACTION = 0.6   # eye offset from the participant centre, x radius
 FAR_PLANE_MM = 5000.0            # matches WorldViewer's SceneKit zFar
 MAX_GEOMS = 10000
 
@@ -190,6 +191,8 @@ class ViewStream:
             print(f"view-stream: scene update failed ({e})", flush=True)
             self._next_render = now + 2.0
             return
+        if camera["anchor"] == "participant_first":
+            _hide_participant_geom(model, scene)
         # Same cosmetic passes the passive viewer disabled on this machine.
         for flag in (mujoco.mjtRndFlag.mjRND_SHADOW,
                      mujoco.mjtRndFlag.mjRND_REFLECTION,
@@ -335,7 +338,10 @@ def _resolve_anchor(camera, anchors):
         p = player["position_mm"]
         r = max(0.2, float(player.get("collision_radius_mm") or 2.5))
         if anchor == "participant_first":
-            return [p[i] + forward[i] * r * 1.05 for i in range(3)], forward
+            # Inside the collision sphere (whose own geom is hidden from this
+            # view): an eye outside it enters a wall the body is pressed against,
+            # and the wall vanishes as if the participant had passed through.
+            return [p[i] + forward[i] * r * FIRST_PERSON_EYE_FRACTION for i in range(3)], forward
         h = math.hypot(forward[0], forward[1])
         flat = [forward[0] / h, forward[1] / h, 0.0] if h > 1e-6 else [1.0, 0.0, 0.0]
         eye = [p[0] - flat[0] * r * 5, p[1] - flat[1] * r * 5, p[2] + r * 2.2]
@@ -344,6 +350,20 @@ def _resolve_anchor(camera, anchors):
         n = math.sqrt(sum(v * v for v in look)) or 1.0
         return eye, [v / n for v in look]
     return pos, fwd
+
+
+def _hide_participant_geom(model, scene):
+    """Drop the participant's own sphere from a first-person frame."""
+    import mujoco
+    from player_body import PLAYER_GEOM_NAME
+    gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, PLAYER_GEOM_NAME)
+    if gid < 0:
+        return
+    for i in range(scene.ngeom):
+        g = scene.geoms[i]
+        if g.objtype == mujoco.mjtObj.mjOBJ_GEOM and g.objid == gid:
+            g.rgba[3] = 0.0
+            g.size[:] = 0.0
 
 
 def _close(sock):

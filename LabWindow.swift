@@ -262,6 +262,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private var playerCaptureArmed = false
     private var lastPlayerInputConnectionGeneration: UInt64?
     private var lastPlayerInputSeq: Int?
+    /// F-01: a player-input send that could not be queued already consumed the
+    /// local key state. Re-send the current held state until one is queued.
+    private var playerInputReconcilePending = false
     private let arenaPlacement = LabArenaPlacementView(frame: .zero)
     private let createOnArenaClick = NSButton(checkboxWithTitle: "Create selected object when clicking arena", target: nil, action: nil)
     private var autoObjectSerial: [String: Int] = [:]
@@ -375,6 +378,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             brainController = BrainWindowController(connectome: connectome, sim: sim, screen: screen)
         }
         buildUI()
+        brainController?.onClickStimulus = { [weak self] picked, name, strength, durationMs in
+            self?.noteBrainClickStimulus(count: picked.count, name: name,
+                                         strength: strength, durationMs: durationMs)
+        }
         arenaPlacement.onPick = { [weak self] x, y in
             guard let self else { return }
             self.objectX.stringValue = String(format: "%.1f", x)
@@ -466,6 +473,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                                                name: .labLanguageChanged, object: nil)
         let refreshTimer = Timer(timeInterval: 0.10, repeats: true) { [weak self] _ in
             self?.refresh()
+            self?.reconcilePlayerHeldInputIfNeeded()
             self?.syncMuJoCoView()
         }
         RunLoop.main.add(refreshTimer, forMode: .common)
@@ -859,10 +867,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 commandID: id,
                 connectionGeneration: bridge?.connectionGeneration ?? 0)
             viewState.beginModeTransition(to: .participate)
-            playerCaptureArmed = bridge?.playerInputV5_5Available == true
-            if playerCaptureArmed {
-                window?.makeFirstResponder(worldViewer)
-            }
+            // Capture starts only from a click on the 3D view (V5.5.1 plan §3).
+            // Arming it here turned the pointer's trip from the toolbar to the
+            // canvas into a large look rotation before the user could aim.
+            playerCaptureArmed = false
             viewModeControl.selectedSegment = modes.firstIndex(of: viewState.displayedMode) ?? 0
             worldViewerStatusLabel.stringValue = L("3D world — enabling backend participant probe…", "3D 화면 — 참여자 몸을 세계에 넣는 중…")
         case .observe:
@@ -898,6 +906,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             _ = playerController.releaseHeldInput(blockUntilFreshPress: true)
             playerCaptureArmed = false
             lastPlayerInputSeq = nil
+            playerInputReconcilePending = false
         }
         lastPlayerInputConnectionGeneration = generation
         if participantCommandPending.clearIfViewerLifecycleInvalid(
@@ -930,9 +939,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 }
             }
         } else {
-            // The Participate click itself arms capture and focuses WorldViewer.
-            // If the user moved focus to an editor/control while the backend was
-            // confirming the participant, fail closed rather than stealing it back.
+            // A 3D-view click arms capture and focuses WorldViewer. If focus
+            // moved to an editor/control before the participant was confirmed,
+            // fail closed rather than stealing it back.
             let focused = playerInputFocusAllowsCapture()
             let shouldCapture = playerCaptureArmed && focused
             if shouldCapture {
@@ -952,7 +961,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             if playerInputAvailable {
                 playerInputStatusLabel.stringValue = worldViewer.participateInputEnabled
                     ? L("Participant controls — CAPTURED · WASD move · mouse look · E interact · Esc release", "참여 조작 중 — WASD 이동 · 마우스로 둘러보기 · E 상호작용 · Esc 해제")
-                    : L("Participant controls — released · click the 3D view to capture", "참여 조작 — 해제됨 · 3D 화면을 클릭하면 다시 조작합니다")
+                    : L("Participant controls — not captured · click the 3D view to move and look", "참여 조작 — 3D 화면을 클릭하면 WASD 이동과 마우스 시선 조작이 시작됩니다")
                 playerInputStatusLabel.textColor = worldViewer.participateInputEnabled ? .systemGreen : .secondaryLabelColor
             } else {
                 playerInputStatusLabel.stringValue = L("Participant controls — backend has V5.4 body but not V5.5 player_input", "참여 조작 — 이 시뮬레이터 버전은 키보드 조작을 지원하지 않습니다")
@@ -1064,6 +1073,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 allowStaleSnapshotForRelease: allowStaleSnapshotForRelease) else {
             playerInputStatusLabel.stringValue = L("Participant controls — waiting for authoritative session snapshot before \(reason)", "참여 조작 — 시뮬레이터 화면을 기다리는 중이라 입력을 보내지 못했습니다")
             playerInputStatusLabel.textColor = .systemOrange
+            playerInputReconcilePending = true
             return nil
         }
         guard let seq = bridge.sendPlayerInput(
@@ -1076,10 +1086,34 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             discardPendingLook: discardPendingLook) else {
             playerInputStatusLabel.stringValue = L("Participant controls — \(reason) was not queued", "참여 조작 — 입력을 보내지 못했습니다")
             playerInputStatusLabel.textColor = .systemOrange
+            playerInputReconcilePending = true
             return nil
         }
         lastPlayerInputSeq = seq
+        playerInputReconcilePending = false
         return seq
+    }
+
+    /// Called from the 10 Hz refresh. A neutral state may use the stale-snapshot
+    /// release path; a still-moving state needs a fresh snapshot like key down.
+    /// Only an already-running session is reconciled: this timer must never
+    /// begin an interactive session the user did not request.
+    private func reconcilePlayerHeldInputIfNeeded() {
+        guard playerInputReconcilePending else { return }
+        guard bridge?.playerInputV5_5Available == true,
+              viewState.mode == .participate else {
+            // Disconnect releases held input on the backend, and leaving
+            // Participate deactivates the participant; nothing to resend.
+            playerInputReconcilePending = false
+            return
+        }
+        guard coordinator.sessionSnapshot().phase == .running else { return }
+        let held = playerController.heldIntent()
+        // A neutral state is a safety release and drops unsent look, like
+        // key up. A still-moving state keeps any queued look delta (F-03).
+        sendPlayerInput(held, reason: "held-input reconcile",
+                        allowStaleSnapshotForRelease: held.isNeutral,
+                        discardPendingLook: held.isNeutral)
     }
 
     private func releasePlayerHeldInput(reason: String) {
@@ -1774,6 +1808,19 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         recorder.mark(kind: "reset", detail: "modeled sensory interventions")
     }
 
+    /// A point-cloud click stimulates neurons directly; record it like the
+    /// population button so every direct neural intervention is on the timeline.
+    private func noteBrainClickStimulus(count: Int, name: String, strength: Float, durationMs: Int) {
+        let schedule = coordinator.labCommandSchedule()
+        let session = coordinator.sessionSnapshot()
+        noteLocal("stimulate", "brain click \(name) (\(count) neurons) ×\(strength) \(durationMs) ms",
+                  kind: .directNeural, tick: schedule?.requestedTick)
+        recorder.mark(kind: "direct_neural",
+                      detail: "brain_click cluster=\(name) neurons=\(count) strength=\(strength) duration_ms=\(durationMs)",
+                      sessionID: session.sessionID, epoch: session.epoch, simTick: session.simTick,
+                      requestedTick: schedule?.requestedTick)
+    }
+
     @objc private func stimulateBrain() {
         let role = selectedValue(brainRole, fallback: "GF")
         let strength = Float(max(0, min(2, d(brainStrength, fallback: 0.3))))
@@ -2120,7 +2167,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                       commandID: ack.id,
                       sessionID: ack.sessionID ?? s.sessionID,
                       epoch: ack.epoch ?? s.epoch,
-                      simTick: ack.simTick ?? s.simTick,
+                      // An interactive ACK's sim_tick is the session's begin tick.
+                      simTick: s.mode == .deterministic ? (ack.simTick ?? s.simTick) : s.simTick,
                       requestedTick: request?.requestedTick,
                       appliedTick: ack.appliedTick,
                       appliedEpoch: ack.appliedEpoch,

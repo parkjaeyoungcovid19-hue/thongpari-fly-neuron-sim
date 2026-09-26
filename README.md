@@ -2,85 +2,107 @@
 
 <p align="center">
   <strong>A connectome-driven virtual fruit-fly laboratory for macOS.</strong><br>
-  FlyWire whole-brain simulation in Metal, coupled in closed loop to a FlyGym / NeuroMechFly body in MuJoCo.
+  The whole FlyWire brain simulated on the GPU, driving a real NeuroMechFly body in MuJoCo — and you can walk into its world.
 </p>
 
 <p align="center">
-  <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-111111?style=flat-square">
+  <img alt="macOS" src="https://img.shields.io/badge/platform-macOS%20·%20Apple%20Silicon-111111?style=flat-square">
   <img alt="Swift" src="https://img.shields.io/badge/frontend-Swift%20%2B%20Metal-F05138?style=flat-square">
-  <img alt="FlyGym" src="https://img.shields.io/badge/body-FlyGym%202.1%20%2B%20MuJoCo-5C7CFA?style=flat-square">
-  <img alt="status" src="https://img.shields.io/badge/V5.5.1-one--window%20lab%20%C2%B7%20complete-2E8B57?style=flat-square">
+  <img alt="FlyGym" src="https://img.shields.io/badge/body-FlyGym%202.1%20%2B%20MuJoCo%203.9-5C7CFA?style=flat-square">
+  <img alt="status" src="https://img.shields.io/badge/V5.6.1-grab%20%26%20place%20·%20complete-2E8B57?style=flat-square">
 </p>
 
 <p align="center">
-  <img src="docs/images/neuromechfly-v2.jpg" width="900" alt="NeuroMechFly v2 simulated fruit fly navigating an obstacle environment">
+  <img src="docs/images/ui-world.png" width="920" alt="Virtual Fly Lab window: source-list sidebar, MuJoCo render of the NeuroMechFly body following the fly, and the World inspector with the object placement map">
 </p>
+<p align="center"><sub>The one-window Lab on an M2 MacBook Air, real FlyGym backend. The canvas is MuJoCo's own offscreen render of the NeuroMechFly v2 body; the inspector places physical objects on a top-down map.</sub></p>
 
-<p align="center">
-  <img src="docs/images/thongpari-fly-neuron-sim-gui.png" width="900" alt="Actual Thongpari Fly Neuron Sim Virtual Fly Lab V2 GUI">
-</p>
+**Thongpari Fly Neuron Sim** grew out of the SiliconFly desktop fly into an interactive **virtual fly lab**:
 
-<p align="center"><sub>Actual Virtual Fly Lab V2 GUI running on macOS; the documentation capture uses the mock bridge for stable telemetry.</sub></p>
+- **Brain** — the shipped FlyWire v783 connectome as a **139,255-neuron, 15,091,983-edge** leaky-integrate-and-fire network at 1 kHz in a Metal compute shader.
+- **Body** — a real **NeuroMechFly v2** model in **FlyGym 2.1 / MuJoCo**, not a scripted animation.
+- **Closed loop** — descending-neuron activity drives the FlyGym walking controller; measured body state, rendered-eye vision, contacts, odor, wind and temperature flow back into identified neural populations.
+- **You** — a participant body in the same MuJoCo world: walk with WASD, look with the mouse, and pick up and carry objects.
 
-**Thongpari Fly Neuron Sim** turns the original SiliconFly desktop fly into an interactive **virtual fly lab**. The brain side runs the shipped FlyWire v783 connectome as a 139,255-neuron spiking network on the GPU. The body side runs a real NeuroMechFly v2 model in FlyGym / MuJoCo. A bidirectional bridge connects neural outputs to locomotion and sends measured body, vision, contact and environmental state back into the neural simulation.
-
-The goal is not to fake convincing animal behavior. The V2 feature set is preserved through the later architecture so that you can see where a response came from: **source → modeled sensor → receptor activity → brain output → controller → measured motion**. V3 stabilized that loop, V4 added deterministic session/tick ownership, and V5 is building a participant-facing 3D lab on top of the same authoritative backend.
-
-### Current V5 status
-
-V5.1–V5.5.1 are now implemented in the repository. V5.1–V5.5 add a backend-owned participant body and deterministic player input without moving authority into the Swift renderer; V5.5.1 gathers everything into one macOS window:
-
-- **V5.1** — read-only SceneKit 3D viewport driven by atomic backend snapshots, plus authoritative ray picking;
-- **V5.2** — shared Observe / Participate screen state and common selection/session state;
-- **V5.3** — orbit/follow/free presentation cameras plus eye-render simulation-tick provenance;
-- **V5.4** — a real free-joint participant body compiled into the same MuJoCo world as the fly and LabObjects, including real collision and rendered-eye visibility;
-- **V5.5** — WASD movement, mouse look, E held-action state and Esc safety release, with focus-safe capture, persistent key remapping, strict Swift/Python PlayerInput wire validation, deterministic requested-tick scheduling, replay/idempotency protection and disconnect neutralization.
-
-- **V5.5.1** — one-window app: the Lab is the only window, with a source-list sidebar, an always-visible world canvas that shows MuJoCo's own offscreen rendering of the real NeuroMechFly body, and an inspector that follows the sidebar. The app owns a headless real FlyGym backend on a private loopback port; no MuJoCo viewer, floating brain panel or desktop overlay opens. The 3D brain point cloud moved into the Brain page. Adds English/Korean interface language, a Finder launcher and an app bundle.
-
-V5.5 movement is integrated from **simulation time**, not render FPS or key-repeat rate. Mouse-look deltas are kept raw and accumulated exactly once; the same total pointer motion gives the same rotation however the OS partitions the events, and deltas above the per-packet bound are split into valid packets rather than clipped. Esc, focus loss, mode exit, capability loss and reconnect discard stale held state and any unsent look remainder before a neutral packet is sent; ordinary key-up also sends its neutral state even when the render snapshot is stale.
-
-**Next: V5.6 grab/place.** V5.5.1 is complete as of 2026-09-26 ([completion report](docs/reports/V5_5_1_COMPLETION_REPORT.md)): the participant wall-collision blocker (audit F-02) is fixed and the GUI flows are accepted. The V5.6 preflight is in [V5 progress](docs/reports/V5_PROGRESS.md).
+The point is not to fake convincing animal behavior. Every response can be traced along **source → modeled sensor → receptor activity → brain output → controller → measured motion**, and every control says whether it is physical, a sensory model, or direct neural stimulation.
 
 ---
 
-## V2 feature set preserved in V3
+## Tour
 
-| Layer | Current V2 implementation |
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/ui-participate.png" alt="Participate mode, third-person camera: the participant sphere and physical boxes in the MuJoCo world"></td>
+    <td width="50%"><img src="docs/images/ui-brain.png" alt="Brain page: 139,255-neuron point cloud with spike flashes, a colour legend of the behaviour-relevant populations and direct stimulation controls"></td>
+  </tr>
+  <tr>
+    <td><b>Participate</b> — a free-joint body that collides with the fly and objects. Walk, look, grab and place from first- or third-person cameras.</td>
+    <td><b>Brain</b> — the whole-brain point cloud with live spike flashes, what each colour means, and direct stimulation of named populations.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/ui-data.png" alt="Data page: signal path from source to measured motion, brain activity and descending population graphs, sensory inputs"></td>
+    <td><img src="docs/images/ui-experiment.png" alt="Experiment page: deterministic session, trial markers, physical and sensory trials, direct neural trials"></td>
+  </tr>
+  <tr>
+    <td><b>Data</b> — the signal path line by line, plus live graphs of brain activity, descending populations and sensory drive.</td>
+    <td><b>Experiment</b> — deterministic sessions, trial markers, preset physical/sensory and direct-neural trials, CSV recording.</td>
+  </tr>
+</table>
+
+---
+
+## Status
+
+**V5.6.1 is complete (2026-09-27).** Next on the [roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md) is **V5.7** — read-only activity cards built from the telemetry that already exists (no invented hunger/emotion values).
+
+| Version | What it added |
 |---|---|
-| Brain | 139,255 FlyWire neurons, 15,091,983 signed edges, 1 kHz LIF simulation in Metal |
-| Body | FlyGym 2.1 / NeuroMechFly v2 / MuJoCo with real body dynamics and contact feedback |
-| Closed loop | Swift ↔ Python NDJSON bridge with freshness, timing, reconnect and bounded queues |
-| Vision | Real left/right FlyGym eye renders, brightness/occupancy and generic optic-expansion decoding |
-| Olfaction | Food-source geometry → bilateral modeled odor → FlyWire `ORN_DM1` + `ORN_VA2` |
-| Wind | Physical thorax force plus modeled `JO-C*` / `JO-E*` neural drive |
-| Temperature | Environment-only, locomotor-tempo model, or FlyWire `TRN_VP2` / `TRN_VP3a+b` drive |
-| Touch | Physical body-part impulse plus a separately labeled generic neural startle/touch channel |
-| Experiments | Presets, direct neural stimulation, live graphs, markers and CSV/event recording |
+| V2 | Closed-loop lab: rendered-eye vision, odor, wind, touch, temperature, presets, recording |
+| V3 | Stabilized loop; `SensoryModel` / `MotorReadout` boundaries with frozen V2 oracles |
+| V4 | Deterministic sessions: 1 ms neural ticks, exact 20 ms brain/body quanta, pause barriers |
+| V5.1–V5.5 | Atomic 3D snapshots and ray picking, Observe/Participate, cameras, a real participant body, WASD / mouse-look input with strict wire validation |
+| V5.5.1 | One window: sidebar, MuJoCo canvas, inspector; app-owned headless backend; English/Korean |
+| V5.6 | Grab and place: aim, press E to pick up an object, E again to put it down |
+| **V5.6.1** | Carry and input feel: constrained carry (below), latest-frame video, look-sensitivity slider, pointer lock, test-code refactor |
+
+Per-version evidence lives in [`docs/reports/V5_PROGRESS.md`](docs/reports/V5_PROGRESS.md) and [`notes/validation/`](notes/validation/v5-6-1-2026-09-27/README.md).
 
 ---
 
 ## The lab
 
-Since V5.5.1 the Lab is a single standard macOS window: a toolbar (Observe / Participate, run / pause, record, language), a source-list sidebar, the live 3D world canvas in the middle with an event timeline and status line beneath it, and an inspector on the right. Choosing a sidebar item changes only the inspector; the canvas, its camera and the current selection stay as they are. The sidebar is organized around five jobs rather than around implementation details:
+The Lab is a single standard macOS window: a toolbar (**Observe / Participate**, pause, record, language), a source-list sidebar, the live world canvas with a timeline and status line beneath it, and an inspector that follows the sidebar. Changing the sidebar page never moves the camera or drops the selection.
 
-**World** — spawn and move boxes, spheres, walls and food markers (including a small top-down placement map); approach objects toward the fly; reset the world or body.
+| Page | What you can do |
+|---|---|
+| **World** | Place, move, resize and remove boxes, spheres, walls and food sources (fields or click-on-map); make an object approach the fly; participant key bindings and look sensitivity; resets |
+| **Stimuli** | Cover or flash either eye, wind (physical force and/or modeled antennal drive), touch thorax/head/abdomen/legs, temperature mode |
+| **Brain** | Whole-brain point cloud, neuron selection, direct stimulation of GF, DNa, MDN, DNp09, DNg11, LC4/LPLC2 and the exposed receptor groups |
+| **Data** | Source state, receptor drive and spike rates, decoded `BrainSignals`, controller output, packet age, sim/wall timing, measured motion |
+| **Experiment** | Deterministic session, markers, looming/wind/touch/direct-neural presets, replay, recording |
 
-**Stimuli** — cover either eye, flash an eye, apply wind, touch the thorax/head/abdomen/legs, and change temperature mode.
-
-**Brain** — the 139,255-neuron 3D point cloud with spike flashes and neuron selection, plus direct stimulation of selected populations such as GF, DNa, MDN, DNp09, DNg11, LC4/LPLC2 and the currently exposed sensory receptor groups.
-
-**Data** — inspect source state, receptor drive/spike rates, decoded `BrainSignals`, left/right controller output, packet age, sim/wall timing and measured body motion.
-
-**Experiment** — run built-in looming/wind/touch/direct-neural presets, add trial markers, replay the previous preset and record telemetry to disk.
-
-The UI deliberately separates three kinds of intervention:
+Every control is labeled with the kind of intervention it is:
 
 - **PHYSICAL** — real MuJoCo geometry or force.
 - **SENSORY-MODEL** — an explicit engineering transduction into identified neural populations.
-- **DIRECT-NEURAL** — current injection that bypasses the sensory transduction step.
+- **DIRECT-NEURAL** — current injection that bypasses sensory transduction.
 
-That distinction matters: a physical touch to the left front leg is a body-specific MuJoCo event, while the current V2 neural touch path is only a **generic modeled startle/touch channel**. The UI does not present those as the same thing.
+A physical touch on the left front leg is a body-specific MuJoCo event; the neural touch path is a **generic modeled startle channel**. The UI never presents those as the same thing.
+
+### Participate: walk, look, grab, place
+
+Choose **Participate**, then click the 3D view to take control. The cursor hides and stays put so mouse-look keeps working past the window edge.
+
+| Input | Action |
+|---|---|
+| **W A S D** | walk (remappable on the World page) |
+| **Mouse** | look; speed on the **Look sensitivity** slider (default 0.0015 rad/pt, saved) |
+| **E** | grab the object under the center mark (within 12 mm); press again to place it |
+| **Esc** | release control; focus loss, mode change and window close release it too |
+
+Movement is integrated in **simulation time**, not frame rate or key repeat. Mouse-look deltas are applied exactly once however the OS splits the events.
+
+**Carrying** is kinematic and XY-only at up to 40 mm/s, held just in front of where you look. Since V5.6.1 each 0.1 ms physics substep is constrained *before* it is taken: MuJoCo's signed distance and witness points give the surface normal and remaining gap to nearby objects and to your own body, and the step keeps only what every surface allows. A held box therefore slides along walls and swings around you instead of pushing into you. It keeps 0.5 mm from the participant and stops 0.005 mm short of other objects. The older approaches — straight chase, polar sweep, tangent slide — each shoved the participant (up to 32.5 mm) or stuck against walls in real-MuJoCo tests. A post-step guard still reverts any step that deepens a penetration.
 
 ---
 
@@ -88,120 +110,70 @@ That distinction matters: a physical touch to the left front leg is a body-speci
 
 ```mermaid
 flowchart LR
-    W[Lab world / rendered eyes] --> P[FlyGym + MuJoCo body]
+    W[Lab world · participant · rendered eyes] --> P[FlyGym + MuJoCo body]
     P -->|body packet\nvision · contacts · odor · timing| B[Swift bridge]
     B --> S[Modeled sensory transduction]
     S --> M[MetalSim\n139,255-neuron FlyWire network]
     M --> D[Decoded BrainSignals]
     D -->|walk · turn · escape · backward · tempo| C[FlyGym controller]
     C --> P
+    P -. offscreen render .-> V[Lab canvas]
 ```
 
-The bridge does not substitute a procedural translation for real FlyGym locomotion. In real-body mode the physical motion comes from the FlyGym controller and MuJoCo simulation. Stale body feedback is rejected rather than silently replayed as current sensory state.
+- Swift owns the brain (Metal) and the UI.
+- Python owns the body, world and participant physics (FlyGym / MuJoCo).
+- They talk NDJSON over a loopback socket with session/epoch/tick stamps, bounded queues and freshness checks. Stale body feedback is rejected, never replayed as current sensory state.
+- The canvas shows MuJoCo's own render of the same `MjModel`/`MjData`, the physics thread only updates the scene and the GPU render runs on its own thread (rendering on the physics thread had cut body rate from 24 to 12–17 Hz).
 
 ---
 
 ## What you can test
 
-### Vision and looming
-
-The fly uses FlyGym's rendered left/right eye frames. V2 measures brightness and occupancy and also estimates outward edge motion from the raw frames after compensating for small whole-frame translation. The generic optic-expansion estimator is useful for arbitrary rendered objects; it is an **engineering approximation**, not a biological reconstruction of retinal motion processing.
-
-Regression tests explicitly suppress common false loom cases including contraction, camera pan and full-field flash. Covering and reopening either eye is also tested through the real rendered path.
-
-### Food / odor
-
-Food markers are physical scene markers with a modeled odor source. Concentration is computed from source geometry and fly pose, split bilaterally, then injected into identified FlyWire `ORN_DM1` + `ORN_VA2` populations. Removing the source or receiving stale body feedback clears the drive.
-
-There is intentionally **no taste, reward, feeding, or scripted food-seeking behavior** in V2.
-
-### Wind
-
-Wind can independently enable:
-
-- a physical force on the MuJoCo thorax;
-- a modeled sensory path into outgoing `JO-C*` / `JO-E*` populations.
-
-The wind direction → neural current mapping is a model assumption, not a measured antennal transfer function.
-
-### Touch
-
-Touch can apply a real impulse to the thorax, head, abdomen, or any named leg. The current neural side is deliberately labeled as a generic modeled startle/touch channel rather than body-part-specific tactile physiology.
-
-### Temperature
-
-V2 exposes three modes:
-
-- `environment_only` — records temperature; no neural input;
-- `modeled_physiology` — adjusts locomotor tempo through the real FlyGym controller;
-- `flywire_sensory` — drives identified warm/cool FlyWire populations (`TRN_VP2`, `TRN_VP3a`, `TRN_VP3b`).
+- **Vision and looming** — real left/right FlyGym eye renders; brightness, occupancy and a generic optic-expansion estimate. Regression tests reject contraction, camera pan and full-field flash as false looms.
+- **Food / odor** — food sources are physical markers with a modeled odor plume. Concentration from source geometry and fly pose is split bilaterally into FlyWire `ORN_DM1` + `ORN_VA2`. No taste, reward or scripted food-seeking.
+- **Wind** — independently a physical force on the thorax and/or modeled drive into `JO-C*` / `JO-E*`.
+- **Touch** — a real impulse to the thorax, head, abdomen or any named leg; the neural side is a labeled generic startle channel.
+- **Temperature** — `environment_only`, `modeled_physiology` (locomotor tempo through the real controller), or `flywire_sensory` (`TRN_VP2`, `TRN_VP3a`, `TRN_VP3b`).
+- **Direct neural** — stimulate a named population and watch what the body does with it.
 
 ---
 
 ## Quick start
 
-### Requirements
-
-- Apple Silicon Mac
-- Xcode Command Line Tools / Swift toolchain
-- Python 3.12
-- FlyGym 2.1.0 and its MuJoCo dependencies
-
-### 1. Clone and build
+**Requirements:** an Apple Silicon Mac, Xcode Command Line Tools (Swift), Python 3.12, and FlyGym 2.1.0 with its MuJoCo dependencies.
 
 ```sh
 git clone https://github.com/parkjaeyoungcovid19-hue/thongpari-fly-neuron-sim.git
 cd thongpari-fly-neuron-sim
 ./build.sh
-```
 
-### 2. Create the FlyGym environment
-
-```sh
 /opt/homebrew/opt/python@3.12/bin/python3.12 -m venv flygym-venv
 ./flygym-venv/bin/pip install -r flygym_bridge/requirements.txt
 ```
 
-If your Python 3.12 lives somewhere else, use that interpreter instead.
-
-### 3. Launch the lab
-
-From Finder, double-click this file in the repository root:
-
-```text
-Virtual Fly Lab.command
-```
-
-CLI equivalent:
+Launch the Lab by double-clicking **`Virtual Fly Lab.command`** in Finder, or:
 
 ```sh
 ./run_flygym.sh
 ```
 
-This rebuilds the app if any Swift source is newer than the binary, then runs `./ThongpariFlyNeuronSim --lab`. The app starts its own real FlyGym / MuJoCo backend headless on a private loopback port, shows it inside the one Lab window, and stops it on quit. The backend also exits by itself if the app dies. A cold backend start can take a while to prewarm; the window shows progress until the backend is ready.
-
-To build a Finder app bundle that uses this checkout (`dist/Thongpari Virtual Fly Lab.app`):
-
-```sh
-./package_app.sh
-```
-
-Other launch modes:
+The launcher rebuilds when a Swift source is newer than the binary, then runs `./ThongpariFlyNeuronSim --lab`. The app starts its own headless FlyGym/MuJoCo backend on a private loopback port, shows it in the one window and stops it on quit. The backend also exits by itself if the app dies. A cold start takes a while to prewarm, and the window shows progress until it is ready.
 
 | Command | Use |
 |---|---|
+| `./package_app.sh` | build `dist/Thongpari Virtual Fly Lab.app` from this checkout |
 | `./run_flygym.sh --mock` | kinematic mock body, no MuJoCo — quick UI checks |
-| `./run_flygym.sh --viewer` | development only: also opens MuJoCo's own viewer window |
-| `./run_flygym.sh --bridge-only` | only a real headless bridge on `127.0.0.1:17841`, for `--labloop` / `--v4loop` or `./ThongpariFlyNeuronSim --flygym` (Lab against that external bridge) |
-| `./ThongpariFlyNeuronSim` | the original desktop-overlay fly with its floating brain window |
+| `./run_flygym.sh --viewer` | development only: also opens MuJoCo's own viewer |
+| `./run_flygym.sh --bridge-only` | just a headless bridge on `127.0.0.1:17841` for the TCP diagnostics |
+| `./ThongpariFlyNeuronSim` | the original desktop-overlay fly with its brain window |
 
 If macOS "Optimize Mac Storage" has offloaded `flygym-venv` to iCloud, the first backend start downloads each Python file on demand and can take many minutes. Keep the project folder downloaded.
+
+**Performance.** On the 8 GB M2 MacBook Air in the screenshots, the full real body with the render stream ran at about **0.4× real time**. The status line flags it as `DEGRADED: body feedback below 30 Hz` rather than hiding it. The V3-era launcher run with MuJoCo's separate viewer measured ~0.8×. These are machine-specific observations, not benchmarks.
 
 ---
 
 ## Recording experiments
-
-The Lab can record trials under:
 
 ```text
 ~/Documents/ThongpariFlyNeuronSimExperiments/experiment-YYYYMMDD-HHMMSS/
@@ -210,134 +182,42 @@ The Lab can record trials under:
 └── telemetry.csv
 ```
 
-Telemetry includes neural rates, modeled sensory drive, receptor EMA spike rates, decoded brain state, controller output, body velocity/contact state, vision values, body packet age and simulation timing. `Baseline`, `Stimulus ON`, `Stimulus OFF`, and `Observation` markers make repeated trials easier to compare later.
+Telemetry includes neural rates, modeled sensory drive, receptor spike rates, decoded brain state, controller output, body velocity and contacts, vision values, packet age and simulation timing. `Baseline`, `Stimulus ON/OFF` and `Observation` markers make repeated trials comparable.
 
 ---
 
-## Validation status
+## Testing
 
-### V5.5.1 one-window app status — 2026-09-26
-
-V5.5.1 is **complete** ([completion report](docs/reports/V5_5_1_COMPLETION_REPORT.md)). The table below is the independent check on commit `ce1105c`, updated with the 2026-09-26 fixes; it is recorded in [`notes/validation/v5-5-1-independent-2026-09-26/`](notes/validation/v5-5-1-independent-2026-09-26/README.md).
-
-| Gate | Result |
-|---|---|
-| Build + Swift suite (`--bridgetest --labtest --v4test --v4timingtest --simtest --behaviortest --gpucheck`) | all pass |
-| Python suite (`test_bridge`, `test_lab`, `test_v4`, `test_v5`, real-MuJoCo `test_lab_real`, `test_vision_real`) | all pass |
-| TCP loops, each on a fresh backend (mock bridge/lab/v4 loop, real-headless lab/v4 loop) | 5 / 5 pass |
-| App bundle launch | one visible window (`Virtual Fly Lab`), backend on a private port, no MuJoCo/brain/overlay window; normal Quit and a killed app both leave no backend process |
-| Mouse-look partitioning (audit F-03) | fixed: one 100 pt event and ten 10 pt events both give −0.40 rad |
-| Key-up with a stale snapshot (audit F-01) | fixed; a refused send is re-sent from the 10 Hz refresh while Participate is running |
-| Participant wall collision (audit F-02) | fixed — per-substep bounded force servo; peak penetration 0.025 mm (was 4.5 mm), rests at the surface after release; `test_player_collision_real.py` 18/18 ([evidence](notes/validation/f02-fix-2026-09-26/README.md)) |
-| Integrated GUI flows 1–7 and GUI performance (plan §7) | accepted — flows 1–3 checked by Claude on the live window ([evidence](notes/validation/v5-5-1-gui-2026-09-26/README.md)), flows 4–7 and performance confirmed by the user; baseline latency numbers were not recorded |
-
-GUI acceptance also fixed four defects: a frozen interactive session tick, unrecorded brain-click stimulation, a first-person eye that entered walls, and Participate capturing input before a 3D-view click.
-
-### V5.5 participant input status — 2026-09-22
-
-V5.5 is **automated + real-backend verified** in commit `f6c4c92` (`Implement Virtual Fly Lab V5.5 player input`). The implementation keeps player pose and motion authoritative in Python/MuJoCo while Swift supplies bounded, session-stamped input intent.
-
-Key verified properties:
-
-- strict PlayerInput / PlayerInputResult schema symmetry across Swift and Python, including bounded `seq`, `requested_tick`, `applied_tick`, status/error presence rules and capability gating;
-- deterministic `requested_tick` ordering relative to experiment steps and LabCommands;
-- pre-Begin / pre-reset input cannot become valid retroactively;
-- pause/resume ordering distinguishes input received before, during and after the barrier;
-- replay remains idempotent after the bounded ACK cache is evicted and across passive transport reconnects;
-- disconnect drops transport-owned deferred input and queued participant activation;
-- WASD/E held state is latest-wins while mouse-look deltas are accumulated exactly once and split losslessly above the per-packet bound;
-- Esc, focus loss, mode exit, capability loss, key remapping and reconnect send/leave a neutral state and discard pending mouse-look/remainder;
-- text fields and controls suppress movement capture; selecting Participate visibly stays pending until the backend participant snapshot confirms it, then a click on the 3D view starts capture (V5.5.1: selecting Participate no longer captures by itself, so moving the pointer to the canvas does not turn the view). Esc/focus release likewise requires a 3D-view click to recapture, and ordinary AppKit `mouseMoved` delivery is enabled;
-- real participant motion uses the free-joint `qpos` as the authoritative same-boundary base, avoiding stale derived-pose jumps;
-- the participant collides with generic LabObjects and the fly in real MuJoCo and remains visible in the real FlyGym eye render.
-
-Fresh validation on the development Apple M2 Mac:
+Self-tests are built into the binary; Python tests run against the mock and the real MuJoCo body.
 
 ```sh
 ./build.sh
-./ThongpariFlyNeuronSim --bridgetest
-./ThongpariFlyNeuronSim --labtest
-./ThongpariFlyNeuronSim --v4test
+./ThongpariFlyNeuronSim --labtest        # lab protocol, input, frame hand-off
+./ThongpariFlyNeuronSim --bridgetest     # wire contract and decoders
+./ThongpariFlyNeuronSim --v4test         # deterministic sessions
 ./ThongpariFlyNeuronSim --v4timingtest
-./ThongpariFlyNeuronSim --simtest
-./ThongpariFlyNeuronSim --behaviortest
-./ThongpariFlyNeuronSim --gpucheck
+./ThongpariFlyNeuronSim --simtest        # circuit invariants + GPU throughput
+./ThongpariFlyNeuronSim --behaviortest   # sim -> body end to end
+./ThongpariFlyNeuronSim --gpucheck       # GPU vs an independent CPU reference
 
-./flygym-venv/bin/python flygym_bridge/test_v4.py
-./flygym-venv/bin/python flygym_bridge/test_v5.py
-NUMBA_DISABLE_JIT=1 ./flygym-venv/bin/python flygym_bridge/test_lab_real.py
-./flygym-venv/bin/python flygym_bridge/test_vision_real.py
-```
-
-All of the above passed in the final V5.5 verification pass. The real-body regression measured **0.600000 mm of participant travel over a 20 ms simulation quantum**, exactly matching the configured 30 mm/s movement speed. Same-boundary activation + input began from the 24.0 mm free-joint spawn and ended at 24.6 mm, proving the movement base is authoritative `qpos` rather than stale `xpos`.
-
-A fresh integrated GUI smoke on 2026-09-22 launched the parent `.command` against the real FlyGym backend, switched the live segmented control from Observe to Participate, reached `CAPTURED`, and received an authoritative W-input ACK (`input #2 applied at tick 4365`). The live Observation camera popup also switched from Orbit to Follow fly. Automated camera regression additionally moves the authoritative fly snapshot and verifies that Follow fly translates the camera by the same scene-space delta. Remaining whole-V5 acceptance is limited to broader live focus-loss/disconnect/performance coverage; V5.6 grab/place is still separate.
-
-### V4 deterministic session status — 2026-09-13
-
-V4 is **complete in the current local working tree**. The final acceptance pass exercised the full Swift/Python regression suite, mock and real-headless V4 TCP lockstep, real MuJoCo and rendered-eye tests, and a fresh real Viewer + GUI process. Deterministic mode uses 1 ms neural ticks and exact 20 ms brain/body quanta; the installed real FlyGym backend declared a 0.1 ms physics timestep, giving exactly 200 native MuJoCo substeps per quantum.
-
-The fresh GUI smoke also caught and fixed a lifecycle bug that unit tests had missed: an already-consumed successful `session_state` snapshot could be processed again after the local tick advanced. `LabSession` now treats old/duplicate lifecycle control sequences idempotently. After the fix, the real GUI remained in deterministic `running`, held a real pause barrier at the same tick for more than two wall seconds, queued a world mutation while paused, and applied it on Resume at the recorded boundary tick. See `docs/reports/V4_COMPLETION_REPORT.md` for exact commands, logs, screenshots, performance observations and limitations.
-
-The current V3 tree has been exercised through the full Swift and Python regression set, including the real MuJoCo body and rendered-eye path:
-
-```sh
-./build.sh
-./ThongpariFlyNeuronSim --gpucheck
-./ThongpariFlyNeuronSim --labtest
-./ThongpariFlyNeuronSim --bridgetest
-./ThongpariFlyNeuronSim --simtest
-./ThongpariFlyNeuronSim --behaviortest
-
-./flygym-venv/bin/python flygym_bridge/test_bridge.py
-./flygym-venv/bin/python flygym_bridge/test_lab.py
+./flygym-venv/bin/python flygym_bridge/test_interaction_real.py   # grab / carry in real MuJoCo
+./flygym-venv/bin/python flygym_bridge/test_player_collision_real.py
 ./flygym-venv/bin/python flygym_bridge/test_lab_real.py
-./flygym-venv/bin/python flygym_bridge/test_vision_real.py
 ```
 
-The final full launcher validation on the development M2 Air sustained roughly **40–41 body packets/s**, **~60 brain packets/s**, no long stale-body gaps, and approximately **0.79–0.83× simulation-time / wall-time** while the real viewer and GUI were open. The UI explicitly reports degraded body feedback if it drops below 30 Hz.
+Against a fresh backend (`./run_flygym.sh --bridge-only`, or `bridge.py --mock`), `--bridgeloop`, `--labloop`, `--v4loop` and `--interactionloop` exercise the real TCP path. `--inputprobe` measures input latency and look cadence, and exits non-zero if its preconditions fail.
 
-These measurements are machine-specific observations, not a guaranteed benchmark.
-
-### V3 stabilization status — 2026-09-13
-
-V3 implementation and the follow-up fixes from the independent verification report are **complete in the local repository**. The main V3 implementation is commit `31bd106`; the verification remediation is commit `4995162`. Final user-side/manual GUI validation is intentionally separate. On the development Apple M2 Mac, the current code has concrete regression evidence:
-
-- the independent CPU `--gpucheck` reference reconstructs V2 ORN/TRN/JO receptor histogram groups and passes the full GPU comparison, including a corrupted-group negative control;
-- `--labloop` uses backend simulation time for timed wind/touch expiry and passes against both mock and real headless FlyGym without resetting an existing user's body/world;
-- expiry verification now rejects a frozen timer, a 10×-late duration and a 0.1×-early duration instead of accepting any eventual clear inside a wall-clock timeout;
-- the experiment recorder now reports `stopping` until queued telemetry/events are flushed and file handles close, propagates write failures, and exposes a completion path used by AppKit termination;
-- if recording finalization fails during Quit, AppKit no longer silently exits: the Lab window remains available with the error/path and the user must explicitly choose whether to keep the app open or `Quit Anyway`;
-- a separate `git archive` copy builds `ThongpariFlyNeuronSim` without an inherited `SiliconFly` binary, and a fresh Python 3.12 environment installs `flygym_bridge/requirements.txt` successfully (`FlyGym 2.1.0`, `MuJoCo 3.9.0`, `NumPy 2.5.3` in this validation);
-- a fresh real viewer + GUI launch connected successfully and sustained roughly 39–41 body packets/s, ~60 brain packets/s and ~0.79–0.81× simulation/wall time during this smoke run.
-- V2 source→sensory-drive transforms now live behind `SensoryModel.swift`, and neural-rate→body-command readout lives behind `MotorReadout.swift`; frozen V2 formula oracles plus same-seed downstream neural-state parity prove the extraction did not change model behavior.
-
-The 2026-09-13 GUI smoke was terminated from the validation terminal after confirming startup/connectivity; it did **not** count as an end-to-end GUI recording + normal-menu-Quit test. The user will perform that final manual validation separately. See `docs/reports/V3_COMPLETION_REPORT.md` for implementation evidence and `docs/reports/V3_VERIFICATION_REPORT_2026-09-13.md` for the independent verification findings, fault injection and remediation status.
+Latest full run (V5.6.1, 2026-09-27): **10/10 Python suites, 7/7 Swift self-tests, 7/7 TCP runs** (mock and real headless) passed. The carry scenarios hold the participant still across the whole path (0.0000 mm) and have negative controls. Details: [V5.6.1 validation](notes/validation/v5-6-1-2026-09-27/README.md).
 
 ---
 
 ## What is measured, what is modeled
 
-Thongpari Fly Neuron Sim combines real data, simulation and explicit engineering mappings. Those are not interchangeable.
+**Grounded in data or runtime state:** FlyWire v783 identities and connectivity; FlyGym/MuJoCo body state and contacts; rendered eye frames; bridge timing and controller output; the spikes the simulation actually produces after an input is injected.
 
-**Directly grounded in existing data / runtime state**
+**Engineering assumptions:** odor → current gain; temperature → TRN current; wind → JO-C/E current; the generic touch/startle channel; the optic-expansion estimator; the descending-neuron → locomotor-controller mapping.
 
-- FlyWire v783 neural identities and connectivity shipped with the repository;
-- real FlyGym / MuJoCo body state and contacts;
-- real rendered eye frames from the FlyGym cameras;
-- actual bridge timing/freshness and controller output;
-- actual receptor/network spikes produced by the implemented simulation after a modeled input is injected.
-
-**Engineering/modeling assumptions in V2**
-
-- scalar odor → neural current gain;
-- temperature → TRN current mapping;
-- wind direction/strength → JO-C/E current mapping;
-- generic touch/startle neural channel;
-- raw-frame optic-expansion estimator;
-- descending-neuron readout → FlyGym locomotor-controller mapping.
-
-The project is therefore best used for **controlled comparisons inside the same model** rather than as a claim that every intermediate quantity is a measured biological transfer function.
+Use it for **controlled comparisons inside the same model**, not as a claim that every intermediate quantity is a measured biological transfer function.
 
 ---
 
@@ -346,72 +226,61 @@ The project is therefore best used for **controlled comparisons inside the same 
 ```text
 .
 ├── Virtual Fly Lab.command        Finder launcher (runs run_flygym.sh)
-├── run_flygym.sh                  CLI launcher: one-window Lab / mock / viewer / bridge-only
-├── package_app.sh                 builds dist/Thongpari Virtual Fly Lab.app
-├── main.swift                     app coordinator / brain ↔ body loop / launch modes
-├── MetalSim.swift                 GPU FlyWire spiking simulation
+├── run_flygym.sh / package_app.sh CLI launcher / app bundle builder
+├── main.swift                     launch modes, Coordinator (brain ↔ body loop), AppDelegate
+├── MetalSim.swift, LIF.metal      GPU FlyWire spiking simulation
+├── SensoryModel.swift             modeled source → receptor drive
+├── MotorReadout.swift             population rates → BrainSignals
 ├── FlyGymService.swift            app-owned backend process on a private port
-├── FlyGymBridge.swift             Swift TCP transport, queues, connection lifecycle
-├── FlyGymPackets.swift            wire packets, typed decoders, body/sensory mapping
-├── BridgeDiagnostics.swift        --bridgetest / --bridgeloop / --v4loop / --labloop / --interactionloop / --inputprobe
-├── LabDiagnostics.swift           --labtest (headless lab protocol / input checks)
-├── SimDiagnostics.swift           --simtest / --behaviortest / --v4timingtest
-├── LabWindow.swift                Virtual Fly Lab window, inspector pages, commands
-├── LabChrome.swift                source-list sidebar and inspector building blocks
-├── WorldViewer.swift              3D canvas: camera, selection, participate input
-├── MuJoCoCanvas.swift             shows MuJoCo's offscreen frames inside the canvas
-├── BrainView.swift                139k-neuron 3D brain view (embedded in Brain page)
-├── LabLocalization.swift          English / Korean interface strings
-├── NeuronGuide.swift, FlyMood.swift  plain-language neuron and mood readouts
-├── LabProtocol.swift              lab state / telemetry packets
-├── PlayerController.swift         V5.5 WASD / mouse-look / focus / remap state
+├── FlyGymBridge.swift             TCP transport, queues, connection lifecycle
+├── FlyGymPackets.swift, LabProtocol.swift   wire packets and lab telemetry types
+├── LabWindow.swift, LabChrome.swift         the Lab window, sidebar, inspector pages
+├── WorldViewer.swift, MuJoCoCanvas.swift    3D canvas: camera, picking, participate input, MuJoCo frames
+├── PlayerController.swift         WASD / mouse-look / focus / remap / look sensitivity
+├── BrainView.swift                139k-neuron point cloud (Brain page)
 ├── ExperimentRecorder.swift       events + CSV recording
-├── SensoryModel.swift             modeled source → receptor-drive boundary
-├── MotorReadout.swift             neural population rate → BrainSignals boundary
+├── LabLocalization.swift          English / Korean strings
+├── LabDiagnostics.swift           --labtest
+├── SimDiagnostics.swift           --simtest / --behaviortest / --v4timingtest
+├── BridgeDiagnostics.swift        --bridgetest and the live TCP loops, --inputprobe
 ├── flygym_bridge/
-│   ├── bridge.py                  Python server
-│   ├── view_stream.py             MuJoCo offscreen render stream for the Lab canvas
+│   ├── bridge.py                  Python server (sessions, commands, input, snapshots)
 │   ├── fly_body.py                mock + real FlyGym body
-│   ├── player_body.py             V5.4/V5.5 participant physics + movement
-│   ├── lab_world.py               world / stimuli / source state
+│   ├── lab_world.py               world objects, stimuli, carry constraints
+│   ├── interaction.py             grab / place contract and constrained carry step
+│   ├── player_body.py             participant physics and movement
+│   ├── view_stream.py             MuJoCo offscreen render stream for the canvas
 │   ├── vision_decoder.py          rendered-eye decoder
 │   └── test_*.py                  Python regression suite
-├── docs/
-│   ├── guides/                     launch + user guides
-│   ├── plans/                      version plans and long-term roadmap
-│   ├── reports/                    audits, verification and performance evidence
-│   ├── reference/                  API/runtime inspection notes
-│   └── history/                    historical implementation writeups
-└── flygym_bridge/README.md         bridge internals and protocol notes
+├── data/                          FlyWire v783 connectome (~95 MB, CC BY-NC 4.0)
+└── docs/                          guides, plans + roadmap, reports, reference
 ```
 
-For detailed controls and exact preset values, see **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. The **[V4–V14 sequential roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** and detailed per-version plans define the participant Viewer, environment editing, neural interpretation and external I/O extension path. V4 is complete; V5.1–V5.5 are implemented and V5.5.1 is complete; V5.6 grab/place is next. V6–V14 remain planned. Bridge internals and protocol details are in **[flygym_bridge/README.md](flygym_bridge/README.md)**.
+Controls and preset values: **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. Bridge internals and protocol: **[flygym_bridge/README.md](flygym_bridge/README.md)**. The **[V4–V14 roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** is implemented strictly in order; V6–V14 remain planned.
 
 ---
 
 ## Upstream work and credits
 
-This repository started from **[SiliconFly](https://github.com/dawsonamf/siliconfly)** by Dawson Metzger-Fleetwood, which itself credits **[DesktopFly](https://github.com/DenisSergeevitch/desktop-fly)** by Denis Shiryaev for the original desktop fly / overlay foundation. **Thongpari Fly Neuron Sim** is the current project name for this V2 closed-loop lab branch.
-
-V2 additionally integrates:
+This repository started from **[SiliconFly](https://github.com/dawsonamf/siliconfly)** by Dawson Metzger-Fleetwood, which credits **[DesktopFly](https://github.com/DenisSergeevitch/desktop-fly)** by Denis Shiryaev for the original desktop fly. It also builds on:
 
 - **[FlyWire](https://codex.flywire.ai/)** connectome data;
-- **[FlyGym / NeuroMechFly v2](https://neuromechfly.org/)** by the Ramdya Lab / EPFL;
-- **[MuJoCo](https://mujoco.org/)** for body physics.
+- **[FlyGym / NeuroMechFly v2](https://neuromechfly.org/)** by the Ramdya Lab, EPFL;
+- **[MuJoCo](https://mujoco.org/)** for physics and rendering.
 
 Please cite the relevant upstream projects and papers when using their data or models in research.
 
-### Images used in this README
-
-- `docs/images/neuromechfly-v2.jpg` — simulated NeuroMechFly v2 scene, credit **Ramdya laboratory, EPFL**, **CC BY-SA 4.0**: <https://actu.epfl.ch/news/simulating-how-fruit-flies-see-smell-and-navigat-4>.
-- `docs/images/drosophila-melanogaster.jpg` — *Drosophila melanogaster* photograph by **Alexis** (`alexis_orion` on iNaturalist), **CC BY 4.0**, Wikimedia Commons: <https://commons.wikimedia.org/wiki/File:Drosophila_melanogaster_53362116.jpg>.
-
 <p align="center">
-  <img src="docs/images/drosophila-melanogaster.jpg" width="520" alt="Real Drosophila melanogaster">
+  <img src="docs/images/neuromechfly-v2.jpg" width="440" alt="NeuroMechFly v2 simulated fruit fly navigating an obstacle environment">
+  <img src="docs/images/drosophila-melanogaster.jpg" width="440" alt="Real Drosophila melanogaster">
 </p>
+
+- `docs/images/neuromechfly-v2.jpg` — simulated NeuroMechFly v2 scene, **Ramdya laboratory, EPFL**, **CC BY-SA 4.0**: <https://actu.epfl.ch/news/simulating-how-fruit-flies-see-smell-and-navigat-4>.
+- `docs/images/drosophila-melanogaster.jpg` — *Drosophila melanogaster* by **Alexis** (`alexis_orion` on iNaturalist), **CC BY 4.0**, Wikimedia Commons: <https://commons.wikimedia.org/wiki/File:Drosophila_melanogaster_53362116.jpg>.
+- `docs/images/ui-*.png` — screenshots of this app, captured 2026-09-27.
 
 ---
 
 ## License
 
-Source code is MIT-licensed as described in [LICENSE](LICENSE). Connectome-derived data under `data/` has separate licensing; see `data/DATA_LICENSE.md`.
+Source code is MIT-licensed; see [LICENSE](LICENSE). Connectome-derived data under `data/` is licensed separately (CC BY-NC 4.0); see `data/DATA_LICENSE.md`.

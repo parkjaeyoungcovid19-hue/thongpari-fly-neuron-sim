@@ -46,5 +46,5 @@ if [ ! -x ./ThongpariFlyNeuronSim ] || \
   ./build.sh || exit 1
 fi
 
-echo "🧪 Virtual Fly Lab V5.5.1 — one window"
+echo "🧪 Virtual Fly Lab — one window"
 exec ./ThongpariFlyNeuronSim --lab "${LAB_FLAGS[@]}"

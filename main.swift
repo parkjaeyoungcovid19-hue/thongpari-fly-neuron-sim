@@ -2035,6 +2035,9 @@ if args.contains("--bridgeloop") {
 if args.contains("--labloop") {
     runLabLoopTest()
 }
+if args.contains("--interactionloop") {
+    runInteractionLoopTest()
+}
 if args.contains("--simtest") {
     runSimtest()
 }

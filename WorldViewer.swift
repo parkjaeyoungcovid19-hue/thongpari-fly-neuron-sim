@@ -9,6 +9,21 @@ struct WorldViewerRay {
     let direction: [Double]
 }
 
+private final class ParticipantAimMark: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        NSColor.labelColor.withAlphaComponent(0.8).setStroke()
+        let path = NSBezierPath()
+        path.lineWidth = 1
+        path.move(to: NSPoint(x: bounds.midX - 4, y: bounds.midY))
+        path.line(to: NSPoint(x: bounds.midX + 4, y: bounds.midY))
+        path.move(to: NSPoint(x: bounds.midX, y: bounds.midY - 4))
+        path.line(to: NSPoint(x: bounds.midX, y: bounds.midY + 4))
+        path.stroke()
+    }
+}
+
 struct WorldViewerSnapshotSource: Equatable {
     let snapshotSeq: Int
     let worldRevision: Int
@@ -179,12 +194,19 @@ final class WorldViewer: SCNView {
     var participateInputEnabled = false {
         didSet {
             if !participateInputEnabled { lastRightDragPoint = nil }
+            updateAimMarkVisibility()
         }
     }
     override var acceptsFirstResponder: Bool { true }
 
     private let worldScene = SCNScene()
     private let cameraNode = SCNNode()
+    private let aimMark = ParticipantAimMark(frame: .zero)
+    var aimMarkVisible: Bool { !aimMark.isHidden }
+
+    private func updateAimMarkVisibility() {
+        aimMark.isHidden = !(participateInputEnabled && cameraState.mode == .firstPerson)
+    }
     private let groundNode = SCNNode()
     private var objectNodes: [String: SCNNode] = [:]
     private var objectRevisions: [String: Int] = [:]
@@ -274,6 +296,15 @@ final class WorldViewer: SCNView {
                                   owner: self, userInfo: nil)
         addTrackingArea(area)
         playerTrackingArea = area
+        aimMark.translatesAutoresizingMaskIntoConstraints = false
+        aimMark.isHidden = true
+        addSubview(aimMark)
+        NSLayoutConstraint.activate([
+            aimMark.centerXAnchor.constraint(equalTo: centerXAnchor),
+            aimMark.centerYAnchor.constraint(equalTo: centerYAnchor),
+            aimMark.widthAnchor.constraint(equalToConstant: 12),
+            aimMark.heightAnchor.constraint(equalToConstant: 12)
+        ])
     }
 
     private func cameraTargetForCurrentMode() -> SCNVector3 {
@@ -325,17 +356,18 @@ final class WorldViewer: SCNView {
     /// coordinates. The participant's look quaternion is yaw(Z)·pitch(Y) with
     /// +X forward, exactly as the backend integrates the captured mouse.
     private func participantCameraPose() -> (eye: [Double], target: [Double])? {
-        guard let pose = lastParticipantPose else { return nil }
-        let q = pose.quatXYZW
-        let (x, y, z, w) = (q[0], q[1], q[2], q[3])
-        let forward = [1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)]
+        guard let pose = lastParticipantPose,
+              let ray = Self.participantAimRay(positionMM: pose.positionMM,
+                                               quatXYZW: pose.quatXYZW,
+                                               radiusMM: pose.radiusMM) else { return nil }
+        let forward = ray.direction
         let p = pose.positionMM
         let r = pose.radiusMM
         if cameraState.mode == .firstPerson {
             // Inside the collision sphere, mirroring view_stream.py's
             // FIRST_PERSON_EYE_FRACTION: an eye outside it enters a wall the
             // body is pressed against. The first-person frame hides the sphere.
-            let eye = (0..<3).map { p[$0] + forward[$0] * r * 0.6 }
+            let eye = ray.originMM
             return (eye, (0..<3).map { eye[$0] + forward[$0] * 10 })
         }
         let h = hypot(forward[0], forward[1])
@@ -343,6 +375,40 @@ final class WorldViewer: SCNView {
         let eye = [p[0] - flat[0] * r * 5, p[1] - flat[1] * r * 5, p[2] + r * 2.2]
         return (eye, (0..<3).map { p[$0] + forward[$0] * r * 3 })
     }
+
+    /// Interaction always starts inside the authoritative participant body,
+    /// including when the display camera is behind that body.
+    func participantAimRay() -> WorldViewerRay? {
+        guard let pose = lastParticipantPose, pose.positionMM.count == 3,
+              pose.quatXYZW.count == 4, pose.radiusMM.isFinite,
+              pose.radiusMM > 0 else { return nil }
+        return Self.participantAimRay(positionMM: pose.positionMM,
+                                      quatXYZW: pose.quatXYZW,
+                                      radiusMM: pose.radiusMM)
+    }
+
+    static func participantAimRay(player: WorldRenderPose) -> WorldViewerRay? {
+        guard let radius = player.collisionRadiusMM else { return nil }
+        return participantAimRay(positionMM: player.positionMM,
+                                 quatXYZW: player.orientationQuatXYZW,
+                                 radiusMM: radius)
+    }
+
+    private static func participantAimRay(positionMM: [Double], quatXYZW q: [Double],
+                                          radiusMM: Double) -> WorldViewerRay? {
+        guard positionMM.count == 3, positionMM.allSatisfy(\.isFinite),
+              q.count == 4, q.allSatisfy(\.isFinite), radiusMM.isFinite,
+              radiusMM > 0 else { return nil }
+        let (x, y, z, w) = (q[0], q[1], q[2], q[3])
+        let forward = [1 - 2 * (y * y + z * z), 2 * (x * y + w * z),
+                       2 * (x * z - w * y)]
+        guard forward.allSatisfy(\.isFinite) else { return nil }
+        let origin = (0..<3).map { positionMM[$0] + forward[$0] * radiusMM * 0.6 }
+        guard origin.allSatisfy(\.isFinite) else { return nil }
+        return WorldViewerRay(originMM: origin, direction: forward)
+    }
+
+    func bringAimMarkToFront() { addSubview(aimMark, positioned: .above, relativeTo: nil) }
 
     /// The observation camera in MuJoCo world coordinates (mm, z-up), so the
     /// backend's free camera can render exactly the view this canvas picks from.
@@ -410,6 +476,7 @@ final class WorldViewer: SCNView {
                                        Double(lastSceneCenter.z)]
         }
         cameraState.mode = mode
+        updateAimMarkVisibility()
         applyCameraState()
     }
 

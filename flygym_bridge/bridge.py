@@ -1154,6 +1154,11 @@ class Bridge:
             and getattr(getattr(world, "player", None), "active", False)
         )
         if participant_was_active:
+            # V5.6 records the transport cause before the existing participant
+            # deactivation path runs (and before session identity is cleared).
+            release = getattr(world, "release_interaction", None)
+            if release is not None:
+                release("disconnect")
             world.set_player_active(False)
             self.session_id = ""
             self.session_epoch = 0

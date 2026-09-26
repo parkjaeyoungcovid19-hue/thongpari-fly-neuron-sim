@@ -77,6 +77,8 @@ final class FlyGymBridge {
     private var recentLabAcks: [(serial: UInt64, ack: LabAck)] = []  // bounded ring (cap 128)
     private var labAckSerial: UInt64 = 0
     private var _latestLabEvent: LabEventNotice?
+    private var recentLabEvents: [(serial: UInt64, event: LabEventNotice)] = []
+    private var labEventSerial: UInt64 = 0
     private var _serverHello: FlyGymHelloPacket?
     private var _latestSessionState: FlyGymSessionStatePacket?
     private var _latestExperimentStepResult: FlyGymExperimentStepResultPacket?
@@ -276,6 +278,13 @@ final class FlyGymBridge {
               _connected, event.connectionGeneration == _connectionGeneration else { return nil }
         if let maxAge, event.ageSeconds() >= maxAge { return nil }
         return event
+    }
+
+    func labEvents(after serial: UInt64) -> (events: [LabEventNotice], serial: UInt64) {
+        lock.lock(); defer { lock.unlock() }
+        return (recentLabEvents.filter {
+            $0.serial > serial && $0.event.connectionGeneration == _connectionGeneration
+        }.map(\.event), labEventSerial)
     }
 
     var bodyHz: Double {
@@ -652,6 +661,8 @@ final class FlyGymBridge {
                  endDistance: Double? = nil, physical: Bool? = nil,
                  sensory: Bool? = nil, continuous: Bool? = nil,
                  mode: String? = nil,
+                 toolID: String? = nil, actorID: String? = nil,
+                 rayOriginMM: [Double]? = nil, rayDirection: [Double]? = nil,
                  protocolVersion: Int? = nil, sessionID: String? = nil,
                  epoch: Int? = nil, requestedTick: Int? = nil) -> Int {
         lock.lock()
@@ -664,6 +675,8 @@ final class FlyGymBridge {
                              directionDeg: directionDeg, endDistance: endDistance,
                              physical: physical, sensory: sensory,
                              continuous: continuous, mode: mode,
+                             toolID: toolID, actorID: actorID,
+                             rayOriginMM: rayOriginMM, rayDirection: rayDirection,
                              protocolVersion: protocolVersion, sessionID: sessionID,
                              epoch: epoch, requestedTick: requestedTick)
         guard let line = try? JSONEncoder().encode(cmd) else { return id }
@@ -692,6 +705,21 @@ final class FlyGymBridge {
         pendingLab.append(data)
         lock.unlock()
         return id
+    }
+
+    /// Uses the same bounded lab queue, ID sequence and V4 envelope as sendLab.
+    @discardableResult
+    func sendInteraction(toolID: String, actorID: String, target: String? = nil,
+                         rayOriginMM: [Double]? = nil, rayDirection: [Double]? = nil,
+                         protocolVersion: Int? = nil, sessionID: String? = nil,
+                         epoch: Int? = nil, requestedTick: Int? = nil) -> Int? {
+        guard LabCommand.interaction(id: 0, toolID: toolID, actorID: actorID,
+                                     target: target, rayOriginMM: rayOriginMM,
+                                     rayDirection: rayDirection) != nil else { return nil }
+        return sendLab(action: "interaction", target: target, toolID: toolID,
+                       actorID: actorID, rayOriginMM: rayOriginMM,
+                       rayDirection: rayDirection, protocolVersion: protocolVersion,
+                       sessionID: sessionID, epoch: epoch, requestedTick: requestedTick)
     }
 
     // -- test hook: one latest-state slot + one escape-pulse slot.
@@ -1019,6 +1047,11 @@ final class FlyGymBridge {
             event.receivedAt = receivedAt
             event.connectionGeneration = generation
             _latestLabEvent = event
+            labEventSerial &+= 1
+            recentLabEvents.append((labEventSerial, event))
+            if recentLabEvents.count > 128 {
+                recentLabEvents.removeFirst(recentLabEvents.count - 128)
+            }
             labRecvCount += 1
             return true
         }

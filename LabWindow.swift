@@ -253,12 +253,14 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private let worldViewerStatusLabel = NSTextField(wrappingLabelWithString: L("3D world — waiting for V5.1 backend capability…", "3D 화면 — 시뮬레이터 준비를 기다리는 중…"))
     private let observationCameraMode = NSPopUpButton(frame: .zero, pullsDown: false)
     private let playerInputStatusLabel = NSTextField(wrappingLabelWithString: L("Participant controls — waiting for V5.5 player_input capability…", "참여 조작 — 시뮬레이터 준비를 기다리는 중…"))
+    private let interactionStatusLabel = NSTextField(wrappingLabelWithString: L("Interaction state unknown", "상호작용 상태 알 수 없음"))
     private let playerForwardKey = NSPopUpButton(frame: .zero, pullsDown: false)
     private let playerBackwardKey = NSPopUpButton(frame: .zero, pullsDown: false)
     private let playerLeftKey = NSPopUpButton(frame: .zero, pullsDown: false)
     private let playerRightKey = NSPopUpButton(frame: .zero, pullsDown: false)
     private let playerInteractKey = NSPopUpButton(frame: .zero, pullsDown: false)
     private let playerController = PlayerController()
+    private var interactionPresentation = LabInteractionPresentation()
     private var playerCaptureArmed = false
     private var lastPlayerInputConnectionGeneration: UInt64?
     private var lastPlayerInputSeq: Int?
@@ -332,6 +334,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private let service: FlyGymService?
     private var timeline = LabCommandTimeline()
     private var ackCursor: UInt64 = 0
+    private var eventCursor: UInt64 = 0
     private var recordingStartedAt: Date?
     private var lastRecordingOutcome = WorkspaceRecording.idle
     private var workspace: WorkspaceSnapshot?
@@ -434,6 +437,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                     reason: isEscape ? "Esc safety release" : "key down",
                     allowStaleSnapshotForRelease: isEscape,
                     discardPendingLook: isEscape)
+                if self.playerController.freshInteractPress {
+                    self.sendParticipantInteraction()
+                }
                 if isEscape {
                     self.playerCaptureArmed = false
                     _ = self.playerController.setCaptureEnabled(false)
@@ -664,6 +670,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         mujocoFrameView.translatesAutoresizingMaskIntoConstraints = false
         mujocoFrameView.isHidden = true
         worldViewer.addSubview(mujocoFrameView)
+        worldViewer.bringAimMarkToFront()
         NSLayoutConstraint.activate([
             mujocoFrameView.leadingAnchor.constraint(equalTo: worldViewer.leadingAnchor),
             mujocoFrameView.trailingAnchor.constraint(equalTo: worldViewer.trailingAnchor),
@@ -894,6 +901,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func renderViewState() {
+        interactionPresentation.expire()
         let connection = workspace?.connection ?? .connecting
         window?.subtitle = "\(connection.title) · \(viewState.phaseBadge.capitalized)"
         restartBackendButton.isHidden = service?.canRestart != true
@@ -907,6 +915,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             playerCaptureArmed = false
             lastPlayerInputSeq = nil
             playerInputReconcilePending = false
+            interactionPresentation.reset()
         }
         lastPlayerInputConnectionGeneration = generation
         if participantCommandPending.clearIfViewerLifecycleInvalid(
@@ -968,10 +977,14 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 playerInputStatusLabel.textColor = .systemOrange
             }
         } else {
+            interactionPresentation.reset()
             playerInputStatusLabel.stringValue = L("Participant controls — Observe mode; camera controls remain presentation-only", "참여 조작 — 관찰 모드입니다. 카메라는 보는 방향만 바꾸고 세계에는 영향을 주지 않습니다")
             playerInputStatusLabel.textColor = .secondaryLabelColor
         }
+        let interaction = bridge?.labStateFreshness().isFresh == true
+            ? bridge?.latestLabState()?.interaction : nil
         syncCameraWithMode()
+        refreshInteractionStatus(state: interaction)
         viewModeControl.selectedSegment = segmentModes.firstIndex(of: viewState.displayedMode) ?? 0
         viewStateLabel.stringValue = viewState.commonStatusLine
         viewStateLabel.textColor = viewState.sessionPhase == .failed ? .systemRed : .labelColor
@@ -1027,6 +1040,71 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             windowIsKey: window.isKeyWindow,
             firstResponder: window.firstResponder,
             viewer: worldViewer)
+    }
+
+    private func refreshInteractionStatus(state: LabInteractionState?) {
+        var line = interactionPresentation.line(state: state)
+        if viewState.mode == .participate && worldViewer.cameraState.mode == .behindParticipant {
+            line += L(" · Third person: E grabs in the participant's forward direction",
+                      " · 3인칭: E는 참여체 정면을 집습니다")
+        }
+        interactionStatusLabel.stringValue = line
+        interactionStatusLabel.textColor = interactionPresentation.ignoredReason != nil
+            || interactionPresentation.rejection == nil
+            ? .secondaryLabelColor : .systemRed
+    }
+
+    private func showInteractionIgnored(_ reason: LabInteractionPresentation.IgnoredReason,
+                                        state: LabInteractionState? = nil) {
+        interactionPresentation.ignore(reason)
+        refreshInteractionStatus(state: state)
+    }
+
+    private func sendParticipantInteraction() {
+        guard viewState.mode == .participate,
+              playerController.captureEnabled, worldViewer.participateInputEnabled,
+              playerInputFocusAllowsCapture() else { return }
+        guard viewState.pendingMode == nil, viewState.sessionPhase == .running else {
+            showInteractionIgnored(.waitingForSession)
+            return
+        }
+        guard interactionPresentation.canAttempt() else {
+            refreshInteractionStatus(state: bridge?.latestLabState()?.interaction)
+            return
+        }
+        guard let bridge, bridge.labStateFreshness().isFresh,
+              let interaction = bridge.latestLabState()?.interaction else {
+            showInteractionIgnored(.waitingForState)
+            return
+        }
+        guard let envelope = playerInputEnvelope(),
+              let snapshot = bridge.latestWorldRenderSnapshot(maxAge: 1.0),
+              snapshot.ok, let player = snapshot.player,
+              player.id == "player",
+              snapshot.sessionID == envelope.sessionID,
+              snapshot.epoch == envelope.epoch else {
+            showInteractionIgnored(.waitingForWorld, state: interaction)
+            return
+        }
+
+        let toolID = interaction.heldObjectID == nil ? "grab" : "place"
+        let ray = toolID == "grab" ? WorldViewer.participantAimRay(player: player) : nil
+        if toolID == "grab" && ray == nil {
+            showInteractionIgnored(.invalidAim, state: interaction)
+            return
+        }
+        guard let id = send("interaction", target: interaction.heldObjectID,
+                            toolID: toolID, actorID: player.id,
+                            rayOriginMM: ray?.originMM,
+                            rayDirection: ray?.direction,
+                            scheduleOverride: LabCommandSchedule(
+                                sessionID: envelope.sessionID, epoch: envelope.epoch,
+                                requestedTick: envelope.requestedTick)) else {
+            showInteractionIgnored(.queueUnavailable, state: interaction)
+            return
+        }
+        interactionPresentation.begin(id: id, generation: bridge.connectionGeneration)
+        refreshInteractionStatus(state: interaction)
     }
 
     private func playerInputEnvelope(allowStaleSnapshotForRelease: Bool = false)
@@ -1247,11 +1325,11 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                     [LabForm.grid([(L("Speed (mm/s)", "속도 (mm/s)"), objectSpeed), (L("Stop at (mm)", "멈출 거리 (mm)"), objectEndDistance)]),
                      LabForm.buttons([button(L("Start approach", "다가가기 시작"), #selector(approachObject))], columns: 1)]),
             section(L("Participate", "참여"), kind: .physical,
-                    help: L("Choose Participate in the toolbar, then click the 3D view to capture. WASD moves, the mouse looks, E interacts, Esc always releases. Text fields never receive movement keys. Grab/place is not implemented yet.", "위쪽 막대에서 ‘참여’를 고른 뒤 3D 화면을 클릭하면 조작이 시작됩니다. 시점은 자동으로 1인칭이 되고, 오른쪽 위 ‘시점’에서 3인칭으로 바꿀 수 있습니다. WASD로 이동, 마우스로 둘러보기, E로 상호작용, Esc로 언제든 해제합니다. 입력 칸에 글을 쓸 때는 이동 키가 들어가지 않습니다. 물건 집기/놓기는 아직 없습니다."),
+                    help: L("Choose Participate, then click the 3D view to capture. Aim with the center mark and press E once to grab an object; press E again to place it. WASD moves, the mouse looks, Esc releases capture. Text fields do not trigger interaction.", "‘참여’를 고르고 3D 화면을 클릭해 조작을 시작하세요. 중앙 조준점으로 물체를 겨누고 E를 한 번 누르면 집고, 다시 누르면 놓습니다. WASD로 이동하고 마우스로 둘러봅니다. Esc는 조작을 해제합니다. 입력 칸에서는 상호작용하지 않습니다."),
                     [LabForm.grid([(L("Forward", "앞으로"), playerForwardKey), (L("Backward", "뒤로"), playerBackwardKey),
                                    (L("Left", "왼쪽"), playerLeftKey), (L("Right", "오른쪽"), playerRightKey),
                                    (L("Interact", "상호작용"), playerInteractKey), (L("Release", "해제"), LabForm.note(L("Esc (fixed)", "Esc (고정)")))]),
-                     playerInputStatusLabel]),
+                     playerInputStatusLabel, interactionStatusLabel]),
             section(L("Reset", "초기화"), help: L("Use the smallest reset you need. Everything clears world, body, brain state, modeled stimuli, eye covers and graphs.", "필요한 부분만 초기화하세요. ‘전부’는 세계, 몸, 뇌 상태, 자극, 눈 가리개, 그래프를 모두 처음으로 되돌립니다."),
                     [LabForm.buttons([button(L("World", "세계"), #selector(resetWorld)),
                                       button(L("Body", "몸"), #selector(resetBody)),
@@ -1520,6 +1598,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         let raw = selectedValue(observationCameraMode, fallback: WorldViewerCameraMode.orbit.rawValue)
         guard let mode = WorldViewerCameraMode(rawValue: raw) else { return }
         worldViewer.setObservationCameraMode(mode)
+        let interaction = bridge?.labStateFreshness().isFresh == true
+            ? bridge?.latestLabState()?.interaction : nil
+        refreshInteractionStatus(state: interaction)
         worldViewerStatusLabel.stringValue = L("3D world — \(mode.title) camera · presentation only", "3D 화면 — 시점: \(mode.title) (보기만 바뀝니다)")
         worldViewerStatusLabel.textColor = .secondaryLabelColor
     }
@@ -1578,13 +1659,28 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                       value: Double? = nil, directionDeg: Double? = nil,
                       endDistance: Double? = nil, physical: Bool? = nil,
                       sensory: Bool? = nil, continuous: Bool? = nil,
-                      mode: String? = nil) -> Int? {
+                      mode: String? = nil,
+                      toolID: String? = nil, actorID: String? = nil,
+                      rayOriginMM: [Double]? = nil,
+                      rayDirection: [Double]? = nil,
+                      scheduleOverride: LabCommandSchedule? = nil) -> Int? {
         guard let bridge else {
             protocolLabel.stringValue = L("FlyGym bridge — disabled (launch with --flygym for physical-world controls)", "물리 시뮬레이터 꺼짐 — 물리 세계를 조작하려면 시뮬레이터와 함께 실행하세요")
             return nil
         }
-        let schedule = coordinator.labCommandSchedule()
-        let id = bridge.sendLab(action: action, target: target, x: x, y: y, z: z,
+        let schedule = coordinator.labCommandSchedule() ?? scheduleOverride
+        let id: Int
+        if action == "interaction" {
+            guard let toolID, let actorID, schedule != nil,
+                  let interactionID = bridge.sendInteraction(
+                    toolID: toolID, actorID: actorID, target: target,
+                    rayOriginMM: rayOriginMM, rayDirection: rayDirection,
+                    protocolVersion: schedule == nil ? nil : FlyGymProtocolV4.version,
+                    sessionID: schedule?.sessionID, epoch: schedule?.epoch,
+                    requestedTick: schedule?.requestedTick) else { return nil }
+            id = interactionID
+        } else {
+            id = bridge.sendLab(action: action, target: target, x: x, y: y, z: z,
                                 size: size, speed: speed, strength: strength,
                                 durationMs: durationMs, value: value,
                                 directionDeg: directionDeg, endDistance: endDistance,
@@ -1593,6 +1689,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                                 protocolVersion: schedule == nil ? nil : FlyGymProtocolV4.version,
                                 sessionID: schedule?.sessionID, epoch: schedule?.epoch,
                                 requestedTick: schedule?.requestedTick)
+        }
         lastCommandID = id
         lastCommandAction = action
         if let schedule {
@@ -2159,6 +2256,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     /// recorded, so the repeated `ack` field of lab_state never double-counts.
     private func handle(ack: LabAck) {
         coordinator.noteLabAck(ack)
+        interactionPresentation.accept(ack: ack)
         guard timeline.apply(ack: ack) else { return }
         let s = coordinator.sessionSnapshot()
         let request = pendingCommandSchedules.removeValue(forKey: ack.id)
@@ -2380,9 +2478,12 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             ackCursor = cursor
             newAcks.forEach(handle(ack:))
             timeline.expire(now: now, connectionGeneration: bridge.connectionGeneration)
-            if let event, !event.event.isEmpty, event.receivedAt != lastEventReceivedAt {
-                lastEventReceivedAt = event.receivedAt
-                noteLocal("event", event.event, kind: .physical, status: .event)
+            let (newEvents, nextEventCursor) = bridge.labEvents(after: eventCursor)
+            eventCursor = nextEventCursor
+            for notice in newEvents where !notice.event.isEmpty {
+                let detail = notice.detail?.summary ?? ""
+                noteLocal("event", detail.isEmpty ? notice.event : "\(notice.event) — \(detail)",
+                          kind: .physical, status: .event, tick: notice.detail?.simTickMS)
             }
 
             if eyeCommandPendingID != nil {

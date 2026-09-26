@@ -202,6 +202,125 @@ struct LabViewState: Equatable {
 
 // MARK: - V5.5.1 one-window state
 
+/// Display and duplicate-send gate for one authoritative interaction ACK.
+struct LabInteractionPresentation {
+    enum IgnoredReason {
+        case waitingForResponse
+        case waitingForState
+        case waitingForSession
+        case waitingForWorld
+        case invalidAim
+        case queueUnavailable
+
+        var text: String {
+            switch self {
+            case .waitingForResponse:
+                return L("Waiting — previous request response pending", "대기 중 — 이전 요청 응답 기다리는 중")
+            case .waitingForState:
+                return L("Interaction not ready — waiting for world state", "상호작용 준비 안 됨 — 세계 상태 수신 대기")
+            case .waitingForSession:
+                return L("Interaction not ready — waiting for active session", "상호작용 준비 안 됨 — 세션 활성화 대기")
+            case .waitingForWorld:
+                return L("Interaction not ready — waiting for current world snapshot", "상호작용 준비 안 됨 — 최신 세계 화면 수신 대기")
+            case .invalidAim:
+                return L("Interaction not ready — participant aim unavailable", "상호작용 준비 안 됨 — 참여체 조준 정보 없음")
+            case .queueUnavailable:
+                return L("Interaction not ready — request could not be queued", "상호작용 준비 안 됨 — 요청을 보낼 수 없음")
+            }
+        }
+    }
+
+    private(set) var pendingID: Int?
+    private(set) var pendingGeneration: UInt64?
+    private var pendingSince: Date?
+    private(set) var rejection: String?
+    private(set) var ignoredReason: IgnoredReason?
+
+    /// Called only for a fresh E press while participation and capture are active.
+    mutating func canAttempt() -> Bool {
+        guard pendingID == nil else {
+            ignoredReason = .waitingForResponse
+            return false
+        }
+        ignoredReason = nil
+        return true
+    }
+
+    mutating func ignore(_ reason: IgnoredReason) { ignoredReason = reason }
+
+    func canSend(participating: Bool, captured: Bool, focused: Bool,
+                 hasInteractionState: Bool) -> Bool {
+        participating && captured && focused && hasInteractionState && pendingID == nil
+    }
+
+    mutating func begin(id: Int, generation: UInt64, at now: Date = Date()) {
+        ignoredReason = nil
+        pendingID = id
+        pendingGeneration = generation
+        pendingSince = now
+        rejection = nil
+    }
+
+    mutating func accept(ack: LabAck) {
+        guard ack.id == pendingID, ack.connectionGeneration == pendingGeneration else { return }
+        ignoredReason = nil
+        pendingID = nil
+        pendingGeneration = nil
+        pendingSince = nil
+        rejection = ack.ok ? nil : (ack.message.isEmpty ? "invalid_interaction" : ack.message)
+    }
+
+    mutating func expire(at now: Date = Date()) {
+        guard let pendingSince, now.timeIntervalSince(pendingSince) >= LabCommandTimeline.ackTimeout else { return }
+        pendingID = nil
+        pendingGeneration = nil
+        self.pendingSince = nil
+        rejection = "response_timeout"
+    }
+
+    mutating func reset() {
+        ignoredReason = nil
+        pendingID = nil
+        pendingGeneration = nil
+        pendingSince = nil
+        rejection = nil
+    }
+
+    static func rejectionText(_ error: String, reachMM: Double) -> String {
+        let code = error.split(separator: ":", maxSplits: 1).first.map(String.init) ?? error
+        let detail = error.split(separator: ":", maxSplits: 1).dropFirst().first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        switch code {
+        case "invalid_interaction": return L("invalid interaction", "잘못된 상호작용")
+        case "not_participating": return L("participant inactive", "참여자가 비활성 상태")
+        case "wrong_actor": return L("wrong participant", "참여자 불일치")
+        case "ray_origin_not_at_participant": return L("aim origin too far from participant", "조준 시작점이 참여자에서 너무 멂")
+        case "ray_miss": return L("nothing under aim", "조준한 대상 없음")
+        case "unsupported_target": return L("unsupported target", "집을 수 없는 대상")
+        case "out_of_reach":
+            let suffix = detail.isEmpty ? "" : " (\(detail))"
+            return L("too far\(suffix) · reach \(reachMM) mm", "너무 멂\(suffix) · \(reachMM) mm 초과")
+        case "target_mismatch": return L("target changed", "대상이 바뀜")
+        case "already_holding": return L("already holding an object", "이미 물체를 잡는 중")
+        case "not_holding": return L("no held object", "잡은 물체 없음")
+        case "response_timeout": return L("response timed out", "응답 시간 초과")
+        default: return L("request rejected", "요청 거절됨")
+        }
+    }
+
+    func line(state: LabInteractionState?) -> String {
+        if let ignoredReason { return ignoredReason.text }
+        if pendingID != nil { return L("Waiting for grab/place response…", "집기/놓기 응답 대기 중…") }
+        guard let state else { return L("Interaction state unknown", "상호작용 상태 알 수 없음") }
+        if let rejection { return L("Rejected: ", "거절: ") + Self.rejectionText(rejection, reachMM: state.reachMM) }
+        if let id = state.heldObjectID {
+            return L("Holding: \(id)", "잡는 중: \(id)")
+                + (state.carryBlocked ? L(" · blocked", " · 막힘") : "")
+        }
+        return L("E: grab aimed object", "E: 조준한 물체 집기")
+    }
+}
+
 /// One row of the Lab's shared event timeline. Backend commands start as
 /// `requested` and only become `applied`/`rejected` from an ACK; local neural
 /// stimulation, markers and session requests are recorded as they happen.

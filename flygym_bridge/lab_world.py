@@ -19,6 +19,10 @@ import math
 from collections import deque
 from dataclasses import dataclass
 from player_body import PlayerBody
+from interaction import (InteractionState, InteractionError, parse_interaction_args,
+                         participant_center,
+                         INTERACTION_REACH_MM, INTERACTION_RAY_ORIGIN_TOL_FACTOR,
+                         CARRY_SPEED_MM_S, CARRY_PENETRATION_TOL_MM)
 
 
 PHYSICAL = "PHYSICAL"
@@ -184,6 +188,12 @@ class LabWorld:
         # V5.4 participant is one dedicated actor, not part of the generic
         # LabObject pool. LabWorld still owns its lifecycle/revision semantics.
         self.player = PlayerBody()
+        self.interaction = InteractionState(self.player.actor_id, mock=world is None)
+        self._interaction_tick_ms = 0
+        self._fly_contact_geoms = {}
+        self._installed_fly_geom_names = {}
+        self._ground_geom_names = []
+        self._ground_geom_ids = []
         self.wind = {
             "strength": 0.0,
             "direction_deg": 0.0,
@@ -219,6 +229,7 @@ class LabWorld:
     def install(self, world):
         """Install hidden kinematic mocap slots before Simulation compiles MJCF."""
         import mujoco
+        self._ground_geom_names = [geom.name for geom in world.ground_geoms]
 
         for slot, shape in self._slot_shape.items():
             # Mocap bodies are kinematic runtime objects: MuJoCo keeps them in
@@ -252,6 +263,25 @@ class LabWorld:
             )
         self.player.install(world)
 
+    def install_fly_contact_pairs(self, world, fly, segments=("thorax", "head", "abdomen")):
+        """Compile object-slot/fly pairs using the installed FlyGym geom mapping."""
+        names = {"thorax": "c_thorax", "head": "c_head", "abdomen": "c_abdomen4"}
+        for segment in segments:
+            matches = [(key, geoms) for key, geoms in fly.bodyseg_to_mjcfgeom.items()
+                       if getattr(key, "name", str(key)) == names[segment]]
+            if not matches:
+                if segment == "thorax":
+                    raise RuntimeError("fly thorax contact geom unavailable")
+                continue
+            self._installed_fly_geom_names[segment] = [geom.name for geom in matches[0][1]]
+            for slot, shape in self._slot_shape.items():
+                if shape == "food":
+                    continue
+                for index, geom in enumerate(matches[0][1]):
+                    world.mjcf_root.add_pair(
+                        geomname1=f"{slot}_geom", geomname2=geom.name,
+                        name=f"v56-{slot}-{segment}-{index}")
+
     def bind(self, sim, force_body_ids=None):
         """Resolve slot/body ids after Simulation construction."""
         import mujoco
@@ -268,6 +298,13 @@ class LabWorld:
             self._slot_ids[slot] = (bid, gid, mocap_id)
         self.force_body_ids = dict(force_body_ids or {})
         self.player.bind(sim)
+        self._ground_geom_ids = [gid for name in self._ground_geom_names
+                                 if (gid := self._compiled_id(mujoco.mjtObj.mjOBJ_GEOM, name)) >= 0]
+        for segment, names in self._installed_fly_geom_names.items():
+            for name in names:
+                gid = self._compiled_id(mujoco.mjtObj.mjOBJ_GEOM, name)
+                if gid >= 0:
+                    self._fly_contact_geoms[gid] = segment
         self._bound = True
         self._sync_all()
 
@@ -297,6 +334,7 @@ class LabWorld:
     def resync_after_sim_reset(self):
         """Restore active LabObject slots and the free-joint participant after reset."""
         self._previous_forces = {}
+        self.release_interaction("body_reset")
         self._sync_all()
         self.player.resync_after_sim_reset()
 
@@ -319,6 +357,8 @@ class LabWorld:
         return self.revision
 
     def set_player_active(self, active):
+        if not active and self.player.active:
+            self.release_interaction("participant_inactive")
         changed, pose = self.player.set_active(active)
         if changed:
             self._bump_revision(structural=True)
@@ -329,6 +369,7 @@ class LabWorld:
         self.player.set_pose(position_mm=position_mm,
                              orientation_quat_xyzw=orientation_quat_xyzw,
                              mode=mode)
+        self.interaction.previous_distances = None
         if self.player.active:
             self._bump_revision(structural=False)
         return self.player.render_pose()
@@ -336,6 +377,7 @@ class LabWorld:
     def reset_player_pose(self, *, preserve_active=True):
         was_active = self.player.active
         self.player.reset_pose(preserve_active=preserve_active)
+        self.interaction.previous_distances = None
         if was_active and self.player.active:
             self._bump_revision(structural=False)
 
@@ -415,6 +457,7 @@ class LabWorld:
         self.objects[object_id] = obj
         self._bump_revision(obj, structural=True)
         self._sync_object(obj)
+        self.interaction.previous_distances = None
         return obj.state()
 
     def move_object(self, object_id, *, position_mm=None, yaw_deg=None):
@@ -427,6 +470,7 @@ class LabWorld:
             obj.yaw_deg = _clamp(yaw_deg, -36000.0, 36000.0, obj.yaw_deg) % 360.0
         self._bump_revision(obj)
         self._sync_object(obj)
+        self.interaction.previous_distances = None
         return obj.state()
 
     def resize_object(self, object_id, *, size_mm):
@@ -434,18 +478,25 @@ class LabWorld:
         obj.size_mm = self._sanitize_size(obj.shape, size_mm)
         self._bump_revision(obj, structural=True)
         self._sync_object(obj)
+        self.interaction.previous_distances = None
         return obj.state()
 
     def remove_object(self, object_id):
         obj = self._require_object(object_id)
+        if self.interaction.held_object_id == obj.object_id:
+            self.release_interaction("object_removed")
         self.approaches.pop(obj.object_id, None)
         self._deactivate_slot(obj.slot)
+        self.interaction.previous_distances = None
         del self.objects[obj.object_id]
         self._free_slots[obj.shape].append(obj.slot)
         self._bump_revision(structural=True)
         return obj.state()
 
     def reset(self):
+        self.events.clear()
+        self.release_interaction("world_reset")
+        self.interaction.contacts.clear()
         self._clear_applied_forces()
         for obj in list(self.objects.values()):
             self._deactivate_slot(obj.slot)
@@ -470,7 +521,7 @@ class LabWorld:
         self.temperature.update(celsius=25.0, mode="environment_only",
                                 neural_connected=False, neural_target=None,
                                 controller_tempo_via_brain_packet=False)
-        self.events.clear()
+        # Preserve the required object_placed event across the world reset.
         self._bump_revision(structural=True)
 
     def _require_object(self, object_id):
@@ -479,6 +530,231 @@ class LabWorld:
             return self.objects[object_id]
         except KeyError as exc:
             raise LabError(f"unknown object: {object_id}") from exc
+
+    # ------------------------------------------------------------------
+    # V5.6 interaction and contact lifecycle
+    # ------------------------------------------------------------------
+    def _interaction_event(self, name, **fields):
+        self.events.append({"event": name, "classification": PHYSICAL,
+                            "sim_tick_ms": int(self._interaction_tick_ms), **fields})
+
+    def _append_event(self, event):
+        event["sim_tick_ms"] = int(self._interaction_tick_ms)
+        self.events.append(event)
+
+    def release_interaction(self, reason):
+        held = self.interaction.held_object_id
+        if held is None:
+            return
+        obj = self.objects.get(held)
+        self.interaction.held_object_id = None
+        self.interaction.previous_position = None
+        self.interaction.previous_distances = None
+        self.interaction.carry_blocked = False
+        self.interaction.blocking_geom_kind = None
+        self._interaction_event("object_placed", id=held, actor_id=self.player.actor_id,
+                                position_mm=(list(obj.position_mm) if obj else None), reason=reason)
+
+    def apply_interaction(self, command, *, ray_pick=None):
+        tool = command.args.get("tool_id") if isinstance(command.args, dict) else None
+        try:
+            try:
+                args = parse_interaction_args(command.args)
+            except ValueError as exc:
+                raise InteractionError(f"invalid_interaction: {exc}") from exc
+            if not self.player.active:
+                raise InteractionError("not_participating")
+            if args.actor_id != self.player.actor_id:
+                raise InteractionError("wrong_actor")
+            held = self.interaction.held_object_id
+            if args.tool_id == "place":
+                if held is None:
+                    raise InteractionError("not_holding")
+                if args.target_id is not None and args.target_id != held:
+                    raise InteractionError("target_mismatch")
+                self.release_interaction("place")
+                self.interaction.record(command.seq, args.tool_id, True, target_id=held)
+                return self.interaction.state()
+            if held is not None:
+                raise InteractionError("already_holding")
+            center = participant_center(self.player)
+            if math.dist(center, args.ray_origin_mm) > (
+                    INTERACTION_RAY_ORIGIN_TOL_FACTOR * self.player.radius_mm):
+                raise InteractionError("ray_origin_not_at_participant")
+            if ray_pick is None:
+                raise RuntimeError("interaction ray picker unavailable")
+            hit = ray_pick(args.ray_origin_mm, args.ray_direction)
+            if not hit.get("hit"):
+                raise InteractionError("ray_miss")
+            if hit.get("target_kind") != "lab_object":
+                raise InteractionError(f"unsupported_target: {hit.get('target_kind', 'unknown')}")
+            distance = math.dist(center, hit["point_mm"])
+            if distance > INTERACTION_REACH_MM:
+                raise InteractionError(f"out_of_reach: {distance:.3f}mm")
+            object_id = hit["target_id"]
+            if args.target_id is not None and args.target_id != object_id:
+                raise InteractionError("target_mismatch")
+            if object_id not in self.objects:
+                raise InteractionError("ray_miss")
+            self.approaches.pop(object_id, None)
+            self.interaction.held_object_id = object_id
+            self.interaction.previous_distances = None
+            self.interaction.carry_blocked = False
+            self.interaction.record(command.seq, args.tool_id, True,
+                                    target_id=object_id, hit_distance_mm=distance)
+            self._interaction_event("object_grabbed", id=object_id,
+                                    actor_id=self.player.actor_id, hit_distance_mm=distance)
+            return self.interaction.state()
+        except InteractionError as exc:
+            self.interaction.record(command.seq, tool, False, str(exc).split(":", 1)[0])
+            raise
+
+    def interaction_pre_step(self, dt):
+        held = self.interaction.held_object_id
+        if held is None:
+            return
+        obj = self.objects.get(held)
+        if obj is None:
+            self.release_interaction("object_removed")
+            return
+        if not self.player.active:
+            self.release_interaction("participant_inactive")
+            return
+        # Contract §1 compares the post-step signed distance with the last
+        # committed pose. An external resize/move invalidates that baseline.
+        self.interaction.distance_limit_mm = (CARRY_PENETRATION_TOL_MM +
+                                               CARRY_SPEED_MM_S * dt + 0.01)
+        if self._bound and self.interaction.previous_distances is None:
+            self._mujoco.mj_forward(self.model, self.data)
+            held_gid, candidates = self._carry_candidates()
+            self.interaction.previous_distances = self._carry_distances(held_gid, candidates)
+        target = self.interaction.desired_xy(self.player, obj)
+        dx, dy = target[0] - obj.position_mm[0], target[1] - obj.position_mm[1]
+        distance = math.hypot(dx, dy)
+        move = min(distance, CARRY_SPEED_MM_S * dt)
+        self.interaction.previous_position = list(obj.position_mm)
+        if move > 0.0 and distance > 1e-12:
+            obj.position_mm[0] += dx / distance * move
+            obj.position_mm[1] += dy / distance * move
+            self._bump_revision(obj)
+            self._sync_object(obj)
+
+    def _carry_candidates(self):
+        held = self.interaction.held_object_id
+        held_gid = (self._slot_ids[self.objects[held].slot][1]
+                    if held is not None and held in self.objects and self.objects[held].shape != "food"
+                    else None)
+        if held_gid is None:
+            return None, []
+        obj = self.objects[held]
+        anchor = self.interaction.carry_filter_anchor
+        if (self.interaction.previous_distances is None or anchor is None or
+                math.dist(anchor, obj.position_mm) > 0.5):
+            # A candidate excluded at this anchor is farther than the sum of
+            # both bounding spheres plus 0.5 mm travel and the query horizon.
+            # The filter is rebuilt before the held center travels 0.5 mm;
+            # external object edits and approach motion invalidate the cache.
+            held_radius = (obj.size_mm[0] * 0.5 if obj.shape == "sphere" else
+                           math.sqrt(sum((v * 0.5) ** 2 for v in obj.size_mm)))
+            near = []
+            for other in self.objects.values():
+                if other.object_id == held or other.shape == "food":
+                    continue
+                radius = (other.size_mm[0] * 0.5 if other.shape == "sphere" else
+                          math.sqrt(sum((v * 0.5) ** 2 for v in other.size_mm)))
+                reach = held_radius + radius + 0.5 + self.interaction.distance_limit_mm
+                if math.dist(obj.position_mm, other.position_mm) <= reach:
+                    near.append((self._slot_ids[other.slot][1], "lab_object", other))
+            self.interaction.carry_filter_anchor = tuple(obj.position_mm)
+            self.interaction.carry_filter_candidates = near
+        candidates = ([(gid, "ground", None) for gid in self._ground_geom_ids] +
+                      self.interaction.carry_filter_candidates +
+                      ([(self.player.geom_id, "player", None)] if self.player.active else []))
+        return held_gid, candidates
+
+    def _carry_distances(self, held_gid, candidates):
+        # MuJoCo 3.9.0 returns distmax for separated geoms beyond this limit,
+        # while penetrating pairs still return their full negative distance.
+        limit = self.interaction.distance_limit_mm
+        return {gid: float(self._mujoco.mj_geomDistance(
+                self.model, self.data, held_gid, gid, limit, None))
+                for gid, _, _ in candidates}
+
+    def interaction_post_step(self):
+        """Read real fly contacts and apply the contract §1 geometry guard."""
+        if not self._bound or (not self.objects and not self.interaction.contacts):
+            return
+        mujoco = self._mujoco
+        contact_now = {}
+        held = self.interaction.held_object_id
+        blocked_kind = None
+        object_by_geom = {self._slot_ids[obj.slot][1]: obj.object_id
+                          for obj in self.objects.values() if obj.shape != "food"}
+        moved = (held is not None and held in self.objects and
+                 self.interaction.previous_position is not None and
+                 math.dist(self.interaction.previous_position,
+                           self.objects[held].position_mm) > 1e-12)
+        held_gid, candidates = self._carry_candidates() if moved else (None, [])
+        for index in range(int(self.data.ncon)):
+            contact = self.data.contact[index]
+            g1, g2 = int(contact.geom1), int(contact.geom2)
+            for object_gid, fly_gid in ((g1, g2), (g2, g1)):
+                object_id = object_by_geom.get(object_gid)
+                segment = self._fly_contact_geoms.get(fly_gid)
+                if object_id is not None and segment is not None and float(contact.dist) <= 0.0:
+                    import numpy as np
+                    force = np.zeros(6, dtype=float)
+                    mujoco.mj_contactForce(self.model, self.data, index, force)
+                    key = (object_id, segment)
+                    contact_now[key] = max(contact_now.get(key, 0.0), max(0.0, float(force[0])))
+        # Contract §1: mocap pairs and mocap/fixed-plane pairs need explicit
+        # mj_geomDistance checks. Only a *deeper* penetration beyond tolerance
+        # blocks carry; an initial overlap may move sideways or out of contact.
+        if held_gid is not None and self.interaction.previous_position is not None:
+            previous = self.interaction.previous_distances or {}
+            distances = self._carry_distances(held_gid, candidates)
+            for other_gid, kind, _ in candidates:
+                distance = distances[other_gid]
+                if (distance < -CARRY_PENETRATION_TOL_MM and
+                        distance < previous.get(other_gid, distance) - 1e-9):
+                    blocked_kind = kind
+                    break
+            self.interaction.previous_distances = distances
+        if blocked_kind is not None and self.interaction.previous_position is not None:
+            obj = self.objects.get(held)
+            if obj is not None:
+                obj.position_mm = self.interaction.previous_position
+                self._bump_revision(obj)
+                self._sync_object(obj)
+                mujoco.mj_forward(self.model, self.data)
+                # The next comparison must use the restored pose, not the
+                # rejected pose from the just-completed physics substep.
+                self.interaction.previous_distances = self._carry_distances(held_gid, candidates)
+            if not self.interaction.carry_blocked:
+                self._interaction_event("carry_blocked", id=held, blocking_geom_kind=blocked_kind)
+            self.interaction.carry_blocked = True
+            self.interaction.blocking_geom_kind = blocked_kind
+        elif self.interaction.carry_blocked:
+            self._interaction_event("carry_unblocked", id=held,
+                                    blocking_geom_kind=self.interaction.blocking_geom_kind)
+            self.interaction.carry_blocked = False
+            self.interaction.blocking_geom_kind = None
+        old = self.interaction.contacts
+        for key, force in contact_now.items():
+            if key not in old:
+                old[key] = (self._interaction_tick_ms, force)
+                self._interaction_event("object_contact_begin", id=key[0], fly_segment=key[1],
+                                        normal_force=force, force_units="mujoco_model")
+            else:
+                begin, peak = old[key]
+                old[key] = (begin, max(peak, force))
+        for key in list(old):
+            if key not in contact_now:
+                begin, peak = old.pop(key)
+                self._interaction_event("object_contact_end", id=key[0], fly_segment=key[1],
+                                        peak_normal_force=peak,
+                                        duration_ms=max(0, self._interaction_tick_ms - begin),
+                                        force_units="mujoco_model")
 
     # ------------------------------------------------------------------
     # Motion / stimuli
@@ -540,7 +816,7 @@ class LabWorld:
             "direction_world": _normalize3(direction_world),
             "sensory_enabled": bool(sensory),
         }
-        self.events.append({
+        self._append_event({
             "event": "touch_started",
             "classification": PHYSICAL,
             "target": target,
@@ -570,7 +846,7 @@ class LabWorld:
                       _clamp(duration_ms, 1.0, 5000.0, 100.0) / 1000.0)
         self.flash.update(eye=eye, intensity=intensity, remaining_s=duration_s)
         if intensity > 0.0:
-            self.events.append({
+            self._append_event({
                 "event": "flash_started",
                 "classification": SENSORY_MODEL,
                 "eye": eye,
@@ -600,6 +876,8 @@ class LabWorld:
         """Apply one parsed LabCommand on the simulation-owner thread."""
         op = command.op
         a = command.args
+        if op == "interaction":
+            return self.apply_interaction(command)
         if op in ("spawn_object", "spawn_box", "spawn_sphere", "spawn_wall"):
             shape = a.get("shape", "box")
             if op.startswith("spawn_") and op != "spawn_object":
@@ -680,6 +958,7 @@ class LabWorld:
         """Advance animations/timers and apply external forces for one sim step."""
         dt = max(0.0, min(0.1, _finite(dt, 0.0)))
         self._advance_approaches(dt)
+        self.interaction_pre_step(dt)
         if self._bound:
             self._apply_forces()
         self._advance_timers(dt)
@@ -687,6 +966,9 @@ class LabWorld:
     def _advance_approaches(self, dt):
         finished = []
         for object_id, motion in list(self.approaches.items()):
+            if object_id == self.interaction.held_object_id:
+                finished.append(object_id)
+                continue
             obj = self.objects.get(object_id)
             if obj is None:
                 finished.append(object_id)
@@ -703,12 +985,13 @@ class LabWorld:
                 obj.position_mm[1] += dy / distance * step
                 self._bump_revision(obj)
                 self._sync_object(obj)
+                self.interaction.previous_distances = None
             if distance - step <= motion.end_distance_mm + 1e-6:
                 finished.append(object_id)
         for object_id in finished:
             motion = self.approaches.pop(object_id, None)
             if motion is not None:
-                self.events.append({
+                self._append_event({
                     "event": "approach_complete",
                     "classification": PHYSICAL,
                     "id": object_id,
@@ -719,13 +1002,13 @@ class LabWorld:
             self.wind["remaining_s"] = max(0.0, self.wind["remaining_s"] - dt)
             if self.wind["remaining_s"] <= 0.0:
                 self.stop_wind()
-                self.events.append({"event": "wind_complete", "classification": PHYSICAL})
+                self._append_event({"event": "wind_complete", "classification": PHYSICAL})
         if self.touch is not None:
             self.touch["remaining_s"] = max(0.0, self.touch["remaining_s"] - dt)
             if self.touch["remaining_s"] <= 0.0:
                 target = self.touch["target"]
                 self.touch = None
-                self.events.append({
+                self._append_event({
                     "event": "touch_complete", "classification": PHYSICAL, "target": target})
         if self.flash["remaining_s"] > 0.0:
             self.flash["remaining_s"] = max(0.0, self.flash["remaining_s"] - dt)
@@ -734,7 +1017,7 @@ class LabWorld:
                 intensity = self.flash["intensity"]
                 self.flash.update(intensity=0.0, remaining_s=0.0)
                 if intensity > 0.0:
-                    self.events.append({
+                    self._append_event({
                         "event": "flash_complete", "classification": SENSORY_MODEL, "eye": eye})
 
     def _apply_forces(self):
@@ -957,6 +1240,7 @@ class LabWorld:
             "world_revision": int(self.revision),
             "objects": [self.objects[k].state() for k in sorted(self.objects)],
             "player": self.player.render_pose(),
+            "interaction": self.interaction.state(),
             "slot_capacity": {shape: int(count) for shape, count in self.slot_counts.items()},
             "slot_free": {shape: len(slots) for shape, slots in self._free_slots.items()},
             "approaches": [

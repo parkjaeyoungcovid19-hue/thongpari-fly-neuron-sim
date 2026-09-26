@@ -1430,3 +1430,269 @@ func runLabLoopTest() {
     print(failures == 0 ? "LABLOOP PASS" : "LABLOOP FAIL (\(failures))")
     exit(failures == 0 ? 0 : 1)
 }
+
+// MARK: - V5.6 live participant interaction (--interactionloop)
+
+/// Uses only the bridge methods used by LabWindow. Each invocation needs a fresh
+/// test-owned backend, because beginning a session changes the backend world.
+func runInteractionLoopTest() {
+    let fg = FlyGymBridge()
+    fg.start()
+    var failures = 0
+    func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+        print("\(ok ? "PASS" : "FAIL")  interactionloop \(name) \(detail)")
+        if !ok { failures += 1 }
+    }
+    func wait<T>(_ seconds: Double, _ read: () -> T?) -> T? {
+        let deadline = Date().addingTimeInterval(seconds)
+        repeat {
+            if let value = read() { return value }
+            Thread.sleep(forTimeInterval: 0.02)
+        } while Date() < deadline
+        return read()
+    }
+    func snapshot(after tick: Int = -1, containing id: String? = nil,
+                  seconds: Double = 25) -> WorldRenderSnapshot? {
+        let deadline = Date().addingTimeInterval(seconds)
+        repeat {
+            if let seq = fg.requestWorldRenderSnapshot(),
+               let s: WorldRenderSnapshot = wait(2.0, {
+                   guard let s = fg.latestWorldRenderSnapshot(maxAge: 5),
+                         s.requestSeq == seq, s.ok, s.simTick > tick,
+                         s.player != nil,
+                         id == nil || s.objects.contains(where: { $0.id == id }) else { return nil }
+                   return s
+               }) { return s }
+            Thread.sleep(forTimeInterval: 0.05)
+        } while Date() < deadline
+        return nil
+    }
+    var ackCursor: UInt64 = 0
+    func commandAck(_ id: Int, seconds: Double = 25) -> LabAck? {
+        wait(seconds) {
+            let batch = fg.labAcks(after: ackCursor)
+            ackCursor = batch.serial
+            return batch.acks.first(where: { $0.id == id })
+        }
+    }
+    var eventCursor: UInt64 = 0
+    var eventNames: [String] = []
+    var events: [LabEventNotice] = []
+    func collectEvents() {
+        let batch = fg.labEvents(after: eventCursor)
+        eventCursor = batch.serial
+        eventNames += batch.events.map(\.event)
+        events += batch.events
+    }
+    let connected: Bool = wait(12) { fg.connected && fg.serverHello() != nil ? true : nil } ?? false
+    check("connected", connected)
+    guard connected, let hello = fg.serverHello() else {
+        fg.stop(); print("INTERACTIONLOOP FAIL (\(failures))"); exit(1)
+    }
+    check("hello player_body/player_input", hello.supportsPlayerInputV5_5,
+          "capabilities=\(hello.capabilities)")
+    let session = "interactionloop-\(UUID().uuidString)"
+    let began = fg.sendSessionControl(action: "begin", sessionID: session,
+                                      epoch: 1, simTick: 0, mode: .interactive) != nil
+    let running: FlyGymSessionStatePacket? = wait(30) {
+        guard let s = fg.latestSessionState(), s.sessionID == session,
+              s.epoch == 1, s.state == "running" else { return nil }
+        return s
+    }
+    check("interactive session", began && running?.ok == true,
+          "session=\(session) state=\(running?.state ?? "timeout")")
+    func lab(_ action: String, target: String? = nil,
+             x: Double? = nil, y: Double? = nil, z: Double? = nil,
+             size: Double? = nil, value: Double? = nil, tick: Int = 0) -> LabAck? {
+        let id = fg.sendLab(action: action, target: target, x: x, y: y, z: z,
+                            size: size, value: value,
+                            protocolVersion: FlyGymProtocolV4.version,
+                            sessionID: session, epoch: 1, requestedTick: tick)
+        return commandAck(id)
+    }
+    func interaction(_ tool: String, ray: WorldViewerRay? = nil,
+                     target: String? = nil, tick: Int) -> LabAck? {
+        guard let id = fg.sendInteraction(toolID: tool, actorID: "player", target: target,
+                                          rayOriginMM: ray?.originMM,
+                                          rayDirection: ray?.direction,
+                                          protocolVersion: FlyGymProtocolV4.version,
+                                          sessionID: session, epoch: 1,
+                                          requestedTick: tick) else { return nil }
+        return commandAck(id)
+    }
+    let activate = lab("set_player_active", value: 1)
+    check("activate participant", activate?.ok == true,
+          "ack=\(activate?.id ?? -1) \(activate?.message ?? "timeout")")
+    var base = snapshot()
+    check("authoritative participant snapshot", base != nil,
+          "tick=\(base?.simTick ?? -1)")
+    let id = "interactionloop_box_\(ProcessInfo.processInfo.processIdentifier)"
+    var created = false
+    if let s = base, let player = s.player,
+       let ray = WorldViewer.participantAimRay(player: player) {
+        // One small box on the same participant ray, about 7 mm from its eye.
+        let p = (0..<3).map { ray.originMM[$0] + ray.direction[$0] * 7 }
+        let spawn = lab("spawn_box", target: id, x: p[0], y: p[1], z: p[2],
+                        size: 2, tick: s.simTick)
+        created = spawn?.ok == true
+        check("legacy spawn ACK", created && spawn?.action == "spawn_box"
+              && spawn?.status == "applied",
+              "ack=\(spawn?.id ?? -1) action=\(spawn?.action ?? "nil") status=\(spawn?.status ?? "nil") tick=\(spawn?.appliedTick ?? -1)")
+        base = snapshot(after: s.simTick, containing: id)
+        check("spawn visible in new snapshot", base != nil,
+              "tick=\(base?.simTick ?? -1)")
+    } else { check("aim ray from snapshot", false) }
+
+    if let s = base, let player = s.player,
+       let ray = WorldViewer.participantAimRay(player: player), created {
+        let grab = interaction("grab", ray: ray, target: id, tick: s.simTick)
+        let held = fg.latestLabState()?.interaction?.heldObjectID
+        collectEvents()
+        check("grab ACK and held state", grab?.ok == true && held == id,
+              "ack=\(grab?.id ?? -1) error=\(grab?.message ?? "timeout") held=\(held ?? "nil")")
+        check("object_grabbed event", eventNames.contains("object_grabbed"),
+              "events=\(eventNames)")
+
+        let before = snapshot(containing: id)
+        let moveTick = before?.simTick ?? s.simTick
+        let inputSeq = fg.sendPlayerInput(sessionID: session, epoch: 1,
+                                          requestedTick: moveTick,
+                                          moveAxes: [0, 1], lookDelta: [0, 0],
+                                          heldActions: [])
+        let inputResult: PlayerInputResult? = wait(20) {
+            guard let r = fg.latestPlayerInputResult(), r.seq == inputSeq else { return nil }
+            return r
+        }
+        check("lateral PlayerInput ACK", inputSeq != nil && inputResult?.ok == true,
+              "seq=\(inputSeq ?? -1) status=\(inputResult?.status ?? "timeout")")
+        var samples: [WorldRenderSnapshot] = []
+        if let before { samples.append(before) }
+        let targetTick = moveTick + 400
+        let moveDeadline = Date().addingTimeInterval(40)
+        while Date() < moveDeadline && (samples.last?.simTick ?? moveTick) < targetTick {
+            if let next = snapshot(after: samples.last?.simTick ?? moveTick,
+                                   containing: id, seconds: 3) { samples.append(next) }
+        }
+        let releaseTick = samples.last?.simTick ?? moveTick
+        let releaseSeq = fg.sendPlayerInput(sessionID: session, epoch: 1,
+                                            requestedTick: releaseTick,
+                                            moveAxes: [0, 0], lookDelta: [0, 0],
+                                            heldActions: [], discardPendingLook: true)
+        let releaseResult: PlayerInputResult? = wait(20) {
+            guard let r = fg.latestPlayerInputResult(), r.seq == releaseSeq else { return nil }
+            return r
+        }
+        check("release PlayerInput ACK", releaseSeq != nil && releaseResult?.ok == true)
+        func object(_ s: WorldRenderSnapshot) -> WorldRenderObject? {
+            s.objects.first(where: { $0.id == id })
+        }
+        // Adjacent snapshots can be a few ms apart, where integer-ms tick
+        // provenance inflates the apparent speed; only >=100 ms windows count.
+        var maxSpeed = 0.0
+        for (i, first) in samples.enumerated() {
+            for second in samples[(i + 1)...] {
+                let dt = Double(second.simTick - first.simTick) / 1000
+                guard dt >= 0.1, let a = object(first), let b = object(second) else { continue }
+                maxSpeed = max(maxSpeed, hypot(b.positionMM[0] - a.positionMM[0],
+                                               b.positionMM[1] - a.positionMM[1]) / dt)
+            }
+        }
+        let start = samples.first.flatMap(object)?.positionMM
+        let end = samples.last.flatMap(object)?.positionMM
+        let distance = start != nil && end != nil
+            ? hypot(end![0] - start![0], end![1] - start![1]) : 0
+        let simMs = (samples.last?.simTick ?? moveTick) - (samples.first?.simTick ?? moveTick)
+        check("carry moves box", distance > 0.5 && simMs >= 300,
+              String(format: "distance=%.4fmm sim=%dms max_sample_speed=%.4fmm/s samples=%d",
+                     distance, simMs, maxSpeed, samples.count))
+        // Compare against the live backend bound, not a copied constant; the
+        // 2 mm/s margin covers snapshot spacing and integer-ms tick quantization.
+        let liveSpeed = fg.latestLabState()?.interaction?.carrySpeedMMs
+        check("carry_speed_mm_s observable from public state",
+              liveSpeed.map { $0.isFinite && $0 > 0 } == true,
+              "carry_speed_mm_s=\(liveSpeed.map { String($0) } ?? "nil")")
+        check("carry speed <= live backend bound + sampling margin 2mm/s",
+              liveSpeed != nil && maxSpeed <= liveSpeed! + 2.0 && samples.count >= 2,
+              String(format: "max_sample_speed=%.4fmm/s bound=%@", maxSpeed,
+                     liveSpeed.map { String($0) } ?? "nil"))
+
+        let placeSnapshot = snapshot(containing: id)
+        let place = interaction("place", target: id,
+                                tick: placeSnapshot?.simTick ?? releaseTick)
+        collectEvents()
+        check("place ACK and released state", place?.ok == true
+              && fg.latestLabState()?.interaction != nil
+              && fg.latestLabState()?.interaction?.heldObjectID == nil,
+              "ack=\(place?.id ?? -1) error=\(place?.message ?? "timeout")")
+        check("object_placed event", eventNames.contains("object_placed"),
+              "events=\(eventNames)")
+        let stillStart = snapshot(containing: id)
+        let stillEnd = snapshot(after: (stillStart?.simTick ?? releaseTick) + 60,
+                                containing: id)
+        let stillA = stillStart.flatMap(object)?.positionMM
+        let stillB = stillEnd.flatMap(object)?.positionMM
+        let stillDistance = stillA != nil && stillB != nil
+            ? hypot(stillB![0] - stillA![0], stillB![1] - stillA![1]) : .infinity
+        check("placed box stays still", stillDistance < 0.01,
+              String(format: "distance=%.6fmm ticks=%d..%d", stillDistance,
+                     stillStart?.simTick ?? -1, stillEnd?.simTick ?? -1))
+
+        let noHold = interaction("place", tick: stillEnd?.simTick ?? releaseTick)
+        let afterNoHold = snapshot(containing: id)
+        let noHoldPosition = afterNoHold.flatMap(object)?.positionMM
+        check("reject place without held object", noHold?.ok == false
+              && noHold?.message.hasPrefix("not_holding") == true
+              && fg.latestLabState()?.interaction?.heldObjectID == nil
+              && noHoldPosition == stillB,
+              "error=\(noHold?.message ?? "timeout")")
+        if let fresh = snapshot(containing: id), let p = fresh.player,
+           let freshRay = WorldViewer.participantAimRay(player: p) {
+            let sky = WorldViewerRay(originMM: freshRay.originMM,
+                                     direction: [0, 0, 1])
+            let miss = interaction("grab", ray: sky, tick: fresh.simTick)
+            let afterMiss = snapshot(containing: id)
+            check("reject sky grab", miss?.ok == false
+                  && miss?.message.hasPrefix("ray_miss") == true
+                  && fg.latestLabState()?.interaction?.heldObjectID == nil
+                  && afterMiss.flatMap(object)?.positionMM == object(fresh)?.positionMM,
+                  "error=\(miss?.message ?? "timeout")")
+            let far = (0..<3).map { freshRay.originMM[$0] + freshRay.direction[$0] * 25 }
+            let move = lab("move_object", target: id, x: far[0], y: far[1], z: far[2],
+                           tick: fresh.simTick)
+            check("legacy move ACK", move?.ok == true && move?.action == "move_object"
+                  && move?.status == "applied",
+                  "ack=\(move?.id ?? -1) action=\(move?.action ?? "nil") tick=\(move?.appliedTick ?? -1)")
+            if let distant = snapshot(after: fresh.simTick, containing: id),
+               let aim = distant.player.flatMap({ WorldViewer.participantAimRay(player: $0) }) {
+                let farGrab = interaction("grab", ray: aim, target: id,
+                                          tick: distant.simTick)
+                let afterFarGrab = snapshot(containing: id)
+                check("reject out-of-reach grab", farGrab?.ok == false
+                      && farGrab?.message.hasPrefix("out_of_reach") == true
+                      && fg.latestLabState()?.interaction?.heldObjectID == nil
+                      && afterFarGrab.flatMap(object)?.positionMM == object(distant)?.positionMM,
+                      "error=\(farGrab?.message ?? "timeout")")
+            } else { check("distant snapshot", false) }
+        } else { check("rejection snapshot", false) }
+    }
+
+    collectEvents()
+    let grabbed = events.first { $0.event == "object_grabbed" }?.detail
+    let placed = events.first { $0.event == "object_placed" && $0.detail?.reason == "place" }?.detail
+    check("event id/reason/integer sim_tick_ms observable",
+          grabbed?.id == id && grabbed?.simTickMS != nil
+          && placed?.id == id && placed?.simTickMS != nil
+          && placed!.simTickMS! >= grabbed!.simTickMS!,
+          "grabbed=\(grabbed.map(\.summary) ?? "nil") placed=\(placed.map(\.summary) ?? "nil")")
+    if created {
+        let cleanup = lab("delete_object", target: id)
+        check("legacy delete ACK", cleanup?.ok == true
+              && cleanup?.action == "delete_object" && cleanup?.status == "applied",
+              "ack=\(cleanup?.id ?? -1) action=\(cleanup?.action ?? "nil") tick=\(cleanup?.appliedTick ?? -1)")
+    }
+    let inactive = lab("set_player_active", value: 0)
+    check("deactivate participant", inactive?.ok == true)
+    fg.stop()
+    print(failures == 0 ? "INTERACTIONLOOP PASS" : "INTERACTIONLOOP FAIL (\(failures))")
+    exit(failures == 0 ? 0 : 1)
+}

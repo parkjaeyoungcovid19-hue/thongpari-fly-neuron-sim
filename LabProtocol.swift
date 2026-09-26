@@ -6,6 +6,7 @@
 //   direct-neural  = electrical stimulation of an existing MetalSim population
 
 import Foundation
+import Cocoa
 
 /// Local receive metadata attached by FlyGymBridge after a packet is accepted
 /// on the current TCP connection. `connectionGeneration` lets callers reject a
@@ -50,6 +51,11 @@ struct LabCommand: Codable {
     var sensory: Bool? = nil
     var continuous: Bool? = nil
     var mode: String? = nil
+    // V5.6 interaction fields. Optional encoding preserves legacy commands.
+    var toolID: String? = nil
+    var actorID: String? = nil
+    var rayOriginMM: [Double]? = nil
+    var rayDirection: [Double]? = nil
     // V4 deterministic-session envelope. Nil preserves the V3/legacy wire shape.
     var protocolVersion: Int? = nil
     var sessionID: String? = nil
@@ -62,10 +68,37 @@ struct LabCommand: Codable {
         case directionDeg = "direction_deg"
         case endDistance = "end_distance_mm"
         case physical, sensory, continuous, mode
+        case toolID = "tool_id"
+        case actorID = "actor_id"
+        case rayOriginMM = "ray_origin_mm"
+        case rayDirection = "ray_direction"
         case protocolVersion = "protocol_version"
         case sessionID = "session_id"
         case epoch
         case requestedTick = "requested_tick"
+    }
+}
+
+extension LabCommand {
+    static func interaction(id: Int, toolID: String, actorID: String,
+                            target: String? = nil, rayOriginMM: [Double]? = nil,
+                            rayDirection: [Double]? = nil,
+                            protocolVersion: Int? = nil, sessionID: String? = nil,
+                            epoch: Int? = nil, requestedTick: Int? = nil) -> LabCommand? {
+        guard toolID == "grab" || toolID == "place", !actorID.isEmpty else { return nil }
+        if toolID == "grab" {
+            guard let rayOriginMM, let rayDirection,
+                  rayOriginMM.count == 3, rayDirection.count == 3,
+                  rayOriginMM.allSatisfy(\.isFinite), rayDirection.allSatisfy(\.isFinite),
+                  rayDirection.contains(where: { $0 != 0 }) else { return nil }
+        } else if rayOriginMM != nil || rayDirection != nil {
+            return nil
+        }
+        return LabCommand(id: id, action: "interaction", target: target,
+                          toolID: toolID, actorID: actorID,
+                          rayOriginMM: rayOriginMM, rayDirection: rayDirection,
+                          protocolVersion: protocolVersion, sessionID: sessionID,
+                          epoch: epoch, requestedTick: requestedTick)
     }
 }
 
@@ -236,17 +269,75 @@ struct LabAck: Decodable, FlyGymStampedPacket {
     }
 }
 
-/// Python -> Swift lifecycle marker (approach/wind/touch/flash start/complete).
-/// `data` is intentionally ignored here; the event name is sufficient for the
-/// V1 status/recording UI and unknown payload fields remain forward-compatible.
+/// V5.6 `lab_event.data` fields. Every field is optional and a malformed payload
+/// only drops the detail, never the event itself.
+struct LabEventDetail: Decodable, Equatable {
+    var id: String?
+    var reason: String?
+    var simTickMS: Int?
+    var flySegment: String?
+    var normalForce: Double?
+    var peakNormalForce: Double?
+    var durationMS: Int?
+    var blockingGeomKind: String?
+    var forceUnits: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, reason
+        case simTickMS = "sim_tick_ms"
+        case flySegment = "fly_segment"
+        case normalForce = "normal_force"
+        case peakNormalForce = "peak_normal_force"
+        case durationMS = "duration_ms"
+        case blockingGeomKind = "blocking_geom_kind"
+        case forceUnits = "force_units"
+    }
+
+    /// One timeline line; force stays in backend model units, never converted.
+    var summary: String {
+        var parts: [String] = []
+        if let id { parts.append(id) }
+        if let flySegment { parts.append(L("fly \(flySegment)", "파리 \(flySegment)")) }
+        if let reason { parts.append(reason) }
+        if let blockingGeomKind { parts.append(L("by \(blockingGeomKind)", "\(blockingGeomKind)에 막힘")) }
+        let units = forceUnits == "mujoco_model" ? L(" (model units)", " (모델 단위)") : ""
+        if let normalForce, normalForce.isFinite {
+            parts.append(L("force ", "힘 ") + String(format: "%.4g", normalForce) + units)
+        }
+        if let peakNormalForce, peakNormalForce.isFinite {
+            parts.append(L("peak ", "최대 ") + String(format: "%.4g", peakNormalForce) + units)
+        }
+        if let durationMS { parts.append("\(durationMS) ms") }
+        if let simTickMS { parts.append("@\(simTickMS) ms") }
+        return parts.joined(separator: " · ")
+    }
+}
+
+/// Python -> Swift lifecycle marker (approach/wind/touch/flash, V5.6
+/// grab/place/contact). Unknown payload fields remain forward-compatible.
 struct LabEventNotice: Decodable, FlyGymStampedPacket {
     var type: String = "lab_event"
     var event: String = ""
+    var detail: LabEventDetail?
     var receivedAt: Date = Date()
     var connectionGeneration: UInt64 = 0
 
     enum CodingKeys: String, CodingKey {
         case type, event
+        case detail = "data"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type = try c.decodeIfPresent(String.self, forKey: .type) ?? "lab_event"
+        event = try c.decodeIfPresent(String.self, forKey: .event) ?? ""
+        detail = try? c.decodeIfPresent(LabEventDetail.self, forKey: .detail)
+    }
+
+    init(type: String = "lab_event", event: String = "", detail: LabEventDetail? = nil) {
+        self.type = type
+        self.event = event
+        self.detail = detail
     }
 }
 
@@ -277,6 +368,41 @@ struct LabRemoteWorldState: Decodable {
     }
 }
 
+struct LabInteractionState: Decodable {
+    let heldObjectID: String?
+    let carryBlocked: Bool
+    let reachMM: Double
+    /// Optional backend carry-speed bound; nil from a backend that omits it.
+    let carrySpeedMMs: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case heldObjectID = "held_object_id"
+        case carryBlocked = "carry_blocked"
+        case reachMM = "reach_mm"
+        case carrySpeedMMs = "carry_speed_mm_s"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard c.contains(.heldObjectID) else {
+            throw DecodingError.keyNotFound(CodingKeys.heldObjectID, .init(codingPath: c.codingPath,
+                                                                            debugDescription: "held_object_id required"))
+        }
+        heldObjectID = try c.decodeIfPresent(String.self, forKey: .heldObjectID)
+        carryBlocked = try c.decode(Bool.self, forKey: .carryBlocked)
+        reachMM = try c.decode(Double.self, forKey: .reachMM)
+        guard reachMM.isFinite, reachMM > 0 else {
+            throw DecodingError.dataCorruptedError(forKey: .reachMM, in: c,
+                                                   debugDescription: "reach_mm must be finite and positive")
+        }
+        carrySpeedMMs = try c.decodeIfPresent(Double.self, forKey: .carrySpeedMMs)
+        if let speed = carrySpeedMMs, !(speed.isFinite && speed > 0) {
+            throw DecodingError.dataCorruptedError(forKey: .carrySpeedMMs, in: c,
+                                                   debugDescription: "carry_speed_mm_s must be finite and positive")
+        }
+    }
+}
+
 /// Python -> Swift compact lab state. Every field except `type` is optional so
 /// older/newer bridge versions remain displayable instead of becoming malformed.
 struct LabRemoteState: Decodable, FlyGymStampedPacket {
@@ -303,6 +429,7 @@ struct LabRemoteState: Decodable, FlyGymStampedPacket {
     var sessionID: String?
     var epoch: Int?
     var simTick: Int?
+    var interaction: LabInteractionState?
     var receivedAt: Date = Date()
     var connectionGeneration: UInt64 = 0
 
@@ -320,6 +447,34 @@ struct LabRemoteState: Decodable, FlyGymStampedPacket {
         case appliedEpoch = "applied_epoch"
         case sessionID = "session_id"
         case simTick = "sim_tick"
+        case interaction
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type = try c.decode(String.self, forKey: .type)
+        t = try c.decodeIfPresent(Double.self, forKey: .t) ?? 0
+        ack = try c.decodeIfPresent(Int.self, forKey: .ack)
+        ok = try c.decodeIfPresent(Bool.self, forKey: .ok)
+        error = try c.decodeIfPresent(String.self, forKey: .error)
+        objectCount = try c.decodeIfPresent(Int.self, forKey: .objectCount)
+        objects = try c.decodeIfPresent([LabWorldObjectRemote].self, forKey: .objects)
+        slotCapacity = try c.decodeIfPresent([String: Int].self, forKey: .slotCapacity)
+        slotFree = try c.decodeIfPresent([String: Int].self, forKey: .slotFree)
+        worldState = try c.decodeIfPresent(LabRemoteWorldState.self, forKey: .worldState)
+        temperature = try c.decodeIfPresent(Double.self, forKey: .temperature)
+        wind = try c.decodeIfPresent(Double.self, forKey: .wind)
+        leftEyeCovered = try c.decodeIfPresent(Bool.self, forKey: .leftEyeCovered)
+        rightEyeCovered = try c.decodeIfPresent(Bool.self, forKey: .rightEyeCovered)
+        lastAction = try c.decodeIfPresent(String.self, forKey: .lastAction)
+        appliedTick = try c.decodeIfPresent(Int.self, forKey: .appliedTick)
+        appliedEpoch = try c.decodeIfPresent(Int.self, forKey: .appliedEpoch)
+        status = try c.decodeIfPresent(String.self, forKey: .status)
+        sessionID = try c.decodeIfPresent(String.self, forKey: .sessionID)
+        epoch = try c.decodeIfPresent(Int.self, forKey: .epoch)
+        simTick = try c.decodeIfPresent(Int.self, forKey: .simTick)
+        // A malformed interaction block must not discard otherwise valid lab_state.
+        interaction = try? c.decode(LabInteractionState.self, forKey: .interaction)
     }
 
     var authoritativeObjects: [LabWorldObjectRemote]? { objects ?? worldState?.objects }
@@ -917,8 +1072,174 @@ func runLabTest() {
           && state?.authoritativeSlotCapacity?["wall"] == 64
           && state?.authoritativeSlotFree?["wall"] == 63)
     check("lab_state type gate", parseLabStateLine(Data(#"{"type":"body","ack":7}"#.utf8)) == nil)
+    func wire(_ command: LabCommand) -> [String: Any] {
+        let data = try! JSONEncoder().encode(command)
+        return (try! JSONSerialization.jsonObject(with: data)) as! [String: Any]
+    }
+    let grab = LabCommand.interaction(id: 71, toolID: "grab", actorID: "player",
+                                      rayOriginMM: [1, 2, 3], rayDirection: [1, 0, 0],
+                                      protocolVersion: 4, sessionID: "s", epoch: 1,
+                                      requestedTick: 42)
+    let place = LabCommand.interaction(id: 72, toolID: "place", actorID: "player",
+                                       target: "box_1", protocolVersion: 4,
+                                       sessionID: "s", epoch: 1, requestedTick: 43)
+    let grabWire = grab.map(wire) ?? [:]
+    let placeWire = place.map(wire) ?? [:]
+    check("V5.6 grab/place flat wire and V4 envelope",
+          grabWire["action"] as? String == "interaction"
+          && grabWire["tool_id"] as? String == "grab"
+          && grabWire["actor_id"] as? String == "player"
+          && grabWire["ray_origin_mm"] as? [Double] == [1, 2, 3]
+          && grabWire["ray_direction"] as? [Double] == [1, 0, 0]
+          && grabWire["requested_tick"] as? Int == 42
+          && placeWire["tool_id"] as? String == "place"
+          && placeWire["target"] as? String == "box_1"
+          && placeWire["ray_origin_mm"] == nil && placeWire["ray_direction"] == nil)
+    check("V5.6 command constructor rejects bad ray and place ray",
+          LabCommand.interaction(id: 1, toolID: "grab", actorID: "player",
+                                 rayOriginMM: [0, 0, 0], rayDirection: [0, 0, 0]) == nil
+          && LabCommand.interaction(id: 1, toolID: "grab", actorID: "player",
+                                    rayOriginMM: [0, .nan, 0], rayDirection: [1, 0, 0]) == nil
+          && LabCommand.interaction(id: 1, toolID: "place", actorID: "player",
+                                    rayOriginMM: [0, 0, 0]) == nil)
+    let interactionBridge = FlyGymBridge()
+    let queuedGrabID = interactionBridge.sendInteraction(
+        toolID: "grab", actorID: "player", rayOriginMM: [1, 2, 3],
+        rayDirection: [1, 0, 0], protocolVersion: 4,
+        sessionID: "interactive-session", epoch: 2, requestedTick: 90)
+    let queuedGrab = interactionBridge.dequeueSendForTesting(at: Date())
+    let queuedGrabWire = queuedGrab.flatMap { try? JSONSerialization.jsonObject(with: $0.1) as? [String: Any] } ?? [:]
+    check("bridge interaction uses lab queue and interactive V4 envelope",
+          queuedGrabID != nil && queuedGrab?.0 == .lab
+          && queuedGrabWire["id"] as? Int == queuedGrabID
+          && queuedGrabWire["tool_id"] as? String == "grab"
+          && queuedGrabWire["session_id"] as? String == "interactive-session"
+          && queuedGrabWire["epoch"] as? Int == 2
+          && queuedGrabWire["requested_tick"] as? Int == 90)
+    let oldWire = wire(LabCommand(id: 73, action: "move_object", target: "box_1", x: 2))
+    check("legacy LabCommand wire has no interaction keys",
+          oldWire["action"] as? String == "move_object"
+          && oldWire["target"] as? String == "box_1"
+          && oldWire["x"] as? Double == 2
+          && oldWire["tool_id"] == nil && oldWire["actor_id"] == nil
+          && oldWire["ray_origin_mm"] == nil && oldWire["ray_direction"] == nil)
+
+    let validInteraction = parseLabStateLine(Data(#"{"type":"lab_state","interaction":{"held_object_id":"box_1","carry_blocked":true,"reach_mm":12.0}}"#.utf8))
+    let nullHeld = parseLabStateLine(Data(#"{"type":"lab_state","interaction":{"held_object_id":null,"carry_blocked":false,"reach_mm":12.0}}"#.utf8))
+    let malformedBlocks = [
+        #"{"carry_blocked":false,"reach_mm":12}"#,
+        #"{"held_object_id":7,"carry_blocked":false,"reach_mm":12}"#,
+        #"{"held_object_id":null,"carry_blocked":"false","reach_mm":12}"#,
+        #"{"held_object_id":null,"carry_blocked":false,"reach_mm":0}"#,
+        #"{"held_object_id":null,"carry_blocked":false,"reach_mm":-1}"#,
+        #"{"held_object_id":null,"carry_blocked":false}"#
+    ]
+    let malformedStates = malformedBlocks.map {
+        parseLabStateLine(Data("{\"type\":\"lab_state\",\"object_count\":3,\"interaction\":\($0)}".utf8))
+    }
+    check("interaction strict optional decode and old backend contrast",
+          validInteraction?.interaction?.heldObjectID == "box_1"
+          && validInteraction?.interaction?.carryBlocked == true
+          && validInteraction?.interaction?.reachMM == 12
+          && nullHeld?.interaction?.heldObjectID == nil
+          && state?.interaction == nil
+          && malformedStates.allSatisfy { $0?.interaction == nil && $0?.objectCount == 3 })
+    var interactionUI = LabInteractionPresentation()
+    check("old or malformed backend disables interaction and says unknown",
+          !interactionUI.canSend(participating: true, captured: true, focused: true,
+                                 hasInteractionState: state?.interaction != nil)
+          && interactionUI.line(state: nil) == L("Interaction state unknown", "상호작용 상태 알 수 없음"))
+    interactionUI.begin(id: 71, generation: 4)
+    check("pending interaction prevents a duplicate E command",
+          !interactionUI.canSend(participating: true, captured: true, focused: true,
+                                 hasInteractionState: true)
+          && interactionUI.line(state: nullHeld?.interaction).contains("Waiting"))
+    var accepted = LabAck(); accepted.id = 71; accepted.ok = true
+    accepted.connectionGeneration = 4
+    interactionUI.accept(ack: accepted)
+    check("successful interaction ACK clears pending",
+          interactionUI.pendingID == nil && interactionUI.rejection == nil
+          && interactionUI.canSend(participating: true, captured: true, focused: true,
+                                    hasInteractionState: true))
+    let pendingAt = Date(timeIntervalSince1970: 100)
+    interactionUI.begin(id: 72, generation: 4, at: pendingAt)
+    interactionUI.expire(at: pendingAt.addingTimeInterval(LabCommandTimeline.ackTimeout + 0.01))
+    check("lost interaction ACK releases pending gate with timeout status",
+          interactionUI.pendingID == nil
+          && interactionUI.line(state: nullHeld?.interaction).contains("response timed out"))
+    let rejectCodes = ["invalid_interaction", "not_participating", "wrong_actor",
+                       "ray_origin_not_at_participant", "ray_miss", "unsupported_target",
+                       "out_of_reach", "target_mismatch", "already_holding", "not_holding"]
+    var rejectedLines: [String] = []
+    for (index, code) in rejectCodes.enumerated() {
+        interactionUI.begin(id: index + 100, generation: 4)
+        var rejected = LabAck(); rejected.id = index + 100; rejected.ok = false
+        rejected.message = code == "out_of_reach" ? "out_of_reach: 17.3mm" : code
+        rejected.connectionGeneration = 4
+        interactionUI.accept(ack: rejected)
+        rejectedLines.append(interactionUI.line(state: nullHeld?.interaction))
+    }
+    check("all ten interaction rejection codes have user text",
+          rejectedLines.count == 10 && rejectedLines.allSatisfy { $0.hasPrefix("Rejected: ")
+            && !$0.contains("request rejected") }
+          && rejectedLines[6].contains("12.0 mm") && rejectedLines[6].contains("17.3mm"))
+    let testDefaults = UserDefaults(suiteName: "SiliconFly.V5.6.Tests.\(UUID().uuidString)")!
+    let keyController = PlayerController(defaults: testDefaults)
+    _ = keyController.setCaptureEnabled(true)
+    let firstE = keyController.handleKeyDown(keyCode: 14, isRepeat: false)
+    let freshE = keyController.freshInteractPress
+    let repeatE = keyController.handleKeyDown(keyCode: 14, isRepeat: true)
+    let repeatFresh = keyController.freshInteractPress
+    let duplicateE = keyController.handleKeyDown(keyCode: 14, isRepeat: false)
+    _ = keyController.handleKeyUp(keyCode: 14)
+    let secondE = keyController.handleKeyDown(keyCode: 14, isRepeat: false)
+    check("E physical key press is one command; repeat and duplicate down ignored",
+          firstE != nil && freshE && repeatE == nil && !repeatFresh
+          && duplicateE == nil && secondE != nil && keyController.freshInteractPress)
+    var waitingUI = LabInteractionPresentation()
+    waitingUI.begin(id: 71, generation: 4)
+    let blockedBridge = FlyGymBridge()
+    if secondE != nil && keyController.freshInteractPress && waitingUI.canAttempt() {
+        _ = blockedBridge.sendInteraction(toolID: "grab", actorID: "player",
+                                          rayOriginMM: [0, 0, 1], rayDirection: [1, 0, 0])
+    }
+    check("second E while pending shows reason and queues no interaction command",
+          blockedBridge.dequeueSendForTesting(at: Date()) == nil
+          && waitingUI.line(state: nullHeld?.interaction)
+              == L("Waiting — previous request response pending", "대기 중 — 이전 요청 응답 기다리는 중"))
+    waitingUI.ignore(.waitingForState)
+    check("missing interaction state shows ignored E reason",
+          waitingUI.line(state: nil)
+              == L("Interaction not ready — waiting for world state", "상호작용 준비 안 됨 — 세계 상태 수신 대기"))
+    waitingUI.ignore(.waitingForSession)
+    check("inactive session shows ignored E reason",
+          waitingUI.line(state: nullHeld?.interaction)
+              == L("Interaction not ready — waiting for active session", "상호작용 준비 안 됨 — 세션 활성화 대기"))
+    check("text focus, non-participation and pending all suppress E",
+          !interactionUI.canSend(participating: true, captured: true, focused: false,
+                                 hasInteractionState: true)
+          && !interactionUI.canSend(participating: false, captured: true, focused: true,
+                                    hasInteractionState: true)
+          && PlayerInputFocusPolicy.allowsCapture(windowIsKey: true,
+                                                   firstResponder: NSTextField(string: ""),
+                                                   viewer: WorldViewer(frame: .zero)) == false)
     let event = parseLabEventLine(Data(#"{"type":"lab_event","event":"approach_complete","data":{"id":"x"}}"#.utf8))
     check("lab_event parse", event?.event == "approach_complete")
+    let contact = parseLabEventLine(Data(#"{"type":"lab_event","event":"object_contact_end","data":{"id":"box_1","fly_segment":"thorax","peak_normal_force":0.25,"duration_ms":14,"sim_tick_ms":1200,"force_units":"mujoco_model","classification":"PHYSICAL"}}"#.utf8))
+    let badDetail = parseLabEventLine(Data(#"{"type":"lab_event","event":"object_placed","data":{"id":7,"sim_tick_ms":"x"}}"#.utf8))
+    check("V5.6 lab_event detail decode; malformed detail keeps the event",
+          contact?.detail?.id == "box_1" && contact?.detail?.flySegment == "thorax"
+          && contact?.detail?.peakNormalForce == 0.25 && contact?.detail?.durationMS == 14
+          && contact?.detail?.simTickMS == 1200
+          && contact?.detail?.summary.contains("@1200 ms") == true
+          && badDetail?.event == "object_placed" && badDetail?.detail == nil,
+          contact?.detail?.summary ?? "nil")
+    let speedState = parseLabStateLine(Data(#"{"type":"lab_state","interaction":{"held_object_id":null,"carry_blocked":false,"reach_mm":12,"carry_speed_mm_s":40}}"#.utf8))
+    let badSpeed = parseLabStateLine(Data(#"{"type":"lab_state","interaction":{"held_object_id":null,"carry_blocked":false,"reach_mm":12,"carry_speed_mm_s":0}}"#.utf8))
+    check("carry_speed_mm_s optional strict decode",
+          speedState?.interaction?.carrySpeedMMs == 40
+          && validInteraction?.interaction?.carrySpeedMMs == nil
+          && badSpeed != nil && badSpeed?.interaction == nil)
 
     var backendStim = FlyGymBodyFeedback()
     backendStim.windStrength = 0.7
@@ -1442,6 +1763,15 @@ func runLabTest() {
     check("bridge keeps every ACK between UI refreshes, repeated lab_state ACK once",
           firstRead.acks.map(\.id) == [1, 2] && secondRead.acks.isEmpty,
           "ids=\(firstRead.acks.map(\.id))")
+    let interactionEvents = ["object_grabbed", "object_placed", "carry_blocked",
+                             "object_contact_begin", "object_contact_end"]
+    for name in interactionEvents {
+        _ = ackBridge.receiveLineForTesting(Data("{\"type\":\"lab_event\",\"event\":\"\(name)\"}".utf8))
+    }
+    let eventBatch = ackBridge.labEvents(after: 0)
+    check("interaction events survive between UI refreshes for existing timeline",
+          eventBatch.events.map(\.event) == interactionEvents
+          && ackBridge.labEvents(after: eventBatch.serial).events.isEmpty)
 
     let t0 = Date()
     func entry(_ id: Int, generation: UInt64 = ackGeneration, at: Date = t0) -> LabTimelineEntry {
@@ -1546,17 +1876,37 @@ func runLabTest() {
     if let snap = parseWorldRenderSnapshotLine(Data(yawLeft.utf8)) { viewer.apply(snapshot: snap) }
     viewer.setObservationCameraMode(.firstPerson)
     let eye = viewer.mujocoCamera
+    let firstPersonRay = viewer.participantAimRay()
+    viewer.participateInputEnabled = true
+    let firstPersonMarkVisible = viewer.aimMarkVisible
     // Eye at 0.6 x radius, inside the collision sphere (view_stream.py mirrors it).
     let eyeOK = zip(eye.positionMM, [24.0, 1.5, 2.5]).allSatisfy { abs($0 - $1) < 1e-3 }
         && zip(eye.forward, [0.0, 1.0, 0.0]).allSatisfy { abs($0 - $1) < 1e-3 }
+        && firstPersonRay != nil
+        && zip(eye.positionMM, firstPersonRay?.originMM ?? []).allSatisfy { abs($0 - $1) < 1e-3 }
+        && zip(eye.forward, firstPersonRay?.direction ?? []).allSatisfy { abs($0 - $1) < 1e-3 }
         && eye.anchor == "participant_first"
     viewer.rotateObservationCamera(deltaX: 40, deltaY: 10)
     viewer.panObservationCamera(deltaX: 9, deltaY: 3)
     let dragIgnored = viewer.mujocoCamera == eye
     viewer.setObservationCameraMode(.behindParticipant)
+    let thirdPersonMarkHidden = !viewer.aimMarkVisible
     let behind = viewer.mujocoCamera
+    let aimBehind = viewer.participantAimRay()
     let behindOK = behind.anchor == "participant_third"
         && behind.positionMM[1] < 0 && behind.positionMM[2] > 2.5
+    check("third-person interaction ray starts at participant eye, not camera",
+          aimBehind != nil
+          && zip(aimBehind?.originMM ?? [], [24.0, 1.5, 2.5]).allSatisfy { abs($0 - $1) < 1e-3 }
+          && zip(aimBehind?.direction ?? [], [0.0, 1.0, 0.0]).allSatisfy { abs($0 - $1) < 1e-3 }
+          && hypot((aimBehind?.originMM[0] ?? 999) - 24, (aimBehind?.originMM[1] ?? 999)) <= 5
+          && behind.positionMM != aimBehind?.originMM)
+    viewer.setObservationCameraMode(.followFly)
+    viewer.setObservationCameraMode(.firstPerson)
+    viewer.participateInputEnabled = false
+    let uncapturedMarkHidden = !viewer.aimMarkVisible
+    check("aim mark appears only for captured first-person view",
+          firstPersonMarkVisible && thirdPersonMarkHidden && uncapturedMarkHidden)
     viewer.setObservationCameraMode(.followFly)
     check("participant first/third person cameras follow the participant's look",
           eyeOK && behindOK && dragIgnored && viewer.mujocoCamera.anchor == "fly",

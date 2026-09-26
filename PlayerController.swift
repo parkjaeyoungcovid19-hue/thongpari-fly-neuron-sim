@@ -146,6 +146,7 @@ final class PlayerController {
     private(set) var captureEnabled = false
     private var heldKeyCodes = Set<UInt16>()
     private var blockedUntilFreshPress = Set<UInt16>()
+    private(set) var freshInteractPress = false
     let lookRadiansPerPoint: Double
 
     init(defaults: UserDefaults = .standard, lookRadiansPerPoint: Double = 0.004) {
@@ -161,6 +162,7 @@ final class PlayerController {
     }
 
     func handleKeyDown(keyCode: UInt16, isRepeat: Bool) -> PlayerInputIntent? {
+        freshInteractPress = false
         guard captureEnabled else { return nil }
         if keyCode == Self.escapeKeyCode {
             if isRepeat { return nil }
@@ -184,6 +186,7 @@ final class PlayerController {
         if heldKeyCodes.contains(keyCode) { return nil }
 
         heldKeyCodes.insert(keyCode)
+        freshInteractPress = !isRepeat && bindings.action(for: keyCode) == .interact
         return currentIntent(extraLook: [0.0, 0.0])
     }
 
@@ -204,6 +207,7 @@ final class PlayerController {
     }
 
     func releaseHeldInput(blockUntilFreshPress: Bool) -> PlayerInputIntent? {
+        freshInteractPress = false
         let hadInput = !heldKeyCodes.isEmpty
         if blockUntilFreshPress { blockedUntilFreshPress.formUnion(heldKeyCodes) }
         heldKeyCodes.removeAll(keepingCapacity: true)

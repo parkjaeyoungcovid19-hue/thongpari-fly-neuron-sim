@@ -1226,6 +1226,16 @@ class LabStatePacket:
         # Swift V1 deliberately decodes a small flat summary while the nested
         # state object retains the complete backend state for future clients.
         if isinstance(self.state, dict):
+            interaction = self.state.get("interaction")
+            if interaction is not None:
+                if not isinstance(interaction, dict):
+                    raise ValueError("interaction state must be an object")
+                held = interaction.get("held_object_id")
+                blocked = interaction.get("carry_blocked")
+                reach = interaction.get("reach_mm")
+                if (held is not None and not isinstance(held, str)) or not isinstance(blocked, bool) or (not isinstance(reach, (int, float)) or isinstance(reach, bool) or not math.isfinite(reach) or reach <= 0):
+                    raise ValueError("invalid interaction state")
+                d["interaction"] = dict(interaction)
             d["t"] = clamp(self.state.get("t", 0.0), 0.0, 1e12)
             objects = self.state.get("objects")
             if isinstance(objects, list):

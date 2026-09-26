@@ -70,6 +70,7 @@ class MockBody:
         self.last_tempo = max(0.2, min(2.0, tempo if math.isfinite(tempo) else 1.0))
         self.controller_left, self.controller_right = brain_to_descending(cmd)
         self.advance_player_input(sim_dt)
+        self.lab_world._interaction_tick_ms = int(round((self.t + sim_dt) * 1000.0))
         self.lab_world.pre_step(sim_dt)
         target_v = 0.03 * cmd.forward  # 0.03 m/s ~= brisk FlyGym walk
         if cmd.reverse:
@@ -147,6 +148,9 @@ class MockBody:
         if command.op == "set_player_active":
             active = bool(float(command.args.get("value", command.args.get("active", 0.0))) >= 0.5)
             return self.lab_world.set_player_active(active)
+        if command.op == "interaction":
+            self.lab_world._interaction_tick_ms = int(round(self.t * 1000.0))
+            return self.lab_world.apply_interaction(command, ray_pick=self._interaction_ray_pick)
         return self.lab_world.apply_command(
             command, fly_position_mm=(self.x * 1000.0, self.y * 1000.0, 0.7))
 
@@ -160,6 +164,7 @@ class MockBody:
         _clear_player_input_state(self.lab_world)
 
     def reset_body(self):
+        self.lab_world.release_interaction("body_reset")
         self.x = 0.0
         self.y = 0.0
         self.heading = 0.0
@@ -204,6 +209,28 @@ class MockBody:
     def ray_pick(self, ray_origin_mm, ray_direction):
         """Mock compatibility path: read-only query with no synthetic hit claim."""
         return {"hit": False}
+
+    def _interaction_ray_pick(self, origin, direction):
+        """Mock-only analytic ray against each object's bounding sphere."""
+        best = None
+        for obj in self.lab_world.objects.values():
+            radius = max(obj.size_mm) * 0.5
+            delta = [origin[i] - obj.position_mm[i] for i in range(3)]
+            b = sum(delta[i] * direction[i] for i in range(3))
+            c = sum(v * v for v in delta) - radius * radius
+            discriminant = b * b - c
+            if discriminant < 0.0:
+                continue
+            root = math.sqrt(discriminant)
+            distance = -b - root
+            if distance < 0.0:
+                distance = -b + root
+            if distance < 0.0 or (best is not None and distance >= best["distance_mm"]):
+                continue
+            best = {"hit": True, "target_id": obj.object_id, "target_kind": "lab_object",
+                    "distance_mm": distance,
+                    "point_mm": [origin[i] + direction[i] * distance for i in range(3)]}
+        return best or {"hit": False}
 
     def drain_lab_events(self):
         return self.lab_world.drain_events()
@@ -282,6 +309,8 @@ class RealFlyBody:
             spawn_rotation=Rotation3D('quat', (1, 0, 0, 0)),
         )
         self.lab_world.player.install_fly_contact_pairs(self.world, self.fly)
+        pair_segments = cfg.get("object_fly_pair_segments", ("thorax", "head", "abdomen")) if isinstance(cfg, dict) else ("thorax", "head", "abdomen")
+        self.lab_world.install_fly_contact_pairs(self.world, self.fly, segments=pair_segments)
         self.sim = Simulation(self.world)
         self.physics_timestep_s = float(self.sim.timestep)
         self.lab_world.bind(self.sim, self._lab_force_body_ids())
@@ -531,7 +560,7 @@ class RealFlyBody:
             "player": None if render_player is None else render_player(),
         }
 
-    def ray_pick(self, ray_origin_mm, ray_direction):
+    def ray_pick(self, ray_origin_mm, ray_direction, *, exclude_player=False):
         """Intersect the live MuJoCo scene and return a stable semantic target."""
         import mujoco
 
@@ -552,7 +581,8 @@ class RealFlyBody:
         mujoco.mj_forward(self.sim.mj_model, self.sim.mj_data)
         distance = float(mujoco.mj_ray(
             self.sim.mj_model, self.sim.mj_data,
-            origin, direction, None, True, -1, geom_id, normal))
+            origin, direction, None, True,
+            (self.lab_world.player.body_id if exclude_player else -1), geom_id, normal))
         if distance < 0.0 or int(geom_id[0]) < 0:
             return {"hit": False}
 
@@ -586,6 +616,11 @@ class RealFlyBody:
         if command.op == "set_player_active":
             active = bool(float(command.args.get("value", command.args.get("active", 0.0))) >= 0.5)
             return self.lab_world.set_player_active(active)
+        if command.op == "interaction":
+            self.lab_world._interaction_tick_ms = int(round(self.t * 1000.0))
+            return self.lab_world.apply_interaction(
+                command, ray_pick=lambda origin, direction: self.ray_pick(
+                    origin, direction, exclude_player=True))
         return self.lab_world.apply_command(command, fly_position_mm=self._thorax_position())
 
     def set_player_input(self, player_input):
@@ -601,6 +636,8 @@ class RealFlyBody:
         spawn pose. That pose reset is a non-structural LabWorld mutation: it
         advances world revision without changing structure revision.
         """
+        self.lab_world._interaction_tick_ms = int(round(self.t * 1000.0))
+        self.lab_world.release_interaction("body_reset")
         self.sim.reset()
         self.lab_world.resync_after_sim_reset()
         self.lab_world.reset_player_pose(preserve_active=True)
@@ -673,11 +710,13 @@ class RealFlyBody:
         # native substep, never by a quantum-sized qpos write before physics.
         player_start = self.lab_world.begin_player_quantum()
         try:
-            for _ in range(n):
+            for index in range(n):
                 self._controller_substep(sig)
+                self.lab_world._interaction_tick_ms = int(round((self.t + (index + 1) * self.sim.timestep) * 1000.0))
                 self.lab_world.pre_step(self.sim.timestep)
                 self.lab_world.player_substep()
                 self.sim.step()
+                self.lab_world.interaction_post_step()
         finally:
             self.lab_world.end_player_quantum(player_start)
         # --- observe: velocity from thorax displacement (mm -> m/s) ---

@@ -1,4 +1,6 @@
-# V5.5.1 실제 GUI 인수 — 2026-09-26 (중단: 동선 4 재확인부터 남음)
+# V5.5.1 실제 GUI 인수 — 2026-09-26
+
+**최종:** 동선 4–7과 성능은 결함 수정 빌드에서 사용자가 직접 확인했다(2026-09-26, 캡처·수치 없음). 판정은 [V5.5.1 완료 보고서](../../../docs/reports/V5_5_1_COMPLETION_REPORT.md)에 있다. 아래는 Claude가 화면으로 확인한 범위와 발견 기록이다.
 
 대상: [V5.5.1 계획](../../../docs/plans/VIRTUAL_FLY_LAB_V5_5_1_UNIFIED_APP_PLAN.md) §7의 GUI 동선 1–7. `./package_app.sh`로 만든 `dist/Thongpari Virtual Fly Lab.app`을 `open`으로 실행했다. 앱이 소유한 실제 headless backend를 쓴다. 조작은 Computer Use로 했다. 대부분은 백그라운드 app 도구를 썼고, 키를 누르고 있는 동작(W/S)만 사용자 승인 뒤 전체 화면 제어로 했다.
 

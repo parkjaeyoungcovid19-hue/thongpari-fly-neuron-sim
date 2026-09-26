@@ -1,6 +1,6 @@
 # Virtual Fly Lab V5 — 통합 Viewer와 세계 안의 사용자
 
-작성: 2026-09-13 · 상태: **V5.5 AUTOMATED + REAL-BACKEND VERIFIED / V5.5.1 UNIFIED APP PLAN NEXT / INTEGRATED GUI ACCEPTANCE STILL PENDING**
+작성: 2026-09-13 · 상태: **V5.1–V5.5 구현 / V5.5.1 완료(2026-09-26) / V5.6 착수 준비 완료, 구현 전**
 
 2026-09-23 추가: V5.6 전에 [V5.5.1 단일 창 사용 경험 계획](VIRTUAL_FLY_LAB_V5_5_1_UNIFIED_APP_PLAN.md)을 수행한다. 기존 V5.5의 미완료 결함과 GUI 인수 항목도 이 계획의 선행 조건이다.
 

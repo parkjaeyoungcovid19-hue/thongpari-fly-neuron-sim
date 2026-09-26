@@ -3,16 +3,16 @@
 Prepared: **2026-09-13** · updated **2026-09-26**
 V4 baseline: `e900b272e1df4131edba51476f0d213a8d166ca1` (`Complete Virtual Fly Lab V4 deterministic sessions`)
 V5 preparation commit: `3faf942` (`Prepare Virtual Fly Lab V5 implementation`)
-Status: **V5.5.1 implemented; F-02 코드 수정·자동/실제 backend 회귀 통과, 실제 GUI 참여 동선은 미확인. V5.5.1 인수 미완료이며 V5.6은 시작 전이다.**
+Status: **V5.5.1 COMPLETE (2026-09-26) — [완료 보고서](V5_5_1_COMPLETION_REPORT.md). 다음은 V5.6 집기·놓기이며 아래 “V5.6 착수 준비”까지 끝났고 구현은 시작하지 않았다.**
 
-Current next step (2026-09-26): complete V5.5.1 acceptance under [the unified-app plan](../plans/VIRTUAL_FLY_LAB_V5_5_1_UNIFIED_APP_PLAN.md) §7. The F-02 working-tree fix passed the new 18/18 real MuJoCo collision checks (per-substep penetration, look ownership, reset/deactivate, determinism, workspace bound), existing Python mock/real regressions, and five fresh-backend TCP loops; the same new test failed eight checks against HEAD `dc768e4` ([evidence](../../notes/validation/f02-fix-2026-09-26/README.md)). This is code and backend verification, not GUI acceptance. GUI flows 2–7 and integrated performance remain pending, and `V5_5_1_COMPLETION_REPORT.md` does not yet exist. Do not start V5.6 until those gates pass and the completion report records the result.
+Current next step (2026-09-26): **V5.6 집기·놓기.** V5.5.1은 [완료 보고서](V5_5_1_COMPLETION_REPORT.md)로 닫았다. GUI 동선 1–3은 Claude가 화면 증거로, 동선 4–7과 성능은 사용자가 직접 확인했다(수치 기록 없음). V5.6은 아래 “V5.6 착수 준비”의 첫 결정부터 시작한다.
 
 | Level | Current V5.5.1 judgment |
 |---|---|
 | Implemented | One-window Lab and the uncommitted F-02 code fix exist in the current working tree. |
 | Automated verified | Existing automated regression and the new F-02 collision test passed in the recorded run. |
 | Real backend verified | Real MuJoCo collision/legacy tests and fresh mock/real-headless TCP loops passed in the recorded run. |
-| GUI accepted | **No** — real participation flow, GUI flows 2–7, and integrated performance are pending. |
+| GUI accepted | **Yes (2026-09-26)** — flows 1–3 by Claude with screen evidence; flows 4–7 and performance confirmed by the user without captured artifacts. |
 
 ## Start gate
 
@@ -38,9 +38,33 @@ These checks confirm the committed V4 scheduling/session baseline before V5 work
 | V5.3 | 관찰 camera + eye sample provenance | automated_verified | `WorldViewer.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `LabProtocol.swift`, `flygym_bridge/{protocol,fly_body,test_bridge,test_lab_real}.py` | build, Swift bridge/lab/V4/timing/sim/behavior/GPU, Python V5/V4/lab/bridge PASS; fresh real lab/vision now PASS under V5.4 verification | integrated GUI acceptance remains separate |
 | V5.4 | 실제 사용자 참여체 | automated_real_verified | `FlyGymBridge.swift`, `LabWindow.swift`, `flygym_bridge/{player_body,lab_world,fly_body,protocol,bridge,test_v5,test_lab_real,test_vision_real}.py` | strict player wire/capability tests, real eye pixel delta, real semantic ray, real MuJoCo fly contact, reset/disconnect lifecycle, full V4/neural regression PASS | fresh integrated GUI click-through remains before whole-V5 completion; movement input intentionally deferred to V5.5 |
 | V5.5 | WASD/look/E/Esc 및 focus handling | automated_real_verified | `PlayerController.swift`, `LabProtocol.swift`, `LabWindow.swift`, `WorldViewer.swift`, `FlyGymBridge.swift`, `main.swift`, `build.sh`, `flygym_bridge/{protocol,bridge,player_body,fly_body,test_v5,test_v4,test_lab_real}.py` | strict PlayerInput/result wire tests, pre-Begin/session-generation ordering, requested_tick/idempotency/pause regressions, focus/Esc/reconnect stale-key release, remap persistence, real simulation-time movement and same-boundary free-joint pose proof, full V4/neural regression PASS | fresh integrated GUI click-through remains before whole-V5 completion; V5.6 grab/place intentionally not started |
-| V5.5.1 | 한 창 Lab 및 F-02 충돌 수정 | implemented; automated + real-backend verified; GUI pending | `main.swift`, `FlyGymService.swift`, `LabWindow.swift`, `MuJoCoCanvas.swift`, `flygym_bridge/{player_body,lab_world,fly_body,test_player_collision_real}.py` | [2026-09-26 independent check](../../notes/validation/v5-5-1-independent-2026-09-26/README.md); [F-02 fix logs](../../notes/validation/f02-fix-2026-09-26/README.md): 18/18 collision PASS, HEAD negative control 8 FAIL; F-01 held-input reconcile in `LabWindow.swift` (GUI unverified), Python real/mock + fresh TCP PASS | GUI flows 2–7, integrated performance and completion report pending; V5.6 blocked |
-| V5.6 | 집기/놓기 | planned | 미정 | 미실행 | authoritative backend ray/hit/contact required |
+| V5.5.1 | 한 창 Lab 및 F-02 충돌 수정 | complete (GUI 1–3 Claude, 4–7 user) | `main.swift`, `FlyGymService.swift`, `LabWindow.swift`, `MuJoCoCanvas.swift`, `flygym_bridge/{player_body,lab_world,fly_body,test_player_collision_real}.py` | [2026-09-26 independent check](../../notes/validation/v5-5-1-independent-2026-09-26/README.md); [F-02 fix logs](../../notes/validation/f02-fix-2026-09-26/README.md): 18/18 collision PASS, HEAD negative control 8 FAIL; F-01 held-input reconcile in `LabWindow.swift` (GUI flow 4: user-confirmed), Python real/mock + fresh TCP PASS | [완료 보고서](V5_5_1_COMPLETION_REPORT.md); GUI 결함 A–D 수정 포함 |
+| V5.6 | 집기/놓기 | preflight done | 미정 | 미실행 | 아래 “V5.6 착수 준비”; 첫 결정은 운반 방식 |
 | V5.7 | 기존 activity card 연결 | planned | 미정 | 미실행 | reuse existing telemetry only; no new state model |
+
+## V5.6 착수 준비 — 2026-09-26
+
+계획: [V5 §5.6](../plans/VIRTUAL_FLY_LAB_V5_PLAN.md#56-집기놓기-구현). **구현은 시작하지 않았다.** 아래는 현재 소스에서 확인한 사실과 첫 단계에서 정할 것이다.
+
+**현재 소스 사실**
+
+- 물체(`LabObject`)는 컴파일 때 미리 만든 **kinematic mocap 슬롯**이다(`lab_world.py::install`, `mocap=True`). free joint가 없어 MuJoCo weld 구속으로 “잡을” 대상이 아니다. 이동은 `move_object`(순간 배치)뿐이다.
+- 참여체는 bounded force servo로 움직이고 접촉은 solver가 해결한다(F-02).
+- `PlayerInput.held_actions`의 `interact`(E)는 전달되지만 효과가 없다. `protocol.py`는 E를 부수효과로 합성하지 않는다고 명시한다.
+- backend `ray_pick`(`fly_body.py`)은 실제 MuJoCo geometry로 hit·semantic target·거리를 준다. `InteractionCommand`, `WorldInteraction.swift`, 접촉 힘 기록 코드는 **아직 없다.**
+
+**첫 단계에서 정할 것 (구현 전에 문서로 결정)**
+
+1. 운반 방식: (a) kinematic 운반 — 잡은 mocap 물체를 참여체 앞 목표점으로 **substep마다 제한 속도로** 옮긴다(F-02와 같은 원칙, 순간이동 금지). (b) 물체를 free body로 바꾸고 weld/equality 구속. (b)는 슬롯 구조와 V4 결정론을 크게 흔든다. 기본 제안은 (a)다. mocap은 solver가 밀어낼 수 없으므로, 놓을 때와 운반 중의 관통은 backend가 이동 전에 충돌을 검사해 막아야 한다.
+2. 허용 거리와 대상: ray hit 거리 상한(제안: 참여체 반경 × 수 배, 수치는 측정 뒤 결정). 대상은 `object`만이고 `fly`·`world`·`player`는 거절한다.
+3. 접촉 기록: 운반 물체와 파리가 접촉한 tick과 힘(`mj_contactForce`)을 사건으로 남긴다. 단순 클릭을 감각 접촉으로 바꾸지 않는다.
+
+**구현 순서 제안 (각각 회귀 통과 뒤 다음)**
+
+1. 계약: `InteractionCommand`(event_id, tool_id, actor_id, target_id|null, ray, requested_tick)와 결과 ACK. Swift·Python 양쪽 schema, 누락·NaN·범위 거절 fixture.
+2. backend 잡기/놓기 상태 머신 + 거리·대상 검증 + 운반 이동. real MuJoCo 회귀: 잡기 성공/거리 초과 거절/대상 거절/놓기 관통 방지/파리 접촉 사건.
+3. UI: E 또는 클릭 → `InteractionCommand`, pending→ACK 표시, 타임라인 기록.
+4. GUI 인수: 참여 → 물체 잡기 → 파리 근처로 운반 → 놓기 → 접촉 사건 확인(V5-03, V5-06 일부).
 
 No V6 terrain/environment editor, V7 neuron inspector, V8 module host, V9 checkpoint, or V11 desire/emotion model is pulled forward into this version.
 

@@ -9,7 +9,7 @@
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-111111?style=flat-square">
   <img alt="Swift" src="https://img.shields.io/badge/frontend-Swift%20%2B%20Metal-F05138?style=flat-square">
   <img alt="FlyGym" src="https://img.shields.io/badge/body-FlyGym%202.1%20%2B%20MuJoCo-5C7CFA?style=flat-square">
-  <img alt="status" src="https://img.shields.io/badge/V5.5.1-one--window%20lab%20%C2%B7%20acceptance%20pending-E8A33D?style=flat-square">
+  <img alt="status" src="https://img.shields.io/badge/V5.5.1-one--window%20lab%20%C2%B7%20complete-2E8B57?style=flat-square">
 </p>
 
 <p align="center">
@@ -40,7 +40,7 @@ V5.1–V5.5.1 are now implemented in the repository. V5.1–V5.5 add a backend-o
 
 V5.5 movement is integrated from **simulation time**, not render FPS or key-repeat rate. Mouse-look deltas are kept raw and accumulated exactly once; the same total pointer motion gives the same rotation however the OS partitions the events, and deltas above the per-packet bound are split into valid packets rather than clipped. Esc, focus loss, mode exit, capability loss and reconnect discard stale held state and any unsent look remainder before a neutral packet is sent; ordinary key-up also sends its neutral state even when the render snapshot is stale.
 
-**Next: finish V5.5.1 acceptance, then V5.6.** The 2026-09-26 independent check (below) found one open blocker: the participant body still penetrates walls and bounces back after release (audit F-02). Integrated GUI acceptance and performance are also still open. V5.6 grab/place does not start until V5.5.1 is accepted.
+**Next: V5.6 grab/place.** V5.5.1 is complete as of 2026-09-26 ([completion report](docs/reports/V5_5_1_COMPLETION_REPORT.md)): the participant wall-collision blocker (audit F-02) is fixed and the GUI flows are accepted. The V5.6 preflight is in [V5 progress](docs/reports/V5_PROGRESS.md).
 
 ---
 
@@ -218,7 +218,7 @@ Telemetry includes neural rates, modeled sensory drive, receptor EMA spike rates
 
 ### V5.5.1 one-window app status — 2026-09-26
 
-V5.5.1 is **implemented, and automated + real-backend checks pass; release acceptance is not complete.** An independent check on commit `ce1105c` is recorded in [`notes/validation/v5-5-1-independent-2026-09-26/`](notes/validation/v5-5-1-independent-2026-09-26/README.md).
+V5.5.1 is **complete** ([completion report](docs/reports/V5_5_1_COMPLETION_REPORT.md)). The table below is the independent check on commit `ce1105c`, updated with the 2026-09-26 fixes; it is recorded in [`notes/validation/v5-5-1-independent-2026-09-26/`](notes/validation/v5-5-1-independent-2026-09-26/README.md).
 
 | Gate | Result |
 |---|---|
@@ -227,11 +227,11 @@ V5.5.1 is **implemented, and automated + real-backend checks pass; release accep
 | TCP loops, each on a fresh backend (mock bridge/lab/v4 loop, real-headless lab/v4 loop) | 5 / 5 pass |
 | App bundle launch | one visible window (`Virtual Fly Lab`), backend on a private port, no MuJoCo/brain/overlay window; normal Quit and a killed app both leave no backend process |
 | Mouse-look partitioning (audit F-03) | fixed: one 100 pt event and ten 10 pt events both give −0.40 rad |
-| Key-up with a stale snapshot (audit F-01) | fixed in code; the refused-send retry case is still open |
-| Participant wall collision (audit F-02) | **open blocker** — still penetrates 1.66 mm into a wall and moves 83 mm back after release, unchanged from 2026-09-22 |
-| Integrated GUI flows 2–7 and GUI performance (plan §7) | **pending** — not yet run on the live window |
+| Key-up with a stale snapshot (audit F-01) | fixed; a refused send is re-sent from the 10 Hz refresh while Participate is running |
+| Participant wall collision (audit F-02) | fixed — per-substep bounded force servo; peak penetration 0.025 mm (was 4.5 mm), rests at the surface after release; `test_player_collision_real.py` 18/18 ([evidence](notes/validation/f02-fix-2026-09-26/README.md)) |
+| Integrated GUI flows 1–7 and GUI performance (plan §7) | accepted — flows 1–3 checked by Claude on the live window ([evidence](notes/validation/v5-5-1-gui-2026-09-26/README.md)), flows 4–7 and performance confirmed by the user; baseline latency numbers were not recorded |
 
-V5.5.1 is complete only when F-02 is fixed (or participant movement is explicitly restricted), the GUI flows and performance gates pass, and `docs/reports/V5_5_1_COMPLETION_REPORT.md` records the evidence.
+GUI acceptance also fixed four defects: a frozen interactive session tick, unrecorded brain-click stimulation, a first-person eye that entered walls, and Participate capturing input before a 3D-view click.
 
 ### V5.5 participant input status — 2026-09-22
 
@@ -383,7 +383,7 @@ The project is therefore best used for **controlled comparisons inside the same 
 └── flygym_bridge/README.md         bridge internals and protocol notes
 ```
 
-For detailed controls and exact preset values, see **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. The **[V4–V14 sequential roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** and detailed per-version plans define the participant Viewer, environment editing, neural interpretation and external I/O extension path. V4 is complete; V5.1–V5.5.1 are implemented, V5.5.1 acceptance (F-02 fix, GUI and performance gates) comes next, and V5.6 grab/place follows it. V6–V14 remain planned. Bridge internals and protocol details are in **[flygym_bridge/README.md](flygym_bridge/README.md)**.
+For detailed controls and exact preset values, see **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. The **[V4–V14 sequential roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** and detailed per-version plans define the participant Viewer, environment editing, neural interpretation and external I/O extension path. V4 is complete; V5.1–V5.5 are implemented and V5.5.1 is complete; V5.6 grab/place is next. V6–V14 remain planned. Bridge internals and protocol details are in **[flygym_bridge/README.md](flygym_bridge/README.md)**.
 
 ---
 

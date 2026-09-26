@@ -1,0 +1,47 @@
+[
+  {
+    "name": "bridgetest",
+    "exit": 0,
+    "seconds": 1.2
+  },
+  {
+    "name": "labtest",
+    "exit": 0,
+    "seconds": 1.81
+  },
+  {
+    "name": "v4test",
+    "exit": 0,
+    "seconds": 0.01
+  },
+  {
+    "name": "v4timingtest",
+    "exit": 0,
+    "seconds": 0.51
+  },
+  {
+    "name": "simtest",
+    "exit": 0,
+    "seconds": 36.97
+  },
+  {
+    "name": "behaviortest",
+    "exit": 0,
+    "seconds": 1.22
+  },
+  {
+    "name": "gpucheck",
+    "exit": 0,
+    "seconds": 19.42
+  },
+  {
+    "name": "test_lab_real",
+    "exit": 0,
+    "seconds": 15.91
+  },
+  {
+    "name": "test_vision_real",
+    "exit": 0,
+    "seconds": 4.13
+  }
+]

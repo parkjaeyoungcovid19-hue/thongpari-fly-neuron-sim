@@ -43,7 +43,9 @@ func findResource(_ relativePath: String) -> URL? {
     let fm = FileManager.default
     let exeDir = URL(fileURLWithPath: CommandLine.arguments[0])
         .resolvingSymlinksInPath().deletingLastPathComponent()
-    let roots = [exeDir, URL(fileURLWithPath: fm.currentDirectoryPath)]
+    var roots = [exeDir]
+    if let resources = Bundle.main.resourceURL { roots.append(resources) }
+    roots.append(URL(fileURLWithPath: fm.currentDirectoryPath))
     return roots.map { $0.appendingPathComponent(relativePath) }
                 .first { fm.fileExists(atPath: $0.path) }
 }

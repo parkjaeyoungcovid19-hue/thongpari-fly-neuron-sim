@@ -1,0 +1,27 @@
+[
+  {
+    "name": "test_bridge",
+    "exit": 0,
+    "seconds": 0.34
+  },
+  {
+    "name": "test_lab",
+    "exit": 0,
+    "seconds": 0.24
+  },
+  {
+    "name": "test_v4",
+    "exit": 0,
+    "seconds": 1.26
+  },
+  {
+    "name": "test_v5",
+    "exit": 0,
+    "seconds": 0.51
+  },
+  {
+    "name": "verify_data",
+    "exit": 0,
+    "seconds": 0.96
+  }
+]

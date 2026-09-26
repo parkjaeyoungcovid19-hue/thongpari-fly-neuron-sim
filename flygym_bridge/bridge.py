@@ -1,6 +1,10 @@
 """bridge.py - TCP server (Swift is the client). Modes:
-  python bridge.py --mock    kinematic body, no MuJoCo, for loop tests
-  python bridge.py --flygym  real FlyGym 2.x NeuroMechFly body
+  python bridge.py --mock              kinematic body, no MuJoCo, for loop tests
+  python bridge.py --flygym-headless   real FlyGym 2.x NeuroMechFly body, no viewer
+  python bridge.py --flygym            same, plus MuJoCo's own viewer window
+Environment: THONGPARI_BRIDGE_PORT (default 17841); THONGPARI_RENDER_PORT streams
+MuJoCo's offscreen rendering to the Lab window (headless real mode); THONGPARI_PARENT_PID makes
+the bridge exit once that process is gone (the app-owned backend never outlives it).
 """
 from __future__ import annotations
 import argparse
@@ -24,14 +28,21 @@ from protocol import (
 from neural_decoder import decode, LocomotorCommand
 
 HOST = "127.0.0.1"
-PORT = 17841
+PORT = int(os.environ.get("THONGPARI_BRIDGE_PORT", "17841"))
 
 class Bridge:
     def __init__(self, mode="mock", config=None, show_viewer=False):
         self.mode = mode
+        self.view_stream = None
         if mode == "flygym":
             from fly_body import RealFlyBody
             self.body = RealFlyBody(config=config, show_viewer=show_viewer)
+            render_port = os.environ.get("THONGPARI_RENDER_PORT", "")
+            if render_port.isdigit() and not show_viewer:
+                # The Lab window shows MuJoCo's own rendering of this scene
+                # instead of a separate viewer window (presentation only).
+                from view_stream import ViewStream
+                self.view_stream = ViewStream(int(render_port), host=HOST)
         else:
             from fly_body import MockBody
             self.body = MockBody()
@@ -207,11 +218,15 @@ class Bridge:
         with self.lock:
             self.pending_lab_responses.append(packet)
 
-    def _drain_lab_responses(self):
+    def _drain_queue(self, queue):
+        """Atomically transfer a receive queue to the owner thread."""
         with self.lock:
-            out = list(self.pending_lab_responses)
-            self.pending_lab_responses.clear()
+            out = list(queue)
+            queue.clear()
         return out
+
+    def _drain_lab_responses(self):
+        return self._drain_queue(self.pending_lab_responses)
 
     def _brain_snapshot(self, now_mono=None):
         """Return the current decoded command, tempo and monotonic packet age."""
@@ -226,6 +241,25 @@ class Bridge:
             return LocomotorCommand(), 1.0, age_s, True
         return cmd, tempo, age_s, False
 
+    def _render_view_stream(self):
+        if self.view_stream is None:
+            return
+        sim = getattr(self.body, "sim", None)
+        if sim is None:
+            return
+        self.view_stream.render_if_due(sim.mj_model, sim.mj_data,
+                                       float(getattr(self.body, "t", 0.0)),
+                                       anchors=self._view_anchors)
+
+    def _view_anchors(self):
+        """Live poses a following camera attaches to (owner thread only)."""
+        body = self.body
+        render_player = getattr(getattr(body, "lab_world", None), "render_player", None)
+        return {
+            "fly": body._thorax_position(),
+            "participant": None if render_player is None else render_player(),
+        }
+
     def _current_owner_tick(self):
         if self.session_mode == "deterministic" and self.session_id:
             return int(self.session_tick)
@@ -237,21 +271,19 @@ class Bridge:
             body_t = 0.0
         return int(round(body_t * 1000.0))
 
-    def _world_revision(self):
+    def _world_revision_value(self, attribute):
         world = getattr(self.body, "lab_world", None)
         try:
-            revision = int(getattr(world, "revision", 0))
+            revision = int(getattr(world, attribute, 0))
         except (TypeError, ValueError, OverflowError):
             revision = 0
         return max(0, revision)
 
+    def _world_revision(self):
+        return self._world_revision_value("revision")
+
     def _world_structure_revision(self):
-        world = getattr(self.body, "lab_world", None)
-        try:
-            revision = int(getattr(world, "structure_revision", 0))
-        except (TypeError, ValueError, OverflowError):
-            revision = 0
-        return max(0, revision)
+        return self._world_revision_value("structure_revision")
 
     def _view_query_error(self, request, message, *, tick=None, revision=None):
         if tick is None:
@@ -284,10 +316,7 @@ class Bridge:
         return None
 
     def _pop_view_queries(self):
-        with self.lock:
-            out = list(self.pending_view_queries)
-            self.pending_view_queries.clear()
-        return out
+        return self._drain_queue(self.pending_view_queries)
 
     def _validate_ray_source(self, request):
         """Validate the visible snapshot reference without pinning interactive time."""
@@ -321,70 +350,72 @@ class Bridge:
         self.pending_lab_responses.clear()
         self.pending_lab_responses.extend(retained)
 
+    def _world_snapshot_response(self, request):
+        state_fn = getattr(self.body, "world_render_state", None)
+        if state_fn is None:
+            raise RuntimeError("backend has no world render state")
+        state = state_fn()
+        self.snapshot_seq += 1
+        response = WorldRenderSnapshotPacket(
+            session_id=request.session_id, epoch=request.epoch,
+            request_seq=request.seq, sim_tick=self._current_owner_tick(),
+            ok=True, snapshot_seq=self.snapshot_seq,
+            world_revision=int(state["world_revision"]),
+            fly=state["fly"], objects=state["objects"],
+            player=state.get("player"))
+        # Force strict output validation before caching/sending.
+        response = WorldRenderSnapshotPacket.from_dict(response.to_dict())
+        self._remember(self.snapshot_sources, response.snapshot_seq, {
+            "session_id": response.session_id,
+            "epoch": response.epoch,
+            "world_revision": response.world_revision,
+            "sim_tick": response.sim_tick,
+            "structure_revision": self._world_structure_revision(),
+        })
+        return response
+
+    def _ray_pick_response(self, request):
+        source_error = self._validate_ray_source(request)
+        if source_error is not None:
+            return self._view_query_error(request, source_error)
+        ray_fn = getattr(self.body, "ray_pick", None)
+        if ray_fn is None:
+            raise RuntimeError("backend cannot ray pick")
+        hit = ray_fn(request.ray_origin_mm, request.ray_direction)
+        response = RayPickResultPacket(
+            session_id=request.session_id, epoch=request.epoch,
+            seq=request.seq, sim_tick=self._current_owner_tick(),
+            world_revision=self._world_revision(),
+            source_snapshot_seq=request.source_snapshot_seq,
+            source_world_revision=request.source_world_revision,
+            source_sim_tick=request.source_sim_tick,
+            ok=True, hit=bool(hit.get("hit", False)),
+            target_id=hit.get("target_id"), target_kind=hit.get("target_kind"),
+            distance_mm=hit.get("distance_mm"), point_mm=hit.get("point_mm"),
+            normal_world=hit.get("normal_world"), geom_id=hit.get("geom_id"))
+        response = RayPickResultPacket.from_dict(response.to_dict())
+        return response
+
+    def _view_query_response(self, request):
+        error = self._validate_view_query_session(request)
+        if error is not None:
+            return self._view_query_error(request, error)
+        try:
+            if isinstance(request, WorldRenderRequestPacket):
+                return self._world_snapshot_response(request)
+            return self._ray_pick_response(request)
+        except Exception as exc:
+            return self._view_query_error(request, str(exc))
+
     def _process_view_queries(self):
         """Serve read-only V5 queries on the simulation-owner thread."""
         for request in self._pop_view_queries():
             kind = "snapshot" if isinstance(request, WorldRenderRequestPacket) else "ray"
             key = (kind, request.session_id, request.epoch, request.seq)
-            cached = self.recent_view_results.get(key)
-            if cached is not None:
-                self._queue_lab_response(cached)
-                continue
-            error = self._validate_view_query_session(request)
-            if error is not None:
-                response = self._view_query_error(request, error)
+            response = self.recent_view_results.get(key)
+            if response is None:
+                response = self._view_query_response(request)
                 self._remember(self.recent_view_results, key, response)
-                self._queue_lab_response(response)
-                continue
-            try:
-                if isinstance(request, WorldRenderRequestPacket):
-                    state_fn = getattr(self.body, "world_render_state", None)
-                    if state_fn is None:
-                        raise RuntimeError("backend has no world render state")
-                    state = state_fn()
-                    self.snapshot_seq += 1
-                    response = WorldRenderSnapshotPacket(
-                        session_id=request.session_id, epoch=request.epoch,
-                        request_seq=request.seq, sim_tick=self._current_owner_tick(),
-                        ok=True, snapshot_seq=self.snapshot_seq,
-                        world_revision=int(state["world_revision"]),
-                        fly=state["fly"], objects=state["objects"],
-                        player=state.get("player"))
-                    # Force strict output validation before caching/sending.
-                    response = WorldRenderSnapshotPacket.from_dict(response.to_dict())
-                    self._remember(self.snapshot_sources, response.snapshot_seq, {
-                        "session_id": response.session_id,
-                        "epoch": response.epoch,
-                        "world_revision": response.world_revision,
-                        "sim_tick": response.sim_tick,
-                        "structure_revision": self._world_structure_revision(),
-                    })
-                else:
-                    source_error = self._validate_ray_source(request)
-                    if source_error is not None:
-                        response = self._view_query_error(request, source_error)
-                        self._remember(self.recent_view_results, key, response)
-                        self._queue_lab_response(response)
-                        continue
-                    ray_fn = getattr(self.body, "ray_pick", None)
-                    if ray_fn is None:
-                        raise RuntimeError("backend cannot ray pick")
-                    hit = ray_fn(request.ray_origin_mm, request.ray_direction)
-                    response = RayPickResultPacket(
-                        session_id=request.session_id, epoch=request.epoch,
-                        seq=request.seq, sim_tick=self._current_owner_tick(),
-                        world_revision=self._world_revision(),
-                        source_snapshot_seq=request.source_snapshot_seq,
-                        source_world_revision=request.source_world_revision,
-                        source_sim_tick=request.source_sim_tick,
-                        ok=True, hit=bool(hit.get("hit", False)),
-                        target_id=hit.get("target_id"), target_kind=hit.get("target_kind"),
-                        distance_mm=hit.get("distance_mm"), point_mm=hit.get("point_mm"),
-                        normal_world=hit.get("normal_world"), geom_id=hit.get("geom_id"))
-                    response = RayPickResultPacket.from_dict(response.to_dict())
-            except Exception as exc:
-                response = self._view_query_error(request, str(exc))
-            self._remember(self.recent_view_results, key, response)
             self._queue_lab_response(response)
 
     def _lab_state(self, *, ack=None, ok=True, error=None, last_action=None,
@@ -486,16 +517,10 @@ class Bridge:
                 self._queue_lab_response(response)
 
     def _drain_session_controls(self):
-        with self.lock:
-            out = list(self.pending_session_controls)
-            self.pending_session_controls.clear()
-        return out
+        return self._drain_queue(self.pending_session_controls)
 
     def _drain_player_inputs(self):
-        with self.lock:
-            out = list(self.pending_player_inputs)
-            self.pending_player_inputs.clear()
-        return out
+        return self._drain_queue(self.pending_player_inputs)
 
     def _reject_player_inputs_before_generation(
             self, generation, *, inclusive=False, status="rejected_pre_begin",
@@ -986,6 +1011,7 @@ class Bridge:
             # paused; pausing the receiver/owner thread itself would deadlock.
             self._process_session_controls()
             self._process_view_queries()
+            self._render_view_stream()
             if self.session_paused:
                 # Inputs arriving after the pause ACK are rejected on the owner
                 # thread too; they are never retained for an implicit resume.
@@ -1169,17 +1195,37 @@ class Bridge:
             print("bridge: stopping", flush=True)
         finally:
             srv.close()
+            if self.view_stream is not None:
+                self.view_stream.close()
             close = getattr(self.body, "close", None)
             if close is not None:
                 close()
 
+def watch_parent(pid, interval=1.0):
+    """Exit the whole process once `pid` no longer exists."""
+    def loop():
+        while True:
+            time.sleep(interval)
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                print(f"bridge: parent {pid} exited; stopping", flush=True)
+                os._exit(0)
+            except PermissionError:
+                pass  # alive, owned by someone else
+    threading.Thread(target=loop, name="parent-watchdog", daemon=True).start()
+
 def main():
+    parent = os.environ.get("THONGPARI_PARENT_PID", "")
+    if parent.isdigit():
+        watch_parent(int(parent))
     ap = argparse.ArgumentParser()
     ap.add_argument("--mock", action="store_true")
     ap.add_argument("--flygym", action="store_true")
     ap.add_argument("--flygym-headless", action="store_true")
     args = ap.parse_args()
     if args.flygym or args.flygym_headless:
+        print("bridge: loading FlyGym / MuJoCo (first start can take a while)…", flush=True)
         from environment import ArenaConfig
         Bridge(mode="flygym", config=ArenaConfig(), show_viewer=args.flygym).serve()
     else:

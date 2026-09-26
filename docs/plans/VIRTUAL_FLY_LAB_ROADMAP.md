@@ -4,6 +4,8 @@
 
 **반드시 V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 순서로 구현한다.** 궁극적 목표를 한 번에 구현하거나 별도의 P 단계로 재배열하지 않는다. 각 버전 안의 세부 작업도 상세 문서에 적힌 순서를 따른다.
 
+**2026-09-23 현재 순서 추가:** V5 안에서 V5.5 다음에 [V5.5.1 한 창 사용 경험](VIRTUAL_FLY_LAB_V5_5_1_UNIFIED_APP_PLAN.md)을 완료하고 V5.6 → V5.7로 진행한다. 최신 미완료 결함은 [전체 감사](../reports/OVERALL_AUDIT_AND_FIX_PLAN_2026-09-22.md)를 따른다.
+
 ## 1. 궁극적 목표
 
 사용자가 Viewer에서 시뮬레이션 세계 안에 들어가 게임처럼 파리와 상호작용한다. 환경·지형지물·온도·습도·날씨·바람 등을 같은 Viewer에서 직관적으로 통제한다. 상호작용마다 뉴런 활동을 감각·행동·욕구·정서 관련·각성으로 탐색하고, 측정과 모델 해석을 구분해서 이해한다.
@@ -18,17 +20,17 @@
 - V3: 기존 완료/독립 검증 보고서에서 수정 및 회귀 증거를 확인했다. 기록 중 실제 메뉴 Quit 수동 확인은 별도 사용자 검증 항목이다.
 - V4: **COMPLETE in the current local working tree.** fixed tick/lockstep, 양쪽 pause barrier, session/epoch, authoritative applied tick, stale/duplicate safety를 fresh 자동·real TCP·real MuJoCo·real Viewer GUI로 검증했다. 완료 근거는 [V4 완료 보고서](../reports/V4_COMPLETION_REPORT.md)에 있다.
 - V4 최종 GUI smoke에서 persistent `session_state` 중복 처리 결함을 발견해 `LabSession`의 lifecycle control sequence 소비를 idempotent하게 수정했고, 회귀를 추가한 뒤 전체 suite와 real Viewer를 다시 통과했다.
-- V5: **V5.1 구현 중 / automated core verified.** atomic world snapshot, optional V5 viewer capability, authoritative MuJoCo ray pick, AppKit-native SceneKit `WorldViewer` prototype까지 구현했고 focused Swift/Python/V4/real MuJoCo/real-eye 회귀가 통과했다. **V5.1 complete 전 남은 gate는 fresh integrated GUI + keyboard focus suitability + viewport/snapshot/pick latency 실측**이다. 근거는 [V5 진행표](../reports/V5_PROGRESS.md)에 있다.
+- V5: **V5.1~V5.5 기능 구현, 자동·실제 backend 검증 진행; 통합 GUI 인수 미완료.** 다음 세부 버전은 V5.5.1이다. 기존 입력·충돌·표현·실행 경로 결함과 GUI/성능 gate는 [전체 감사](../reports/OVERALL_AUDIT_AND_FIX_PLAN_2026-09-22.md) 및 [V5 진행표](../reports/V5_PROGRESS.md)를 따른다.
 - V6–V14: 계획. V5 완료 전에는 앞당겨 구현하지 않는다.
 
-**바로 다음 실행은 V5.1 GUI/focus/performance acceptance다. 통과 전 V5.2 또는 V6 이후 기능으로 넘어가지 않는다.**
+**현재 다음 실행은 V5.5.1 단일 창 사용 경험 계획의 선행 결함과 GUI gate 확인이다.** V5.6 이후의 기능은 V5.5.1 인수 뒤 시작한다.
 
 ## 3. 순차 버전 표
 
 | 버전 | 핵심 결과 | 이번 버전에 포함 | 아직 하지 않는 것 | 상세 계획 |
 |---|---|---|---|---|
 | V4 | 시간·세션 기반 완성 | fixed tick, lockstep, 양쪽 pause, epoch, applied tick, 현재 구현 검증 | 새 viewer/새 환경/저장 모듈 | [V4](VIRTUAL_FLY_LAB_V4_PLAN.md) |
-| V5 | 세계 안의 사용자 + 통합 Viewer | 1인칭 참여체, 카메라/입력, 집기·놓기, 기존 활동 카드 | terrain 확장/새 욕구 모델 | [V5](VIRTUAL_FLY_LAB_V5_PLAN.md) |
+| V5 | 세계 안의 사용자 + 통합 Viewer | 1인칭 참여체, 카메라/입력, V5.5.1 한 창 사용 경험, 이후 집기·놓기와 기존 활동 카드 | terrain 확장/새 욕구 모델 | [V5](VIRTUAL_FLY_LAB_V5_PLAN.md) · [V5.5.1](VIRTUAL_FLY_LAB_V5_5_1_UNIFIED_APP_PLAN.md) |
 | V6 | 직관적인 기본 환경 편집 | primitive 지형·객체·온도·바람·빛·먹이, undo, scene 설정 저장 | 전체 checkpoint/날씨 field | [V6](VIRTUAL_FLY_LAB_V6_PLAN.md) |
 | V7 | 정확한 뉴런 관측 | 그룹/root ID/rate/raster, 사건 전후 비교, 근거/unknown | 체내 욕구 모델 | [V7](VIRTUAL_FLY_LAB_V7_PLAN.md) |
 | V8 | 외부 입출력 확장 기반 | typed 관측/행동, attach/detach/clock/capability/오류, 시험 fixture | 실제 게임 모듈 제작 | [V8](VIRTUAL_FLY_LAB_V8_PLAN.md) |

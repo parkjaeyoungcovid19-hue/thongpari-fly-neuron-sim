@@ -1,5 +1,6 @@
 SiliconFly
 ThongpariFlyNeuronSim
+/dist/
 .DS_Store
 *.log
 nohup.out

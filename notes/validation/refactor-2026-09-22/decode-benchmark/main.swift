@@ -1404,10 +1404,6 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     }
 
     func renderer(_ renderer: SCNSceneRenderer, updateAtTime t: TimeInterval) {
-        advanceFrame(at: t, desktopInputs: true)
-    }
-
-    func advanceFrame(at t: TimeInterval, desktopInputs: Bool) {
         if fpsLog {
             if fpsWindowStart == 0 { fpsWindowStart = t }
             fpsFrames += 1
@@ -1442,7 +1438,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
             frameBodyFeedback = bodyFeedback
             signals = advanceNeuralQuantum(first: first, bodyFeedback: bodyFeedback,
                                            mouse: mouse, dt: dt, exactSteps: nil,
-                                           desktopInputs: desktopInputs,
+                                           desktopInputs: true,
                                            ambientSleepy: sleepy,
                                            ambientTempo: tempo,
                                            ambientActivity: activity)
@@ -1645,76 +1641,9 @@ func resolveApplicationQuitAfterRecorderDrain(
     }
 }
 
-/// How this process presents itself. The packaged app and `--lab` open the
-/// one-window Lab with an app-owned backend on a private port (`--mock` /
-/// `--viewer` pick the backend flavor); `--flygym` opens the same window against
-/// an external bridge on 17841; no flag is the original desktop-overlay fly.
-enum LaunchMode: Equatable {
-    case desktopOverlay
-    case lab(service: FlyGymServiceMode?)   // nil: external bridge
-
-    static let current: LaunchMode = {
-        let args = CommandLine.arguments
-        if args.contains("--flygym") { return .lab(service: nil) }
-        guard args.contains("--lab") || Bundle.main.bundleURL.pathExtension == "app" else {
-            return .desktopOverlay
-        }
-        if args.contains("--mock") { return .lab(service: .mock) }
-        return .lab(service: args.contains("--viewer") ? .viewer : .headless)
-    }()
-}
-
-/// Standard App / Edit / Window menus: text fields need Edit for copy/paste,
-/// and the key equivalents (⌘Q, ⌘W, ⌘M, ⌃⌘F) follow the platform.
-func makeLabMainMenu() -> NSMenu {
-    let main = NSMenu()
-    func submenu(_ title: String, _ items: [NSMenuItem]) {
-        let holder = NSMenuItem(title: title, action: nil, keyEquivalent: "")
-        let menu = NSMenu(title: title)
-        items.forEach(menu.addItem)
-        holder.submenu = menu
-        main.addItem(holder)
-    }
-    func item(_ title: String, _ action: Selector, _ key: String,
-              _ modifiers: NSEvent.ModifierFlags = .command) -> NSMenuItem {
-        let it = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        it.keyEquivalentModifierMask = modifiers
-        return it
-    }
-    submenu("Virtual Fly Lab", [
-        item(L("Hide Virtual Fly Lab", "Virtual Fly Lab 가리기"), #selector(NSApplication.hide(_:)), "h"),
-        .separator(),
-        item(L("Quit Virtual Fly Lab", "Virtual Fly Lab 종료"), #selector(NSApplication.terminate(_:)), "q")
-    ])
-    submenu(L("Edit", "편집"), [
-        item(L("Undo", "실행 취소"), Selector(("undo:")), "z"),
-        item(L("Redo", "실행 복귀"), Selector(("redo:")), "z", [.command, .shift]),
-        .separator(),
-        item(L("Cut", "오려두기"), #selector(NSText.cut(_:)), "x"),
-        item(L("Copy", "복사하기"), #selector(NSText.copy(_:)), "c"),
-        item(L("Paste", "붙여넣기"), #selector(NSText.paste(_:)), "v"),
-        item(L("Select All", "전체 선택"), #selector(NSText.selectAll(_:)), "a")
-    ])
-    submenu(L("Language", "언어"), LabLanguage.allCases.map { language in
-        let it = NSMenuItem(title: language.menuTitle, action: #selector(LabLanguageMenu.choose(_:)),
-                            keyEquivalent: "")
-        it.target = LabLanguageMenu.shared
-        it.representedObject = language.rawValue
-        it.state = language == LabLanguage.current ? .on : .off
-        return it
-    })
-    let window = [
-        item(L("Minimize", "최소화"), #selector(NSWindow.performMiniaturize(_:)), "m"),
-        item(L("Zoom", "확대/축소"), #selector(NSWindow.performZoom(_:)), ""),
-        item(L("Enter Full Screen", "전체 화면 시작"), #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control])
-    ]
-    submenu(L("Window", "윈도우"), window)
-    NSApplication.shared.windowsMenu = main.items.last?.submenu
-    return main
-}
-
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuNeedsUpdate(_ menu: NSMenu) {
+        if let fg = flyGymBridge { flyGymItem?.title = "FlyGym: " + fg.statusLine }
         // only offer the display hop when there is somewhere to hop to
         moveDisplayItem?.isHidden = NSScreen.screens.count < 2
     }
@@ -1725,16 +1654,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var mouseTimer: Timer?
     var windowTimer: Timer?
-    var integratedSimulationTimer: Timer?
     var clickMonitor: Any?
     let windowSense = WindowSense()
     var typingLevel: CGFloat = 0
     var paused = false
     var brainWC: BrainWindowController?
     var labWC: LabWindowController?
-    var labConnectome: Connectome?
     var flyGymBridge: FlyGymBridge?
-    private var flyGymService: FlyGymService?
+    var flyGymItem: NSMenuItem?
     var dataInfo = "no data — run etl.py"
     var screenFrame = NSRect.zero
     var moveDisplayItem: NSMenuItem?
@@ -1752,14 +1679,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
            let s = MetalSim(connectome: c, spikeBus: spikeBus, seed: launchSeed()) {
             sim = s
             connectome = c
-            labConnectome = c
             dataInfo = "\(c.summary) · \(s.deviceName)"
         }
 
         coordinator = Coordinator(bounds: frame.size, sim: sim)
-        if case .lab(let serviceMode) = LaunchMode.current {
-            startIntegratedLab(serviceMode: serviceMode)
-            return
+        if CommandLine.arguments.contains("--flygym") {
+            let fg = FlyGymBridge()
+            fg.start()
+            coordinator.flyGym = fg
+            flyGymBridge = fg
+            fputs("flygym: bridge started (127.0.0.1:17841) — start bridge.py --mock or --flygym\n", stderr)
         }
 
         window = NSWindow(contentRect: frame, styleMask: [.borderless],
@@ -1792,6 +1721,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
 
         setupStatusItem()
+        if CommandLine.arguments.contains("--flygym") { showLab() }
 
         mouseTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }
@@ -1867,6 +1797,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.addItem(withTitle: "Desktop Fly", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: dataInfo, action: nil, keyEquivalent: "")
+        if CommandLine.arguments.contains("--flygym") {
+            let fgItem = NSMenuItem(title: "FlyGym: starting…", action: nil, keyEquivalent: "")
+            menu.addItem(fgItem)
+            flyGymItem = fgItem
+        }
         menu.addItem(.separator())
         func item(_ title: String, _ sel: Selector, _ key: String) -> NSMenuItem {
             let it = NSMenuItem(title: title, action: sel, keyEquivalent: key)
@@ -1917,40 +1852,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        integratedSimulationTimer?.invalidate()
         flyGymBridge?.stop()
-        flyGymService?.stop()
-    }
-
-    /// The one-window Lab: no overlay, no floating brain panel, no global
-    /// mouse/click/window senses. The brain and body step from a main-run-loop
-    /// timer in `.common` mode so resizing, scrolling or an open menu never
-    /// freezes the simulation behind the window.
-    private func startIntegratedLab(serviceMode: FlyGymServiceMode?) {
-        let port: UInt16
-        if let serviceMode {
-            let service = FlyGymService(mode: serviceMode)
-            service.start()
-            flyGymService = service
-            port = service.port
-        } else {
-            port = 17841   // external bridge (run_flygym.sh --bridge-only, diagnostics)
-        }
-        let fg = FlyGymBridge(port: port)
-        if port != 0 { fg.start() }
-        coordinator.flyGym = fg
-        flyGymBridge = fg
-        fputs("flygym: client for 127.0.0.1:\(port)\(serviceMode == nil ? " (external bridge)" : "")\n", stderr)
-
-        labWC = LabWindowController(coordinator: coordinator, bridge: fg,
-                                    connectome: labConnectome, service: flyGymService)
-        labWC?.show()
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            self?.coordinator.advanceFrame(at: ProcessInfo.processInfo.systemUptime,
-                                           desktopInputs: false)
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        integratedSimulationTimer = timer
     }
 
     @objc func togglePause(_ sender: NSMenuItem) {
@@ -1967,8 +1869,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         wc.isVisible ? wc.hide() : wc.show()
     }
     @objc func showLab() {
-        if labWC == nil { labWC = LabWindowController(coordinator: coordinator, bridge: flyGymBridge,
-                                                     connectome: labConnectome) }
+        if labWC == nil { labWC = LabWindowController(coordinator: coordinator, bridge: flyGymBridge) }
         labWC?.show()
     }
     @objc func escapeTest() { coordinator.escapeTest() }
@@ -1979,6 +1880,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 // MARK: - Entry point
 
+runRefactorDecodeBenchmark()
+exit(0)
 let args = CommandLine.arguments
 if let i = args.firstIndex(of: "--snapshot") {
     runSnapshot(path: args.count > i + 1 ? args[i + 1] : "preview.png")
@@ -1987,10 +1890,6 @@ if let i = args.firstIndex(of: "--snapshot") {
 if let i = args.firstIndex(of: "--brainshot") {
     runBrainshot(path: args.count > i + 1 ? args[i + 1] : "brain.png")
     exit(0)
-}
-// Suites compare English interface strings; never read the saved language.
-if args.contains(where: { $0.hasSuffix("test") || $0.hasSuffix("loop") }) {
-    LabLanguage.pinEnglishForTests()
 }
 if args.contains("--gpucheck") {
     runGPUCheck()
@@ -2027,15 +1926,129 @@ if let i = args.firstIndex(of: "--brainstats") {
 }
 
 let app = NSApplication.shared
-if case .lab = LaunchMode.current {
-    app.setActivationPolicy(.regular)
-    app.mainMenu = makeLabMainMenu()
-    NotificationCenter.default.addObserver(forName: .labLanguageChanged, object: nil, queue: .main) { _ in
-        NSApp.mainMenu = makeLabMainMenu()
-    }
-} else {
-    app.setActivationPolicy(.accessory)
-}
+app.setActivationPolicy(.accessory)
 let delegate = AppDelegate()
 app.delegate = delegate
 app.run()
+
+private struct FlyGymTaggedLine: Decodable { var type: String = "" }
+
+/// Type-gated body parser: rejects malformed JSON AND wrong-type lines.
+/// Single choke point used by recvLoop and --bridgetest.
+func legacy_parseBodyLine(_ line: Data) -> FlyGymBodyPacket? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "body",
+          let pkt = try? JSONDecoder().decode(FlyGymBodyPacket.self, from: line) else { return nil }
+    return pkt
+}
+
+func legacy_parseLabStateLine(_ line: Data) -> LabRemoteState? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "lab_state" else { return nil }
+    return try? JSONDecoder().decode(LabRemoteState.self, from: line)
+}
+
+func legacy_parseLabAckLine(_ line: Data) -> LabAck? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "lab_ack" else { return nil }
+    return try? JSONDecoder().decode(LabAck.self, from: line)
+}
+
+func legacy_parseLabEventLine(_ line: Data) -> LabEventNotice? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "lab_event" else { return nil }
+    return try? JSONDecoder().decode(LabEventNotice.self, from: line)
+}
+
+private func legacy_decodePlayerInputLine(_ line: Data) -> PlayerInputPacket? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "player_input" else { return nil }
+    return try? JSONDecoder().decode(PlayerInputPacket.self, from: line)
+}
+
+func legacy_parsePlayerInputResultLine(_ line: Data) -> PlayerInputResult? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "player_input_result" else { return nil }
+    return try? JSONDecoder().decode(PlayerInputResult.self, from: line)
+}
+
+func legacy_parseHelloLine(_ line: Data) -> FlyGymHelloPacket? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "hello" else { return nil }
+    return try? JSONDecoder().decode(FlyGymHelloPacket.self, from: line)
+}
+
+func legacy_parseSessionStateLine(_ line: Data) -> FlyGymSessionStatePacket? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "session_state" else { return nil }
+    return try? JSONDecoder().decode(FlyGymSessionStatePacket.self, from: line)
+}
+
+func legacy_parseExperimentStepResultLine(_ line: Data) -> FlyGymExperimentStepResultPacket? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "experiment_step_result" else { return nil }
+    return try? JSONDecoder().decode(FlyGymExperimentStepResultPacket.self, from: line)
+}
+
+func legacy_parseWorldRenderSnapshotLine(_ line: Data) -> WorldRenderSnapshot? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "world_render_snapshot" else { return nil }
+    return try? JSONDecoder().decode(WorldRenderSnapshot.self, from: line)
+}
+
+func legacy_parseRayPickResultLine(_ line: Data) -> RayPickResult? {
+    guard let tag = try? JSONDecoder().decode(FlyGymTaggedLine.self, from: line),
+          tag.type == "ray_pick_result" else { return nil }
+    return try? JSONDecoder().decode(RayPickResult.self, from: line)
+}
+
+
+func legacyAccept(_ line: Data) -> Bool {
+    if legacy_parseHelloLine(line) != nil { return true }
+    if legacy_parsePlayerInputResultLine(line) != nil { return true }
+    if legacy_parseSessionStateLine(line) != nil { return true }
+    if legacy_parseExperimentStepResultLine(line) != nil { return true }
+    if legacy_parseWorldRenderSnapshotLine(line) != nil { return true }
+    if legacy_parseRayPickResultLine(line) != nil { return true }
+    if legacy_parseBodyLine(line) != nil { return true }
+    if legacy_parseLabStateLine(line) != nil { return true }
+    if legacy_parseLabAckLine(line) != nil { return true }
+    if legacy_parseLabEventLine(line) != nil { return true }
+    return false
+}
+
+
+func runRefactorDecodeBenchmark() {
+    let samples = [
+        ("body", Data(#"{"type":"body","t":1.238,"sim_dt":0.002,"wall_dt":0.020,"sim_wall_ratio":0.1,"controller_left":0.21,"controller_right":0.43,"wind_strength":0.7,"wind_direction_deg":-30,"wind_sensory":true,"touch_strength":0.55,"touch_sensory":true,"vx":0.013,"yaw_rate":-0.12,"contacts":[1,1,0,0,1,0],"left_contact":0.67,"right_contact":0.33,"loom_left":0.7,"loom_right":0.2,"brightness":0.4,"eye_sample_sim_tick":1200,"odor_left":0.75,"odor_right":0.2,"nearest_food_distance_mm":12.5,"position_x_mm":14.5,"position_y_mm":-3.25,"heading_rad":1.25,"bearing":0.5}"#.utf8)),
+        ("lab_event", Data(#"{"type":"lab_event","event":"approach_complete","data":{"id":"box"}}"#.utf8))
+    ]
+    let iterations = 3000
+    for (name, sample) in samples {
+        var oldTimes: [Double] = [], newTimes: [Double] = []
+        var accepted = 0
+        for _ in 0..<100 {
+            accepted += legacyAccept(sample) ? 1 : 0
+            accepted += (try? JSONDecoder().decode(FlyGymInboundPacket.self, from: sample)) != nil ? 1 : 0
+        }
+        for round in 0..<7 {
+            // Alternate order to reduce warmup/thermal bias.
+            for old in (round % 2 == 0 ? [true, false] : [false, true]) {
+                let start = ProcessInfo.processInfo.systemUptime
+                for _ in 0..<iterations {
+                    if old {
+                        accepted += legacyAccept(sample) ? 1 : 0
+                    } else {
+                        accepted += (try? JSONDecoder().decode(FlyGymInboundPacket.self, from: sample)) != nil ? 1 : 0
+                    }
+                }
+                let elapsed = ProcessInfo.processInfo.systemUptime - start
+                if old { oldTimes.append(elapsed) } else { newTimes.append(elapsed) }
+            }
+        }
+        precondition(accepted == 200 + 14 * iterations)
+        let oldMedian = oldTimes.sorted()[3], newMedian = newTimes.sorted()[3]
+        print(String(format: "%@ iterations=%d rounds=7 baseline_ms=%.3f refactor_ms=%.3f speedup=%.2fx accepted=%d",
+                     name, iterations, oldMedian * 1000, newMedian * 1000, oldMedian / newMedian, accepted))
+    }
+}

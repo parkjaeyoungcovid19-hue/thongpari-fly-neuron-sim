@@ -9,11 +9,12 @@
 
 ## Plans
 
-- [V4–V14 sequential roadmap](plans/VIRTUAL_FLY_LAB_ROADMAP.md) — authoritative order; V4 is complete, V5 is next, and V6–V14 are planned.
+- [V4–V14 sequential roadmap](plans/VIRTUAL_FLY_LAB_ROADMAP.md) — authoritative order; V5.5.1 unified app work precedes V5.6, and V6–V14 remain planned.
 - [Implementation playbook](plans/IMPLEMENTATION_PLAYBOOK.md) — contracts, step tracking, validation, failure handling and handoff rules.
 - [Interactive sandbox design](plans/INTERACTIVE_FLY_SANDBOX_PLAN.md) — participant Viewer, environment controls, external I/O and neural interpretation contracts.
 - [V4 implementation plan](plans/VIRTUAL_FLY_LAB_V4_PLAN.md)
 - [V5 implementation plan](plans/VIRTUAL_FLY_LAB_V5_PLAN.md)
+- [V5.5.1 unified app experience plan](plans/VIRTUAL_FLY_LAB_V5_5_1_UNIFIED_APP_PLAN.md) — one native macOS window for the world, stimuli, neural observation, and experiments before V5.6.
 - [V6 implementation plan](plans/VIRTUAL_FLY_LAB_V6_PLAN.md)
 - [V7 implementation plan](plans/VIRTUAL_FLY_LAB_V7_PLAN.md)
 - [V8 implementation plan](plans/VIRTUAL_FLY_LAB_V8_PLAN.md)

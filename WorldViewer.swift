@@ -19,14 +19,21 @@ enum WorldViewerCameraMode: String, CaseIterable {
     case orbit
     case followFly
     case free
+    case firstPerson
+    case behindParticipant
 
     var title: String {
         switch self {
-        case .orbit: return "Orbit"
-        case .followFly: return "Follow fly"
-        case .free: return "Free"
+        case .orbit: return L("Orbit arena", "경기장 둘러보기")
+        case .followFly: return L("Follow fly", "파리 따라가기")
+        case .free: return L("Free", "자유 시점")
+        case .firstPerson: return L("Participant — first person", "참여자 1인칭")
+        case .behindParticipant: return L("Participant — third person", "참여자 3인칭")
         }
     }
+
+    /// Modes whose camera is carried by the participant body.
+    var ridesParticipant: Bool { self == .firstPerson || self == .behindParticipant }
 }
 
 struct WorldViewerCameraState: Equatable {
@@ -50,14 +57,14 @@ struct WorldViewerCameraState: Equatable {
             // out, negative delta zooms/dollies in toward the look direction.
             for i in 0..<3 { freePositionScene[i] -= forward[i] * delta * scale }
         } else {
-            distance = min(3000, max(8, distance * exp(delta * 0.035)))
+            distance = min(3000, max(2.5, distance * exp(delta * 0.035)))
         }
     }
 
     mutating func pan(deltaX: Double, deltaY: Double) {
         let right = [cos(yaw), 0.0, -sin(yaw)]
         let up = [0.0, 1.0, 0.0]
-        let scale = max(0.08, distance * 0.0025)
+        let scale = max(0.01, distance * 0.0025)
         let dx = -deltaX * scale
         let dy = deltaY * scale
         if mode == .free {
@@ -144,6 +151,19 @@ enum WorldViewerCoordinates {
     }
 }
 
+struct WorldViewerMuJoCoCamera: Equatable {
+    let positionMM: [Double]
+    let forward: [Double]
+    let distanceMM: Double
+    let fovyDeg: Double
+    /// Lets the renderer attach the camera to the live pose at render time
+    /// ("fly", "participant_first", "participant_third"), so following views
+    /// move at the frame rate rather than the 10 Hz snapshot rate.
+    var anchor: String? = nil
+    /// Camera position minus fly position (MuJoCo mm) for the "fly" anchor.
+    var offsetMM: [Double]? = nil
+}
+
 final class WorldViewer: SCNView {
     var onPickRay: ((WorldViewerRay) -> Void)?
     var onPlayerKeyDown: ((UInt16, Bool) -> Void)?
@@ -151,6 +171,10 @@ final class WorldViewer: SCNView {
     var onPlayerLookDelta: ((Double, Double) -> Void)?
     var onPlayerFocusLost: (() -> Void)?
     var onPlayerCaptureRequested: (() -> Void)?
+    var onCameraChanged: (() -> Void)?
+    /// Set while MuJoCo's rendering covers the mirror: it shows the real
+    /// NeuroMechFly body (~3 mm), so a reset frames the fly, not the arena.
+    var prefersFlyCloseUp = false
     var participateModeEnabled = false
     var participateInputEnabled = false {
         didSet {
@@ -174,6 +198,11 @@ final class WorldViewer: SCNView {
     private var lastSceneCenter = SCNVector3Zero
     private var lastSceneExtent: CGFloat = 80
     private var lastFlyScenePosition: SCNVector3?
+    /// Latest participant pose from the backend, MuJoCo coordinates (mm, z-up).
+    private var lastParticipantPose: (positionMM: [Double], quatXYZW: [Double], radiusMM: Double)?
+    private var leftDragStart: NSPoint?
+    private var leftDragLast: NSPoint?
+    private var leftDragMoved = false
     private var needsInitialCameraFrame = true
     private var playerTrackingArea: NSTrackingArea?
 
@@ -257,6 +286,14 @@ final class WorldViewer: SCNView {
     }
 
     private func applyCameraState() {
+        defer { onCameraChanged?() }
+        if cameraState.mode.ridesParticipant, let pose = participantCameraPose() {
+            cameraNode.position = WorldViewerCoordinates.sceneVector(pose.eye)
+            cameraNode.look(at: WorldViewerCoordinates.sceneVector(pose.target),
+                            up: SCNVector3(0, 1, 0),
+                            localFront: SCNVector3(0, 0, -1))
+            return
+        }
         let target = cameraTargetForCurrentMode()
         if cameraState.mode == .free {
             let p = cameraState.freePositionScene
@@ -284,9 +321,82 @@ final class WorldViewer: SCNView {
                         localFront: SCNVector3(0, 0, -1))
     }
 
+    /// Eye and look target for the participant-carried views, in MuJoCo
+    /// coordinates. The participant's look quaternion is yaw(Z)·pitch(Y) with
+    /// +X forward, exactly as the backend integrates the captured mouse.
+    private func participantCameraPose() -> (eye: [Double], target: [Double])? {
+        guard let pose = lastParticipantPose else { return nil }
+        let q = pose.quatXYZW
+        let (x, y, z, w) = (q[0], q[1], q[2], q[3])
+        let forward = [1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)]
+        let p = pose.positionMM
+        let r = pose.radiusMM
+        if cameraState.mode == .firstPerson {
+            // Just in front of the body's surface, so the body never fills the view.
+            let eye = (0..<3).map { p[$0] + forward[$0] * r * 1.05 }
+            return (eye, (0..<3).map { eye[$0] + forward[$0] * 10 })
+        }
+        let h = hypot(forward[0], forward[1])
+        let flat = h > 1e-6 ? [forward[0] / h, forward[1] / h, 0] : [1, 0, 0]
+        let eye = [p[0] - flat[0] * r * 5, p[1] - flat[1] * r * 5, p[2] + r * 2.2]
+        return (eye, (0..<3).map { p[$0] + forward[$0] * r * 3 })
+    }
+
+    /// The observation camera in MuJoCo world coordinates (mm, z-up), so the
+    /// backend's free camera can render exactly the view this canvas picks from.
+    var mujocoCamera: WorldViewerMuJoCoCamera {
+        let p = cameraNode.position
+        let f = cameraNode.worldFront
+        let distance: Double
+        switch cameraState.mode {
+        case .orbit, .followFly: distance = cameraState.distance
+        case .free: distance = 100
+        case .firstPerson, .behindParticipant: distance = 10
+        }
+        let positionMM = WorldViewerCoordinates.mujocoComponents(
+            fromScene: [Double(p.x), Double(p.y), Double(p.z)])
+        var camera = WorldViewerMuJoCoCamera(
+            positionMM: positionMM,
+            forward: WorldViewerCoordinates.mujocoComponents(
+                fromScene: [Double(f.x), Double(f.y), Double(f.z)]),
+            distanceMM: distance,
+            fovyDeg: Double(cameraNode.camera?.fieldOfView ?? 42))
+        switch cameraState.mode {
+        case .followFly:
+            if let fly = lastFlyScenePosition {
+                let flyMM = WorldViewerCoordinates.mujocoComponents(
+                    fromScene: [Double(fly.x), Double(fly.y), Double(fly.z)])
+                camera.anchor = "fly"
+                // Rounded so the fly's own motion never looks like a new request.
+                camera.offsetMM = (0..<3).map { ((positionMM[$0] - flyMM[$0]) * 1e4).rounded() / 1e4 }
+            }
+        case .firstPerson where lastParticipantPose != nil:
+            camera.anchor = "participant_first"
+        case .behindParticipant where lastParticipantPose != nil:
+            camera.anchor = "participant_third"
+        default:
+            break
+        }
+        return camera
+    }
+
     func setObservationCameraMode(_ mode: WorldViewerCameraMode) {
         if mode == cameraState.mode { return }
-        if mode == .free {
+        if cameraState.mode.ridesParticipant {
+            // Leave the participant's eyes looking where they looked.
+            let f = cameraNode.worldFront
+            cameraState.pitch = min(1.35, max(-1.20, asin(-Double(f.y))))
+            cameraState.yaw = atan2(-Double(f.x), -Double(f.z))
+        }
+        if mode == .orbit {
+            // Orbit circles the whole arena: fly, participant and objects.
+            cameraState.targetScene = [Double(lastSceneCenter.x),
+                                       Double(lastSceneCenter.y),
+                                       Double(lastSceneCenter.z)]
+            cameraState.distance = max(45, Double(lastSceneExtent) * 2.4)
+        } else if mode == .followFly && prefersFlyCloseUp {
+            cameraState.distance = 14
+        } else if mode == .free {
             let target = cameraTargetForCurrentMode()
             cameraState.targetScene = [Double(target.x), Double(target.y), Double(target.z)]
             cameraState.freePositionScene = [Double(cameraNode.position.x),
@@ -304,10 +414,10 @@ final class WorldViewer: SCNView {
     func resetObservationCamera() {
         cameraState.yaw = Double.pi * 0.25
         cameraState.pitch = 0.52
-        cameraState.distance = max(45, Double(lastSceneExtent) * 2.4)
-        cameraState.targetScene = [Double(lastSceneCenter.x),
-                                   Double(lastSceneCenter.y),
-                                   Double(lastSceneCenter.z)]
+        let flyCloseUp = prefersFlyCloseUp ? lastFlyScenePosition : nil
+        let center = flyCloseUp ?? lastSceneCenter
+        cameraState.distance = flyCloseUp != nil ? 14 : max(45, Double(lastSceneExtent) * 2.4)
+        cameraState.targetScene = [Double(center.x), Double(center.y), Double(center.z)]
         let target = cameraTargetForCurrentMode()
         let forward = cameraState.forwardVector
         cameraState.freePositionScene = [Double(target.x) - forward[0] * cameraState.distance,
@@ -321,6 +431,8 @@ final class WorldViewer: SCNView {
     }
 
     func rotateObservationCamera(deltaX: Double, deltaY: Double) {
+        // The participant's own look (captured mouse) steers these views.
+        guard !cameraState.mode.ridesParticipant else { return }
         cameraState.rotate(deltaX: deltaX, deltaY: deltaY)
         applyCameraState()
     }
@@ -329,7 +441,7 @@ final class WorldViewer: SCNView {
         // Follow mode's target is the authoritative fly pose; allowing a hidden
         // presentation offset here would make "follow" ambiguous. Switch to
         // Orbit or Free when a panned target is desired.
-        guard cameraState.mode != .followFly else { return }
+        guard cameraState.mode != .followFly, !cameraState.mode.ridesParticipant else { return }
         cameraState.pan(deltaX: deltaX, deltaY: deltaY)
         applyCameraState()
     }
@@ -445,8 +557,11 @@ final class WorldViewer: SCNView {
                 p.scale = SCNVector3(Float(radius), Float(radius), Float(radius))
             }
             p.isHidden = false
+            lastParticipantPose = (player.positionMM, player.orientationQuatXYZW,
+                                   max(0.2, player.collisionRadiusMM ?? 2.5))
         } else {
             playerNode?.isHidden = true
+            lastParticipantPose = nil
         }
 
         // Presentation-only framing. It cannot feed back into simulation state.
@@ -472,7 +587,7 @@ final class WorldViewer: SCNView {
         lastSceneExtent = maxExtent
         if needsInitialCameraFrame {
             resetObservationCamera()
-        } else if cameraState.mode == .followFly {
+        } else if cameraState.mode == .followFly || cameraState.mode.ridesParticipant {
             applyCameraState()
         }
     }
@@ -499,6 +614,7 @@ final class WorldViewer: SCNView {
         playerNode = nil
         currentSnapshotSource = nil
         lastFlyScenePosition = nil
+        lastParticipantPose = nil
         lastSceneCenter = SCNVector3Zero
         lastSceneExtent = 80
         needsInitialCameraFrame = true
@@ -517,14 +633,47 @@ final class WorldViewer: SCNView {
 
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
+        leftDragStart = nil
         if participateModeEnabled {
             if !participateInputEnabled { onPlayerCaptureRequested?() }
             // V5.6 owns world interaction. A Participate click is only an input
             // capture gesture in V5.5, never an authoritative pick/grab command.
             return
         }
-        guard currentSnapshotSource != nil else { return }
+        // A press that turns into a drag moves the camera (the usual trackpad
+        // gesture); a press released in place is a pick, sent on mouse-up.
         let point = convert(event.locationInWindow, from: nil)
+        leftDragStart = point
+        leftDragLast = point
+        leftDragMoved = false
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        if participateInputEnabled {
+            routePointerDelta(deltaX: Double(event.deltaX), deltaY: Double(event.deltaY), shift: false)
+            return
+        }
+        guard let start = leftDragStart, let last = leftDragLast else { return }
+        let p = convert(event.locationInWindow, from: nil)
+        if !leftDragMoved && hypot(p.x - start.x, p.y - start.y) < 3 { return }
+        leftDragMoved = true
+        leftDragLast = p
+        let pan = event.modifierFlags.contains(.shift) || event.modifierFlags.contains(.option)
+        routePointerDelta(deltaX: Double(p.x - last.x), deltaY: Double(p.y - last.y), shift: pan)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        defer { leftDragStart = nil; leftDragLast = nil; leftDragMoved = false }
+        guard leftDragStart != nil, !leftDragMoved, !participateModeEnabled else { return }
+        pick(at: convert(event.locationInWindow, from: nil))
+    }
+
+    override func magnify(with event: NSEvent) {
+        routeScroll(delta: -Double(event.magnification) * 60)
+    }
+
+    private func pick(at point: NSPoint) {
+        guard currentSnapshotSource != nil else { return }
         let near = unprojectPoint(SCNVector3(Float(point.x), Float(point.y), 0))
         let far = unprojectPoint(SCNVector3(Float(point.x), Float(point.y), 1))
         let dx = Double(far.x - near.x), dy = Double(far.y - near.y), dz = Double(far.z - near.z)

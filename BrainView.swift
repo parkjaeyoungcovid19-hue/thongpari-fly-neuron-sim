@@ -224,6 +224,7 @@ final class BrainWindowController {
     private let conn: Connectome
     private let brainGroup: SCNNode
     private let view: BrainSCNView
+    var embeddedView: BrainSCNView { view }
     private let stimRing: SCNNode
     private let label = NSTextField(labelWithString: "")
     private var labelHider: DispatchWorkItem?
@@ -337,18 +338,13 @@ final class BrainWindowController {
         let sideSuffix: (String) -> String = { role in
             let l = picked.filter { self.conn.roleName[$0] == role && self.sim.positions[$0].x < 0 }.count
             let r = picked.filter { self.conn.roleName[$0] == role }.count - l
-            return l == r ? "" : (l > r ? " · left" : " · right")
+            return l == r ? "" : (l > r ? L(" · left", " · 왼쪽") : L(" · right", " · 오른쪽"))
+        }
+        if major != "other", let name = NeuronGuide.clusterLabel(role: major) {
+            let sided = ["lc4", "lplc2", "dna01", "dna02"].contains(major)
+            return "⚡ \(name)\(sided ? sideSuffix(major) : "")"
         }
         switch major {
-        case "lc4", "lplc2": return "⚡ Looming detectors (LC4/LPLC2)\(sideSuffix(major))"
-        case "gf":           return "⚡ Giant Fiber (DNp01) — escape!"
-        case "dna01", "dna02": return "⚡ Steering neurons (DNa01/02)\(sideSuffix(major))"
-        case "dnp09":        return "⚡ Walking command (DNp09)"
-        case "dng11":        return "⚡ Grooming command (DNg11)"
-        case "escw":         return "⚡ Escape-wing DNs (DNp02/04/11)"
-        case "mdn":          return "⚡ Moonwalker neurons (MDN)"
-        case "ascend":       return "⚡ Ascending neurons (leg feedback)"
-        case "sens":         return "⚡ Sensory afferents (wind/tap)"
         default:
             var types: [String: Int] = [:], classes: [String: Int] = [:]
             for i in picked {
@@ -358,7 +354,7 @@ final class BrainWindowController {
             let region = classes.max { $0.value < $1.value }?.key ?? "brain"
             let top = types.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
                            .prefix(2).map(\.key).filter { $0 != region && $0 != "?" }
-            return top.isEmpty ? "⚡ \(picked.count) \(region) neurons"
+            return top.isEmpty ? L("⚡ \(picked.count) \(region) neurons", "⚡ \(region) 뉴런 \(picked.count)개")
                                : "⚡ \(top.joined(separator: " + ")) · \(region) (\(picked.count))"
         }
     }

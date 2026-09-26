@@ -196,8 +196,9 @@ final class PlayerController {
     func handleLook(deltaX: Double, deltaY: Double) -> PlayerInputIntent? {
         guard captureEnabled, deltaX.isFinite, deltaY.isFinite else { return nil }
         // MuJoCo +Y is player-left, so mouse-right is negative yaw.
-        let yaw = max(-0.35, min(0.35, -deltaX * lookRadiansPerPoint))
-        let pitch = max(-0.35, min(0.35, -deltaY * lookRadiansPerPoint))
+        let yaw = -deltaX * lookRadiansPerPoint
+        let pitch = -deltaY * lookRadiansPerPoint
+        guard yaw.isFinite, pitch.isFinite else { return nil }
         guard abs(yaw) > 1e-12 || abs(pitch) > 1e-12 else { return nil }
         return currentIntent(extraLook: [yaw, pitch])
     }

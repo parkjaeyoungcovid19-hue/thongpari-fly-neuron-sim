@@ -1,0 +1,12 @@
+[
+  {
+    "mode": "--mock",
+    "test": "labloop",
+    "exit": 0
+  },
+  {
+    "mode": "--flygym-headless",
+    "test": "labloop",
+    "exit": 0
+  }
+]

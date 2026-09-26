@@ -1,0 +1,27 @@
+[
+  {
+    "mode": "--mock",
+    "test": "bridgeloop",
+    "exit": 0
+  },
+  {
+    "mode": "--mock",
+    "test": "labloop",
+    "exit": 0
+  },
+  {
+    "mode": "--mock",
+    "test": "v4loop",
+    "exit": 0
+  },
+  {
+    "mode": "--flygym-headless",
+    "test": "labloop",
+    "exit": 0
+  },
+  {
+    "mode": "--flygym-headless",
+    "test": "v4loop",
+    "exit": 0
+  }
+]

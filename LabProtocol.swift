@@ -1427,6 +1427,142 @@ func runLabTest() {
         check("application-quit recorder starts", false)
     }
     try? fm.removeItem(at: recorderRoot)
+
+    // V5.5.1 one-window state: every ACK reaches the timeline exactly once.
+    let ackBridge = FlyGymBridge()
+    let ackGeneration = ackBridge.beginConnectionForTesting()
+    for line in [#"{"type":"lab_ack","id":1,"ok":true,"action":"spawn_box","message":"ok","applied_tick":20}"#,
+                 #"{"type":"lab_ack","id":2,"ok":false,"action":"move_object","message":"unknown target"}"#,
+                 #"{"type":"lab_state","t":0.1,"ack":2,"ok":false,"error":"unknown target"}"#,
+                 #"{"type":"lab_state","t":0.2,"ack":2,"ok":false,"error":"unknown target"}"#] {
+        _ = ackBridge.receiveLineForTesting(Data(line.utf8))
+    }
+    let firstRead = ackBridge.labAcks(after: 0)
+    let secondRead = ackBridge.labAcks(after: firstRead.serial)
+    check("bridge keeps every ACK between UI refreshes, repeated lab_state ACK once",
+          firstRead.acks.map(\.id) == [1, 2] && secondRead.acks.isEmpty,
+          "ids=\(firstRead.acks.map(\.id))")
+
+    let t0 = Date()
+    func entry(_ id: Int, generation: UInt64 = ackGeneration, at: Date = t0) -> LabTimelineEntry {
+        LabTimelineEntry(commandID: id, action: "spawn_box", detail: "box_\(id)", kind: .physical,
+                         sessionID: "s", epoch: 1, requestedTick: 10 * id, requestedAt: at,
+                         connectionGeneration: generation, status: .requested)
+    }
+    var timeline = LabCommandTimeline()
+    timeline.append(entry(1)); timeline.append(entry(2)); timeline.append(entry(3))
+    timeline.append(entry(4, generation: ackGeneration &- 1))
+    let resolved = firstRead.acks.map { timeline.apply(ack: $0) }
+    let duplicate = timeline.apply(ack: firstRead.acks[0])
+    timeline.expire(now: t0.addingTimeInterval(LabCommandTimeline.ackTimeout + 1),
+                    connectionGeneration: ackGeneration)
+    let statuses = timeline.entries.map(\.status)
+    check("timeline resolves applied/rejected once, then times out and loses stale rows",
+          resolved == [true, true] && !duplicate
+          && statuses == [.applied, .rejected, .timedOut, .lost]
+          && timeline.entries[0].appliedTick == 20 && timeline.pendingCount == 0,
+          "\(statuses)")
+    var late = LabAck(); late.id = 3; late.ok = true; late.appliedTick = 90
+    late.connectionGeneration = ackGeneration
+    check("late ACK still resolves a timed-out row with the real applied tick",
+          timeline.apply(ack: late) && timeline.entries[2].status == .applied
+          && timeline.entries[2].appliedTick == 90)
+
+    let serviceDown = WorkspaceSnapshot.connection(bridgeEnabled: true, service: .exited(1),
+                                                  connected: true, bodyFresh: true, bodyAge: 0)
+    let stale = WorkspaceSnapshot.connection(bridgeEnabled: true, service: .running,
+                                            connected: true, bodyFresh: false, bodyAge: 2.5)
+    let live = WorkspaceSnapshot.connection(bridgeEnabled: true, service: nil,
+                                           connected: true, bodyFresh: true, bodyAge: 0.01)
+    let waiting = WorkspaceSnapshot.connection(bridgeEnabled: true, service: .starting,
+                                              connected: false, bodyFresh: false, bodyAge: nil)
+    check("workspace connection never reports live for a dead backend or stale body",
+          serviceDown == .backendDown("exited with status 1") && stale == .stale(2.5)
+          && live == .live && waiting == .connecting
+          && WorkspaceSnapshot.connection(bridgeEnabled: false, service: nil, connected: false,
+                                          bodyFresh: false, bodyAge: nil) == .disabled)
+    check("recording line never implies a save that has not completed",
+          WorkspaceRecording.stopping(path: "/r").line.hasPrefix("Saving")
+          && WorkspaceRecording.idle.line == "Not recording"
+          && WorkspaceRecording.recording(path: "/r", elapsed: 75).line.contains("01:15")
+          && WorkspaceRecording.failed(path: "/r", message: "disk full").line.contains("disk full"))
+
+    // App-owned backend lifecycle against a stand-in "python" (/bin/sh) that
+    // just sleeps: start → stop leaves no child, and only then offers restart.
+    let fakeRoot = fm.temporaryDirectory.appendingPathComponent("thongpari-service-\(UUID().uuidString)")
+    try? fm.createDirectory(at: fakeRoot.appendingPathComponent("flygym_bridge"), withIntermediateDirectories: true)
+    try? fm.createDirectory(at: fakeRoot.appendingPathComponent("flygym-venv/bin"), withIntermediateDirectories: true)
+    try? "exec sleep 30\n".write(to: fakeRoot.appendingPathComponent("flygym_bridge/bridge.py"),
+                                 atomically: true, encoding: .utf8)
+    try? fm.createSymbolicLink(atPath: fakeRoot.appendingPathComponent("flygym-venv/bin/python").path,
+                               withDestinationPath: "/bin/sh")
+    let service = FlyGymService(mode: .mock, root: fakeRoot)
+    service.start()
+    let startedRunning = service.state == .running && !service.canRestart && service.port != 0
+    service.stop()
+    let deadline = Date().addingTimeInterval(2)
+    while service.state == .running && Date() < deadline { usleep(10_000) }
+    if case .exited = service.state {
+        check("app-owned backend stops cleanly and becomes restartable",
+              startedRunning && service.canRestart)
+    } else {
+        check("app-owned backend stops cleanly and becomes restartable", false, "\(service.state)")
+    }
+    check("backend without a checkout reports unavailable, never restartable",
+          { if case .unavailable = FlyGymService(mode: .mock, root: nil).state { return true }; return false }()
+          && !FlyGymService(mode: .mock, root: nil).canRestart)
+    try? fm.removeItem(at: fakeRoot)
+
+    // Mood readout: fixed, explainable rules with a fading memory of hits.
+    let mood = FlyMoodEstimator()
+    let moodT0 = Date(timeIntervalSince1970: 1_000)
+    var calm = FlyMoodInputs()
+    var food = FlyMoodInputs(); food.nearestFoodMM = 8
+    var cold = FlyMoodInputs(); cold.temperatureC = 12
+    var hot = FlyMoodInputs(); hot.temperatureC = 34
+    var looming = FlyMoodInputs(); looming.nervous = 0.8; looming.nearestFoodMM = 8
+    let calmMood = mood.update(calm, now: moodT0).mood
+    let happyMood = mood.update(food, now: moodT0).mood
+    let coldMood = mood.update(cold, now: moodT0).mood
+    let hotMood = mood.update(hot, now: moodT0).mood
+    let scaredOverFood = mood.update(looming, now: moodT0).mood
+    mood.registerHit(strength: 0.5, at: moodT0)
+    let angryAfterTap = mood.update(food, now: moodT0.addingTimeInterval(1)).mood
+    let fadedAfterTap = mood.update(food, now: moodT0.addingTimeInterval(20)).mood
+    mood.registerHit(strength: 0.95, at: moodT0.addingTimeInterval(30))
+    let hurtAfterHardHit = mood.update(calm, now: moodT0.addingTimeInterval(31)).mood
+    mood.reset()
+    calm.sleep = true
+    let sleepyMood = mood.update(calm, now: moodT0.addingTimeInterval(32)).mood
+    check("mood readout follows its stated rules and hits fade",
+          calmMood == .calm && happyMood == .happy && coldMood == .cold && hotMood == .hot
+          && scaredOverFood == .scared && angryAfterTap == .angry && fadedAfterTap == .happy
+          && hurtAfterHardHit == .hurt && sleepyMood == .sleepy,
+          "\(calmMood) \(happyMood) \(coldMood) \(hotMood) \(scaredOverFood) \(angryAfterTap) \(fadedAfterTap) \(hurtAfterHardHit) \(sleepyMood)")
+
+    // Participant views ride the participant's own look quaternion.
+    let yawLeft = #"{"type":"world_render_snapshot","protocol_version":4,"session_id":"","epoch":0,"request_seq":4,"sim_tick":40,"ok":true,"snapshot_seq":4,"world_revision":6,"fly":{"id":"fly","position_mm":[1,2,0.7],"orientation_quat_xyzw":[0,0,0,1]},"objects":[],"player":{"actor_id":"player","position_mm":[24,0,2.5],"orientation_quat_xyzw":[0,0,0.7071067811865476,0.7071067811865476],"collision_radius_mm":2.5,"mode":"participate"}}"#
+    let viewer = WorldViewer(frame: NSRect(x: 0, y: 0, width: 320, height: 200))
+    if let snap = parseWorldRenderSnapshotLine(Data(yawLeft.utf8)) { viewer.apply(snapshot: snap) }
+    viewer.setObservationCameraMode(.firstPerson)
+    let eye = viewer.mujocoCamera
+    let eyeOK = zip(eye.positionMM, [24.0, 2.625, 2.5]).allSatisfy { abs($0 - $1) < 1e-3 }
+        && zip(eye.forward, [0.0, 1.0, 0.0]).allSatisfy { abs($0 - $1) < 1e-3 }
+        && eye.anchor == "participant_first"
+    viewer.rotateObservationCamera(deltaX: 40, deltaY: 10)
+    viewer.panObservationCamera(deltaX: 9, deltaY: 3)
+    let dragIgnored = viewer.mujocoCamera == eye
+    viewer.setObservationCameraMode(.behindParticipant)
+    let behind = viewer.mujocoCamera
+    let behindOK = behind.anchor == "participant_third"
+        && behind.positionMM[1] < 0 && behind.positionMM[2] > 2.5
+    viewer.setObservationCameraMode(.followFly)
+    check("participant first/third person cameras follow the participant's look",
+          eyeOK && behindOK && dragIgnored && viewer.mujocoCamera.anchor == "fly",
+          "eye=\(eye.positionMM) fwd=\(eye.forward) behind=\(behind.positionMM)")
+    check("interface language is pinned to English for suites",
+          LabLanguage.current == .english && L("Observe", "관찰") == "Observe")
+
     print(failures == 0 ? "ALL LAB TESTS PASS" : "\(failures) LAB TEST FAILURES")
     exit(failures == 0 ? 0 : 1)
 }

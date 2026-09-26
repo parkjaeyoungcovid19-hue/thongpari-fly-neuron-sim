@@ -22,7 +22,8 @@ from player_body import PlayerBody
 from interaction import (InteractionState, InteractionError, parse_interaction_args,
                          participant_center,
                          INTERACTION_REACH_MM, INTERACTION_RAY_ORIGIN_TOL_FACTOR,
-                         CARRY_SPEED_MM_S, CARRY_PENETRATION_TOL_MM)
+                         CARRY_SPEED_MM_S, CARRY_PENETRATION_TOL_MM, CARRY_GAP_MM,
+                         CARRY_CONTACT_SKIN_MM)
 
 
 PHYSICAL = "PHYSICAL"
@@ -286,7 +287,10 @@ class LabWorld:
         """Resolve slot/body ids after Simulation construction."""
         import mujoco
 
+        import numpy as np
+
         self._mujoco = mujoco
+        self._fromto = np.zeros(6)  # reused mj_geomDistance witness buffer
         self.model = sim.mj_model
         self.data = sim.mj_data
         for slot in self._slot_shape:
@@ -327,9 +331,6 @@ class LabWorld:
             if name and (name == local_name or name.endswith(suffix)):
                 matches.append(idx)
         return matches[0] if len(matches) == 1 else -1
-
-    def set_force_body_ids(self, mapping):
-        self.force_body_ids = dict(mapping or {})
 
     def resync_after_sim_reset(self):
         """Restore active LabObject slots and the free-joint participant after reset."""
@@ -552,6 +553,7 @@ class LabWorld:
         self.interaction.previous_distances = None
         self.interaction.carry_blocked = False
         self.interaction.blocking_geom_kind = None
+        self.interaction.limited_by = None
         self._interaction_event("object_placed", id=held, actor_id=self.player.actor_id,
                                 position_mm=(list(obj.position_mm) if obj else None), reason=reason)
 
@@ -600,6 +602,7 @@ class LabWorld:
             self.interaction.held_object_id = object_id
             self.interaction.previous_distances = None
             self.interaction.carry_blocked = False
+            self.interaction.limited_by = None
             self.interaction.record(command.seq, args.tool_id, True,
                                     target_id=object_id, hit_distance_mm=distance)
             self._interaction_event("object_grabbed", id=object_id,
@@ -628,14 +631,12 @@ class LabWorld:
             self._mujoco.mj_forward(self.model, self.data)
             held_gid, candidates = self._carry_candidates()
             self.interaction.previous_distances = self._carry_distances(held_gid, candidates)
-        target = self.interaction.desired_xy(self.player, obj)
-        dx, dy = target[0] - obj.position_mm[0], target[1] - obj.position_mm[1]
-        distance = math.hypot(dx, dy)
-        move = min(distance, CARRY_SPEED_MM_S * dt)
+        constraints = self._carry_constraints if self._bound else ()
+        x, y = self.interaction.carry_step_xy(self.player, obj, CARRY_SPEED_MM_S * dt, constraints)
         self.interaction.previous_position = list(obj.position_mm)
-        if move > 0.0 and distance > 1e-12:
-            obj.position_mm[0] += dx / distance * move
-            obj.position_mm[1] += dy / distance * move
+        if math.hypot(x - obj.position_mm[0], y - obj.position_mm[1]) > 1e-12:
+            obj.position_mm[0] = x
+            obj.position_mm[1] = y
             self._bump_revision(obj)
             self._sync_object(obj)
 
@@ -671,6 +672,38 @@ class LabWorld:
                       self.interaction.carry_filter_candidates +
                       ([(self.player.geom_id, "player", None)] if self.player.active else []))
         return held_gid, candidates
+
+    def _carry_constraints(self):
+        """Surfaces near the held object at its committed pose, as carry_step_xy constraints.
+
+        The participant keeps CARRY_GAP_MM of clearance; other LabObjects are
+        approached to CARRY_CONTACT_SKIN_MM. Floors are skipped: a horizontal
+        step does not deepen a plane contact (the post-step guard still checks).
+        """
+        held_gid, candidates = self._carry_candidates()
+        if held_gid is None:
+            return ()
+        fromto = self._fromto
+        constraints = []
+        for gid, kind, _ in candidates:
+            if kind == "ground":
+                continue
+            margin = CARRY_GAP_MM if kind == "player" else CARRY_CONTACT_SKIN_MM
+            horizon = margin + self.interaction.distance_limit_mm
+            distance = float(self._mujoco.mj_geomDistance(
+                self.model, self.data, held_gid, gid, horizon, fromto))
+            if distance >= horizon or abs(distance) < 1e-9:
+                continue  # out of reach this step, or no defined normal (the guard remains)
+            # With the held geom first, (from - to) / distance points from the
+            # other surface to the held object whether or not they overlap.
+            nx = float(fromto[0] - fromto[3]) / distance
+            ny = float(fromto[1] - fromto[4]) / distance
+            horizontal = math.hypot(nx, ny)
+            if horizontal < 0.1:
+                continue  # stacked: horizontal motion barely changes this distance
+            constraints.append((nx / horizontal, ny / horizontal,
+                                max(0.0, distance - margin) / horizontal, kind))
+        return constraints
 
     def _carry_distances(self, held_gid, candidates):
         # MuJoCo 3.9.0 returns distmax for separated geoms beyond this limit,
@@ -720,7 +753,8 @@ class LabWorld:
                     blocked_kind = kind
                     break
             self.interaction.previous_distances = distances
-        if blocked_kind is not None and self.interaction.previous_position is not None:
+        if blocked_kind is not None:
+            # Safety net behind the pre-step constraints: undo a deepening step.
             obj = self.objects.get(held)
             if obj is not None:
                 obj.position_mm = self.interaction.previous_position
@@ -730,6 +764,10 @@ class LabWorld:
                 # The next comparison must use the restored pose, not the
                 # rejected pose from the just-completed physics substep.
                 self.interaction.previous_distances = self._carry_distances(held_gid, candidates)
+        elif held is not None:
+            # A step the pre-step constraints cut to under half is blocked too.
+            blocked_kind = self.interaction.limited_by
+        if blocked_kind is not None:
             if not self.interaction.carry_blocked:
                 self._interaction_event("carry_blocked", id=held, blocking_geom_kind=blocked_kind)
             self.interaction.carry_blocked = True

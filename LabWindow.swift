@@ -259,6 +259,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private let playerLeftKey = NSPopUpButton(frame: .zero, pullsDown: false)
     private let playerRightKey = NSPopUpButton(frame: .zero, pullsDown: false)
     private let playerInteractKey = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let lookSensitivitySlider = NSSlider(value: PlayerController.defaultLookRadiansPerPoint,
+                                                 minValue: PlayerController.lookSensitivityRange.lowerBound,
+                                                 maxValue: PlayerController.lookSensitivityRange.upperBound,
+                                                 target: nil, action: nil)
     private let playerController = PlayerController()
     private var interactionPresentation = LabInteractionPresentation()
     private var playerCaptureArmed = false
@@ -1215,6 +1219,18 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    private func configureLookSensitivitySlider() {
+        lookSensitivitySlider.doubleValue = playerController.lookRadiansPerPoint
+        lookSensitivitySlider.isContinuous = true
+        lookSensitivitySlider.target = self
+        lookSensitivitySlider.action = #selector(lookSensitivityChanged(_:))
+        lookSensitivitySlider.toolTip = L("Mouse-look speed while controlling the participant", "참여 조작 중 마우스로 둘러보는 속도")
+    }
+
+    @objc private func lookSensitivityChanged(_ sender: NSSlider) {
+        playerController.setLookSensitivity(sender.doubleValue)
+    }
+
     private func configurePlayerKeyPopups() {
         for action in PlayerControlAction.allCases {
             let popup = playerKeyPopup(for: action)
@@ -1295,6 +1311,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         _ = LabForm.status(worldCapacityLabel, mono: true)
         _ = LabForm.status(playerInputStatusLabel)
         configurePlayerKeyPopups()
+        configureLookSensitivitySlider()
         [objectX, objectY, objectZ, objectSize, objectSpeed, objectEndDistance].forEach { _ = LabForm.number($0) }
         addPopupItems(objectShape, [(L("Box", "상자"), "box"), (L("Sphere", "공"), "sphere"), (L("Wall", "벽"), "wall"),
                                     (L("Food / odor source", "먹이 (냄새가 나는 곳)"), "food")])
@@ -1328,7 +1345,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                     help: L("Choose Participate, then click the 3D view to capture. Aim with the center mark and press E once to grab an object; press E again to place it. WASD moves, the mouse looks, Esc releases capture. Text fields do not trigger interaction.", "‘참여’를 고르고 3D 화면을 클릭해 조작을 시작하세요. 중앙 조준점으로 물체를 겨누고 E를 한 번 누르면 집고, 다시 누르면 놓습니다. WASD로 이동하고 마우스로 둘러봅니다. Esc는 조작을 해제합니다. 입력 칸에서는 상호작용하지 않습니다."),
                     [LabForm.grid([(L("Forward", "앞으로"), playerForwardKey), (L("Backward", "뒤로"), playerBackwardKey),
                                    (L("Left", "왼쪽"), playerLeftKey), (L("Right", "오른쪽"), playerRightKey),
-                                   (L("Interact", "상호작용"), playerInteractKey), (L("Release", "해제"), LabForm.note(L("Esc (fixed)", "Esc (고정)")))]),
+                                   (L("Interact", "상호작용"), playerInteractKey), (L("Release", "해제"), LabForm.note(L("Esc (fixed)", "Esc (고정)"))),
+                                   (L("Look sensitivity", "시점 감도"), lookSensitivitySlider)]),
                      playerInputStatusLabel, interactionStatusLabel]),
             section(L("Reset", "초기화"), help: L("Use the smallest reset you need. Everything clears world, body, brain state, modeled stimuli, eye covers and graphs.", "필요한 부분만 초기화하세요. ‘전부’는 세계, 몸, 뇌 상태, 자극, 눈 가리개, 그래프를 모두 처음으로 되돌립니다."),
                     [LabForm.buttons([button(L("World", "세계"), #selector(resetWorld)),

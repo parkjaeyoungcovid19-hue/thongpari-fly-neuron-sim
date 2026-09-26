@@ -17,7 +17,7 @@ import os
 from collections import OrderedDict, deque
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from protocol import (
-    decode_line, encode, BrainPacket, BodyPacket, LabCommand, LabStatePacket, LabEventPacket,
+    decode_line, encode, BrainPacket, LabCommand, LabStatePacket, LabEventPacket,
     LabCommandQueue, HelloPacket, SessionControlPacket, SessionStatePacket,
     ExperimentStepPacket, ExperimentStepResultPacket,
     PlayerInputPacket, PlayerInputResultPacket, MAX_PLAYER_INPUT_QUEUE,
@@ -550,18 +550,21 @@ class Bridge:
         with self.lock:
             self.pending_player_inputs.extend(keep)
 
-    def _clear_player_input_pipeline(self, *, clear_pending=False, clear_current=True):
-        self.deferred_player_inputs = []
+    def _reset_session_caches(self):
+        """Forget per-session dedupe caches and un-applied work at a begin/reset barrier."""
+        self.last_step_seq = -1
+        self.recent_step_results.clear()
+        self.recent_command_results.clear()
         self.recent_player_input_results.clear()
         self.inflight_player_inputs.clear()
         self.last_player_input_seq = -1
-        if clear_pending:
-            with self.lock:
-                self.pending_player_inputs.clear()
-        if clear_current:
-            clear_fn = getattr(self.body, "clear_player_input", None)
-            if clear_fn is not None:
-                clear_fn()
+        self.recent_view_results.clear()
+        self.snapshot_sources.clear()
+        self.deferred_lab_commands = []
+        self.deferred_player_inputs = []
+        clear_input = getattr(self.body, "clear_player_input", None)
+        if clear_input is not None:
+            clear_input()
 
     def _player_input_result(self, request, *, ok, status, applied_tick=None, error=None):
         return PlayerInputResultPacket(
@@ -755,19 +758,7 @@ class Bridge:
                 self.session_tick = request.sim_tick
                 self.session_mode = request.mode
                 self.session_paused = False
-                self.last_step_seq = -1
-                self.recent_step_results.clear()
-                self.recent_command_results.clear()
-                self.recent_player_input_results.clear()
-                self.inflight_player_inputs.clear()
-                self.last_player_input_seq = -1
-                self.recent_view_results.clear()
-                self.snapshot_sources.clear()
-                self.deferred_lab_commands = []
-                self.deferred_player_inputs = []
-                clear_input = getattr(self.body, "clear_player_input", None)
-                if clear_input is not None:
-                    clear_input()
+                self._reset_session_caches()
                 self._queue_lab_response(self._session_state_packet(request, state="running"))
                 continue
 
@@ -816,19 +807,7 @@ class Bridge:
                     error="player input arrived before session reset")
                 self.session_epoch = request.epoch
                 self.session_tick = request.sim_tick
-                self.last_step_seq = -1
-                self.recent_step_results.clear()
-                self.recent_command_results.clear()
-                self.recent_player_input_results.clear()
-                self.inflight_player_inputs.clear()
-                self.last_player_input_seq = -1
-                self.recent_view_results.clear()
-                self.snapshot_sources.clear()
-                self.deferred_lab_commands = []
-                self.deferred_player_inputs = []
-                clear_input = getattr(self.body, "clear_player_input", None)
-                if clear_input is not None:
-                    clear_input()
+                self._reset_session_caches()
                 with self.lock:
                     self.pending_experiment_steps.clear()
                 # A reset is itself a pause-boundary transaction. It does not

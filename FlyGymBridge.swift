@@ -85,6 +85,8 @@ final class FlyGymBridge {
     private var _latestWorldRenderSnapshot: WorldRenderSnapshot?
     private var _latestRayPickResult: RayPickResult?
     private var _latestPlayerInputResult: PlayerInputResult?
+    private var playerInputResultsAccepted = 0
+    private var playerInputResultsRejected = 0
     private var requestedSessionID: String?
     private var requestedEpoch: Int?
     private var requestedSessionMode: LabSessionMode?
@@ -187,6 +189,14 @@ final class FlyGymBridge {
               _connected, result.connectionGeneration == _connectionGeneration,
               max(0, Date().timeIntervalSince(result.receivedAt)) < maxAge else { return nil }
         return result
+    }
+
+    /// Process-lifetime counts of accepted PlayerInput results. Unlike
+    /// latestPlayerInputResult, a rejection followed at once by a success
+    /// still shows up here.
+    func playerInputResultCounts() -> (accepted: Int, rejected: Int) {
+        lock.lock(); defer { lock.unlock() }
+        return (playerInputResultsAccepted, playerInputResultsRejected)
     }
 
     private func freshnessLocked(receivedAt: Date?, packetGeneration: UInt64?,
@@ -933,6 +943,8 @@ final class FlyGymBridge {
                 return true
             }
             _latestPlayerInputResult = result
+            playerInputResultsAccepted += 1
+            if !result.ok { playerInputResultsRejected += 1 }
             return true
         case .sessionState(var session):
             session.receivedAt = receivedAt

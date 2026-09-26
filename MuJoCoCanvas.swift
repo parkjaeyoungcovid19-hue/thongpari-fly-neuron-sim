@@ -19,6 +19,12 @@ final class MuJoCoFrameStream {
     private var pendingView: Data?
     private var lastSentView: Data?
     private let writeQueue = DispatchQueue(label: "mujoco-view-writer")
+    // Latest-wins hand-off to the main thread. Queuing one main-thread block per
+    // frame let a briefly busy main thread replay seconds of stale frames, so the
+    // participant appeared to keep moving after input stopped (2026-09-26).
+    private var latestFrame: CGImage?
+    private var frameDeliveryScheduled = false
+    private(set) var framesReplaced = 0
     var onFrame: ((CGImage) -> Void)?
     var onConnectionChange: ((Bool) -> Void)?
 
@@ -155,8 +161,31 @@ final class MuJoCoFrameStream {
                                       space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
                                       provider: provider, decode: nil, shouldInterpolate: true,
                                       intent: .defaultIntent) else { return }
-            DispatchQueue.main.async { self.onFrame?(image) }
+            deliver(image)
         }
+    }
+}
+
+extension MuJoCoFrameStream {
+    /// Keeps only the newest frame; at most one main-thread delivery is pending.
+    func deliver(_ image: CGImage, on queue: DispatchQueue = .main) {
+        lock.lock()
+        if latestFrame != nil { framesReplaced += 1 }
+        latestFrame = image
+        let schedule = !frameDeliveryScheduled
+        frameDeliveryScheduled = true
+        lock.unlock()
+        guard schedule else { return }
+        queue.async { [weak self] in self?.drainLatestFrame() }
+    }
+
+    private func drainLatestFrame() {
+        lock.lock()
+        let image = latestFrame
+        latestFrame = nil
+        frameDeliveryScheduled = false
+        lock.unlock()
+        if let image { onFrame?(image) }
     }
 }
 

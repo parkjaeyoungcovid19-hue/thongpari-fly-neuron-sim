@@ -3,6 +3,21 @@ import Foundation
 import Cocoa
 import Darwin
 
+/// Polls `read` until it yields a value or `seconds` elapse; reads once more at
+/// the deadline. Shared by the live transport diagnostics below.
+func pollValue<T>(_ seconds: Double, every interval: Double = 0.005, _ read: () -> T?) -> T? {
+    let deadline = Date().addingTimeInterval(seconds)
+    while Date() < deadline {
+        if let value = read() { return value }
+        Thread.sleep(forTimeInterval: interval)
+    }
+    return read()
+}
+
+func pollUntil(_ seconds: Double, every interval: Double = 0.005, _ predicate: () -> Bool) -> Bool {
+    pollValue(seconds, every: interval) { predicate() ? true : nil } != nil
+}
+
 // MARK: - Headless self-test (--bridgetest, no sim, no sockets)
 
 func runBridgeTest() {
@@ -1037,10 +1052,7 @@ func runBridgeTest() {
 func runBridgeLoopTest() {
     let fg = FlyGymBridge()
     fg.start()
-    var waited = 0
-    while !fg.connected && waited < 50 {
-        Thread.sleep(forTimeInterval: 0.1); waited += 1
-    }
+    _ = pollUntil(5, every: 0.1) { fg.connected }
     guard fg.connected else {
         print("FAIL  bridgeloop: no connection (is bridge.py --mock running?)")
         exit(1)
@@ -1091,42 +1103,22 @@ func runV4LoopTest() {
         print((ok ? "PASS" : "FAIL") + "  " + name + (detail.isEmpty ? "" : ": " + detail))
         if !ok { failures += 1 }
     }
-    func waitUntil(_ seconds: Double, _ predicate: () -> Bool) -> Bool {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if predicate() { return true }
-            Thread.sleep(forTimeInterval: 0.005)
-        }
-        return predicate()
-    }
     func waitSession(_ sessionID: String, epoch: Int, state: String,
                      seconds: Double = 8.0) -> FlyGymSessionStatePacket? {
-        var found: FlyGymSessionStatePacket?
-        _ = waitUntil(seconds) {
+        pollValue(seconds) {
             guard let s = fg.latestSessionState(), s.sessionID == sessionID,
-                  s.epoch == epoch, s.state == state else { return false }
-            found = s; return true
+                  s.epoch == epoch, s.state == state else { return nil }
+            return s
         }
-        return found
     }
     func waitStep(_ seq: Int, seconds: Double = 12.0) -> FlyGymExperimentStepResultPacket? {
-        var found: FlyGymExperimentStepResultPacket?
-        _ = waitUntil(seconds) {
-            guard let r = fg.latestExperimentStepResult(), r.seq == seq else { return false }
-            found = r; return true
-        }
-        return found
+        pollValue(seconds) { fg.latestExperimentStepResult().flatMap { $0.seq == seq ? $0 : nil } }
     }
     func waitAck(_ id: Int, seconds: Double = 8.0) -> LabAck? {
-        var found: LabAck?
-        _ = waitUntil(seconds) {
-            guard let a = fg.latestLabAck(), a.id == id else { return false }
-            found = a; return true
-        }
-        return found
+        pollValue(seconds) { fg.latestLabAck().flatMap { $0.id == id ? $0 : nil } }
     }
 
-    let connected = waitUntil(10) { fg.connected && fg.serverHello() != nil }
+    let connected = pollUntil(10) { fg.connected && fg.serverHello() != nil }
     check("V4 live bridge connects and receives hello", connected)
     guard connected, let hello = fg.serverHello() else {
         fg.stop(); print("V4LOOP FAIL (\(max(1, failures)))"); exit(1)
@@ -1220,7 +1212,7 @@ func runV4LoopTest() {
                                                   epoch: 1, simTick: 0,
                                                   mode: .interactive) != nil
     let interactiveRunning = waitSession(interactive, epoch: 1, state: "running")
-    let gotInteractiveBody = waitUntil(12) { (fg.latestBody(maxAge: 2.0)?.simTime ?? 0) > 0 }
+    let gotInteractiveBody = pollUntil(12) { (fg.latestBody(maxAge: 2.0)?.simTime ?? 0) > 0 }
     let bodyBeforePauseRequest = fg.latestBody(maxAge: 2.0)?.simTime ?? -1
     let interactivePause = fg.sendSessionControl(action: "pause", sessionID: interactive,
                                                   epoch: 1, simTick: 0,
@@ -1242,7 +1234,7 @@ func runV4LoopTest() {
     _ = fg.sendSessionControl(action: "resume", sessionID: interactive,
                               epoch: 1, simTick: 0, mode: .interactive)
     _ = waitSession(interactive, epoch: 1, state: "running")
-    let interactiveAdvanced = waitUntil(12) {
+    let interactiveAdvanced = pollUntil(12) {
         (fg.latestBody(maxAge: 2.0)?.simTime ?? bodyAtPauseBarrier) > bodyAtPauseBarrier + 1e-6
     }
     check("interactive resume advances again without paused-wall catch-up", interactiveAdvanced)
@@ -1297,22 +1289,14 @@ func runV4LoopTest() {
 func runLabLoopTest() {
     let fg = FlyGymBridge()
     fg.start()
-    var waited = 0
-    while !fg.connected && waited < 80 {
-        Thread.sleep(forTimeInterval: 0.1); waited += 1
-    }
+    _ = pollUntil(8, every: 0.1) { fg.connected }
     guard fg.connected else {
         print("FAIL  labloop: no connection (start bridge.py --mock or --flygym-headless)")
         exit(1)
     }
 
     func waitAck(_ id: Int, seconds: Double = 3.0) -> LabAck? {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline {
-            if let ack = fg.latestLabAck(), ack.id == id { return ack }
-            Thread.sleep(forTimeInterval: 0.02)
-        }
-        return nil
+        pollValue(seconds, every: 0.02) { fg.latestLabAck().flatMap { $0.id == id ? $0 : nil } }
     }
 
     var failures = 0
@@ -1443,14 +1427,7 @@ func runInteractionLoopTest() {
         print("\(ok ? "PASS" : "FAIL")  interactionloop \(name) \(detail)")
         if !ok { failures += 1 }
     }
-    func wait<T>(_ seconds: Double, _ read: () -> T?) -> T? {
-        let deadline = Date().addingTimeInterval(seconds)
-        repeat {
-            if let value = read() { return value }
-            Thread.sleep(forTimeInterval: 0.02)
-        } while Date() < deadline
-        return read()
-    }
+    func wait<T>(_ seconds: Double, _ read: () -> T?) -> T? { pollValue(seconds, every: 0.02, read) }
     func snapshot(after tick: Int = -1, containing id: String? = nil,
                   seconds: Double = 25) -> WorldRenderSnapshot? {
         let deadline = Date().addingTimeInterval(seconds)
@@ -1484,7 +1461,7 @@ func runInteractionLoopTest() {
         eventNames += batch.events.map(\.event)
         events += batch.events
     }
-    let connected: Bool = wait(12) { fg.connected && fg.serverHello() != nil ? true : nil } ?? false
+    let connected = pollUntil(12, every: 0.02) { fg.connected && fg.serverHello() != nil }
     check("connected", connected)
     guard connected, let hello = fg.serverHello() else {
         fg.stop(); print("INTERACTIONLOOP FAIL (\(failures))"); exit(1)
@@ -1695,4 +1672,158 @@ func runInteractionLoopTest() {
     fg.stop()
     print(failures == 0 ? "INTERACTIONLOOP PASS" : "INTERACTIONLOOP FAIL (\(failures))")
     exit(failures == 0 ? 0 : 1)
+}
+
+/// `--inputprobe`: measures participant input feel against a test-owned
+/// backend over the same FlyGymBridge path as the Lab window. It reports
+/// wall/sim timing, post-release drift and look update cadence; it asserts
+/// nothing about the numbers, so it is a measuring instrument rather than a
+/// regression test; a failed precondition (session, activation, rejected
+/// input, no snapshots) exits 1 so an invalid measurement never looks valid.
+func runInputProbe() {
+    let fg = FlyGymBridge()
+    fg.start()
+    func fail(_ why: String) -> Never {
+        print("inputprobe FAIL: \(why)")
+        fg.stop()
+        exit(1)
+    }
+    guard pollUntil(12, { fg.connected && fg.serverHello() != nil }) else { fail("no connection") }
+    let session = "inputprobe-\(UUID().uuidString)"
+    guard fg.sendSessionControl(action: "begin", sessionID: session, epoch: 1, simTick: 0,
+                                mode: .interactive) != nil else { fail("session begin not sent") }
+    guard pollUntil(30, {
+        guard let s = fg.latestSessionState(), s.sessionID == session, s.epoch == 1 else { return false }
+        return s.ok && s.state == "running"
+    }) else { fail("session \(session) never reached running: \(fg.latestSessionState()?.error ?? "timeout")") }
+    let activate = fg.sendLab(action: "set_player_active", value: 1,
+                              protocolVersion: FlyGymProtocolV4.version,
+                              sessionID: session, epoch: 1, requestedTick: 0)
+    guard let activation = pollValue(30, { fg.latestLabAck().flatMap { $0.id == activate ? $0 : nil } })
+    else { fail("participant activation timed out") }
+    guard activation.ok else { fail("participant activation rejected: \(activation.message)") }
+    let rejectedBefore = fg.playerInputResultCounts().rejected
+    var lastInputSeq: Int?
+    func checkInputs() {
+        guard fg.playerInputResultCounts().rejected == rejectedBefore else {
+            let r = fg.latestPlayerInputResult(maxAge: .greatestFiniteMagnitude)
+            fail("PlayerInput rejected (latest \(r?.seq ?? -1): \(r?.status ?? "?") \(r?.error ?? ""))")
+        }
+    }
+    /// Every queued input up to the last one was applied: results arrive in
+    /// seq order and pending inputs coalesce into the newest seq.
+    func settleInputs() {
+        guard let last = lastInputSeq else { return }
+        guard let r = pollValue(5, {
+            fg.latestPlayerInputResult(maxAge: .greatestFiniteMagnitude).flatMap { $0.seq >= last ? $0 : nil }
+        }) else { fail("PlayerInput \(last) never acknowledged") }
+        guard r.ok else { fail("PlayerInput \(r.seq) rejected: \(r.status) \(r.error ?? "")") }
+        checkInputs()
+    }
+
+    struct Sample { let wall: Double; let tick: Int; let pos: [Double]; let yaw: Double }
+    let t0 = Date()
+    var samples: [Sample] = []
+    var lastTick = -1
+    func yaw(_ q: [Double]) -> Double {
+        atan2(2 * (q[3] * q[2] + q[0] * q[1]), 1 - 2 * (q[1] * q[1] + q[2] * q[2]))
+    }
+    /// Poll snapshots like a fast viewer would; one sample per new sim tick.
+    func sample(for seconds: Double, during tick: (() -> Void)? = nil) {
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end {
+            tick?()
+            checkInputs()
+            _ = fg.requestWorldRenderSnapshot()
+            Thread.sleep(forTimeInterval: 0.016)
+            if let s = fg.latestWorldRenderSnapshot(maxAge: 1), s.ok, let p = s.player,
+               s.simTick != lastTick {
+                lastTick = s.simTick
+                samples.append(Sample(wall: Date().timeIntervalSince(t0), tick: s.simTick,
+                                      pos: p.positionMM, yaw: yaw(p.orientationQuatXYZW)))
+            }
+        }
+    }
+    func input(_ axes: [Double], look: [Double] = [0, 0], release: Bool = false) -> Double {
+        let tick = fg.latestWorldRenderSnapshot(maxAge: .greatestFiniteMagnitude)?.simTick ?? 0
+        guard let seq = fg.sendPlayerInput(sessionID: session, epoch: 1, requestedTick: tick,
+                                           moveAxes: axes, lookDelta: look, heldActions: [],
+                                           discardPendingLook: release)
+        else { fail("PlayerInput not queued (axes=\(axes) look=\(look))") }
+        lastInputSeq = seq
+        return Date().timeIntervalSince(t0)
+    }
+    func report(_ label: String, pressAt: Double, releaseAt: Double) {
+        settleInputs()
+        let window = samples.filter { $0.wall >= pressAt - 0.05 }
+        guard let first = window.first, let last = window.last,
+              window.contains(where: { $0.wall > pressAt && $0.wall <= releaseAt }),
+              window.contains(where: { $0.wall > releaseAt })
+        else { fail("\(label): no snapshots while held and after release") }
+        let atRelease = window.last { $0.wall <= releaseAt } ?? first
+        let moving = zip(window, window.dropFirst()).filter {
+            hypot($1.pos[0] - $0.pos[0], $1.pos[1] - $0.pos[1]) > 0.01
+        }
+        let stopWall = moving.last?.1.wall ?? atRelease.wall
+        let firstMoveWall = moving.first?.1.wall ?? pressAt
+        let simSpan = Double(last.tick - first.tick) / 1000
+        let wallSpan = last.wall - first.wall
+        print(String(format: "inputprobe %@: sim/wall=%.2f snapshots=%d (%.1f/s)",
+                     label, simSpan / max(wallSpan, 1e-6), window.count,
+                     Double(window.count) / max(wallSpan, 1e-6)))
+        print(String(format: "inputprobe %@: press->first motion %.0f ms wall; moved %.2f mm before release; drift after release %.2f mm; last motion %.0f ms after release",
+                     label, (firstMoveWall - pressAt) * 1000,
+                     hypot(atRelease.pos[0] - first.pos[0], atRelease.pos[1] - first.pos[1]),
+                     hypot(last.pos[0] - atRelease.pos[0], last.pos[1] - atRelease.pos[1]),
+                     (stopWall - releaseAt) * 1000))
+    }
+
+    sample(for: 0.5)
+    // A: hold W for 1 s wall, then release.
+    var press = input([1, 0])
+    sample(for: 1.0)
+    var release = input([0, 0], release: true)
+    sample(for: 2.0)
+    report("W only", pressAt: press, releaseAt: release)
+
+    // B: hold W while the mouse streams small yaw deltas (5 pt/frame at the
+    // shipped look sensitivity), then release W and keep moving the mouse.
+    let lookStep = 5 * PlayerController.defaultLookRadiansPerPoint
+    var held: [Double] = [1, 0]
+    press = input(held)
+    let look: () -> Void = { _ = input(held, look: [-lookStep, 0]) }
+    sample(for: 1.0, during: look)
+    held = [0, 0]
+    release = input(held, release: true)
+    sample(for: 2.0, during: look)
+    report("W + mouse", pressAt: press, releaseAt: release)
+
+    // C: look cadence alone: 1 s of mouse motion, then stop.
+    let lookStart = Date().timeIntervalSince(t0)
+    var sent = 0.0
+    sample(for: 1.0, during: { sent += lookStep; _ = input([0, 0], look: [-lookStep, 0]) })
+    let lookEnd = Date().timeIntervalSince(t0)
+    sample(for: 1.0)
+    settleInputs()
+    let lookWindow = samples.filter { $0.wall >= lookStart }
+    guard lookWindow.contains(where: { $0.wall <= lookEnd }),
+          lookWindow.contains(where: { $0.wall > lookEnd })
+    else { fail("look: no snapshots while looking and after the mouse stopped") }
+    var yawSteps: [Double] = []
+    var changeWalls: [Double] = []
+    for (a, b) in zip(lookWindow, lookWindow.dropFirst()) {
+        let raw: Double = b.yaw - a.yaw
+        let d: Double = atan2(sin(raw), cos(raw))
+        if abs(d) > 1e-6 { yawSteps.append(abs(d)); changeWalls.append(b.wall) }
+    }
+    let changes = changeWalls.count
+    let firstChange = changeWalls.first ?? lookStart
+    let lastChange = changeWalls.last ?? lookEnd
+    let total = yawSteps.reduce(0, +)
+    print(String(format: "inputprobe look: sent %.3f rad over 1 s; applied %.3f rad; %d visible yaw updates (%.1f/s); first update %.0f ms after start; last update %.0f ms after mouse stopped; max step %.1f deg",
+                 sent, total, changes, Double(changes) / max(lastChange - firstChange, 1e-6),
+                 (firstChange - lookStart) * 1000, (lastChange - lookEnd) * 1000,
+                 (yawSteps.max() ?? 0) * 180 / .pi))
+    fg.stop()
+    exit(0)
 }

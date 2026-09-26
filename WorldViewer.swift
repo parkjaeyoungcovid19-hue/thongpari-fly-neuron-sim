@@ -195,9 +195,34 @@ final class WorldViewer: SCNView {
         didSet {
             if !participateInputEnabled { lastRightDragPoint = nil }
             updateAimMarkVisibility()
+            updatePointerLock()
         }
     }
     override var acceptsFirstResponder: Bool { true }
+
+    /// While Participate owns input the cursor is hidden and frozen so mouse-look
+    /// deltas continue past the window edge, as in any first-person view. Every
+    /// release path (Esc, focus/key-window loss, mode exit, window close) clears
+    /// participateInputEnabled, which restores the cursor here. Views without a
+    /// window (tests) never touch the real cursor.
+    private(set) var pointerLocked = false
+    private func updatePointerLock() {
+        let want = participateInputEnabled && window != nil
+        guard want != pointerLocked else { return }
+        pointerLocked = want
+        if want {
+            NSCursor.hide()
+            CGAssociateMouseAndMouseCursorPosition(0)
+        } else {
+            CGAssociateMouseAndMouseCursorPosition(1)
+            NSCursor.unhide()
+        }
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        updatePointerLock()
+    }
 
     private let worldScene = SCNScene()
     private let cameraNode = SCNNode()

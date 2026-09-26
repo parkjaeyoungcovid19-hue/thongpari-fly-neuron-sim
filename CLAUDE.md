@@ -33,7 +33,9 @@ When the main conversation runs on Fable 5, keep Fable lean and push heavy work 
 
 | file | contents |
 |---|---|
-| `main.swift` | overlay scene, CLI dispatch, `--simtest` / `--behaviortest`, `SignalBuilder` (rates→commands), `Coordinator` (render-loop hub), `AppDelegate` (menu, timers, display switching) |
+| `main.swift` | overlay scene, CLI dispatch, `Coordinator` (render-loop hub), `AppDelegate` (menu, timers, display switching) |
+| `MotorReadout.swift` | `SignalBuilder` (rates→`BrainSignals`) |
+| `SimDiagnostics.swift` | `--simtest` / `--behaviortest` / `--v4timingtest` |
 | `FlyModel.swift` | procedural fly body + `Fly` behavior (states, gait, flight, ledges, sleep) |
 | `Sim.swift` | `Connectome` loader (manifest-driven, validates the CSR), `Role` ids, `BrainSignals`, `SpikeBus` |
 | `MetalSim.swift` | `SimParams` (every knob + the resting-drive landmark table), `MetalShared` (pipelines, CSR buffers, load-time weight transform), `MetalSim` (per-neuron state, stim, batched `step()`) |
@@ -157,7 +159,7 @@ behavior (`signals: nil` path).
    own `baselineFwd` 0.032; never randomize per side for a bilateral pair,
    asymmetry must come from wiring), plus an `nXyz` EMA denominator and a
    `rateXyz` fold in `runBatch`.
-6. **`SignalBuilder`** (main.swift): normalize `rateXyz` into a new
+6. **`SignalBuilder`** (MotorReadout.swift): normalize `rateXyz` into a new
    `BrainSignals` field — **always clamp** (an unclamped walkDrive once sent the
    fly to 1,100 pt/s). Read the resting distribution out of `--brainstats` first:
    the mapping has to straddle it, not sit under it.

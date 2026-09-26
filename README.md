@@ -353,7 +353,9 @@ The project is therefore best used for **controlled comparisons inside the same 
 ├── FlyGymService.swift            app-owned backend process on a private port
 ├── FlyGymBridge.swift             Swift TCP transport, queues, connection lifecycle
 ├── FlyGymPackets.swift            wire packets, typed decoders, body/sensory mapping
-├── BridgeDiagnostics.swift        --bridgetest / --bridgeloop / --v4loop / --labloop
+├── BridgeDiagnostics.swift        --bridgetest / --bridgeloop / --v4loop / --labloop / --interactionloop / --inputprobe
+├── LabDiagnostics.swift           --labtest (headless lab protocol / input checks)
+├── SimDiagnostics.swift           --simtest / --behaviortest / --v4timingtest
 ├── LabWindow.swift                Virtual Fly Lab window, inspector pages, commands
 ├── LabChrome.swift                source-list sidebar and inspector building blocks
 ├── WorldViewer.swift              3D canvas: camera, selection, participate input
@@ -361,7 +363,7 @@ The project is therefore best used for **controlled comparisons inside the same 
 ├── BrainView.swift                139k-neuron 3D brain view (embedded in Brain page)
 ├── LabLocalization.swift          English / Korean interface strings
 ├── NeuronGuide.swift, FlyMood.swift  plain-language neuron and mood readouts
-├── LabProtocol.swift              lab state / telemetry / tests
+├── LabProtocol.swift              lab state / telemetry packets
 ├── PlayerController.swift         V5.5 WASD / mouse-look / focus / remap state
 ├── ExperimentRecorder.swift       events + CSV recording
 ├── SensoryModel.swift             modeled source → receptor-drive boundary

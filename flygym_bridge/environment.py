@@ -20,7 +20,3 @@ class ArenaConfig:
     render_width: int = 480
     render_height: int = 360
     render_fps: int = 20
-
-    def as_dict(self):
-        return {'box_obstacle': self.box_obstacle,
-                'floor_friction': self.floor_friction}

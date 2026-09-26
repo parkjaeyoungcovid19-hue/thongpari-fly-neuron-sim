@@ -147,11 +147,32 @@ final class PlayerController {
     private var heldKeyCodes = Set<UInt16>()
     private var blockedUntilFreshPress = Set<UInt16>()
     private(set) var freshInteractPress = false
-    let lookRadiansPerPoint: Double
+    /// Mouse-look gain in radians per AppKit point. 0.004 (0.23 deg/pt) was
+    /// reported as too fast (2026-09-26); the shipped default is 0.0015.
+    static let lookSensitivityKey = "SiliconFly.V5.PlayerInput.LookRadiansPerPoint"
+    static let defaultLookRadiansPerPoint = 0.0015
+    static let lookSensitivityRange = 0.0005...0.006
+    private(set) var lookRadiansPerPoint: Double
 
-    init(defaults: UserDefaults = .standard, lookRadiansPerPoint: Double = 0.004) {
+    /// An explicit `lookRadiansPerPoint` (tests) wins over the stored preference.
+    init(defaults: UserDefaults = .standard, lookRadiansPerPoint: Double? = nil) {
         bindings = PlayerKeyBindings(defaults: defaults)
-        self.lookRadiansPerPoint = max(0.0001, min(0.05, lookRadiansPerPoint))
+        let stored = (defaults.object(forKey: Self.lookSensitivityKey) as? NSNumber)?.doubleValue
+        if let explicit = lookRadiansPerPoint, explicit.isFinite {
+            self.lookRadiansPerPoint = max(0.0001, min(0.05, explicit))
+        } else {
+            self.lookRadiansPerPoint = Self.clampedSensitivity(stored ?? Self.defaultLookRadiansPerPoint)
+        }
+    }
+
+    static func clampedSensitivity(_ value: Double) -> Double {
+        guard value.isFinite else { return defaultLookRadiansPerPoint }
+        return min(lookSensitivityRange.upperBound, max(lookSensitivityRange.lowerBound, value))
+    }
+
+    func setLookSensitivity(_ radiansPerPoint: Double, defaults: UserDefaults = .standard) {
+        lookRadiansPerPoint = Self.clampedSensitivity(radiansPerPoint)
+        defaults.set(lookRadiansPerPoint, forKey: Self.lookSensitivityKey)
     }
 
     @discardableResult

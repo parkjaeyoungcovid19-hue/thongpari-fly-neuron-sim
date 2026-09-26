@@ -11,7 +11,7 @@
 | 운반 방식 | **(a) kinematic 운반.** 잡힌 mocap 물체를 native substep마다 **제한 속도**로 목표점에 옮긴다. 순간이동 금지. | 물체는 컴파일 때 만든 mocap 슬롯이다. free body+weld로 바꾸면 슬롯 구조와 V4 결정론이 크게 흔들린다. F-02와 같은 원칙(substep마다 제한된 변화). |
 | 운반 높이 | 잡을 때의 물체 z를 유지하고 **XY만** 움직인다. 놓기는 그 자리에서 해제한다(낙하 없음). | 바닥에 놓인 물체는 계속 바닥에 있다. 중력 없는 kinematic 물체를 떨어뜨리는 흉내를 내지 않는다. |
 | 목표점 | 참여체 중심 + 수평 look 방향 × (참여체 반경 + 물체 수평 반폭 + `CARRY_GAP_MM`) | 물체가 참여체 앞에 있고 참여체와 겹치지 않는다. |
-| 관통 방지 | mocap은 solver가 밀어내지 못한다. MuJoCo는 mocap↔mocap, mocap↔고정 평면 사이 contact를 **만들지 않는다**(2026-09-26 real 재현). 따라서 매 substep 이동 뒤 운반 물체와 (바닥·다른 LabObject·참여체) 사이 **`mj_geomDistance` 기하 거리**를 잰다. 거리 < `-CARRY_PENETRATION_TOL_MM` **이면서 이동 전보다 더 깊어졌을 때만** 그 substep 이동을 되돌리고(`blocked`) 멈춘다. 처음부터 겹쳐 있던 물체(예: 크기를 키워 바닥에 묻힌 상자)는 겹침을 줄이거나 유지하는 방향으로 움직일 수 있다. | 한 substep 최대 이동은 속도×0.1 ms라 되돌림 전 관통이 매우 작다. 파리 접촉 사건은 계속 실제 contact(`mj_contactForce`)에서만 만든다. |
+| 관통 방지 | mocap은 solver가 밀어내지 못한다. MuJoCo는 mocap↔mocap, mocap↔고정 평면 사이 contact를 **만들지 않는다**(2026-09-26 real 재현). **V5.6.1부터 이동 전 제약:** 매 substep 이동 **전에** 운반 물체와 가까운 LabObject·참여체 사이 `mj_geomDistance`(witness 점 포함)로 수평 법선과 남은 간격을 구하고, 목표점 방향 이동 중 그 표면으로 다가가는 성분을 남은 간격까지만 허용한다(참여체는 `CARRY_GAP_MM`, LabObject는 `CARRY_CONTACT_SKIN_MM`까지). 그래서 물체는 벽을 따라 미끄러지고 참여체 둘레로 돌아가며, 참여체를 밀지 않는다. 목표가 참여체 정반대라 정면으로 막히면 look이 도는 쪽으로 참여체 접선을 따라 돈다. 제약이 한 substep 이동을 절반 미만으로 줄이면 `blocked`(해당 표면 kind)다. 바닥은 수평 이동으로 깊어지지 않으므로 제약에서 뺀다. **안전망(기존 유지):** 이동 뒤 거리 < `-CARRY_PENETRATION_TOL_MM` **이면서 이동 전보다 더 깊어졌을 때만** 그 substep 이동을 되돌리고(`blocked`) 멈춘다. 처음부터 겹쳐 있던 물체는 겹침을 줄이거나 유지하는 방향으로 움직일 수 있다. | 한 substep 최대 이동은 속도×0.1 ms다. 막힌 뒤 방향을 추측하는 방식(직선 추적, 극좌표, 고정 접선 미끄럼)은 각각 참여체를 밀거나(최대 32.5 mm) 벽에 고착됐다(2026-09-26 Codex 리뷰·real 재현). 파리 접촉 사건은 계속 실제 contact(`mj_contactForce`)에서만 만든다. |
 | 파리와 접촉 | 파리는 동적 물체라 solver가 밀어낸다(막지 않음). 그러나 FlyGym 파리 geom은 `contype=conaffinity=0`이고 **명시 contact pair만** 쓴다. 따라서 운반 가능한 충돌 슬롯(box/sphere/wall) geom과 파리 몸통 geom(thorax, 가능하면 head/abdomen) 사이 **명시 pair를 컴파일 전에 추가**한다. | V5.4 참여체와 같은 방식. 없으면 운반 물체가 파리를 그냥 통과한다(현재 LabObject 전부가 그렇다). |
 | 성능 확인 | pair 추가 전후 real body의 sim_per_wall(또는 quantum 처리 시간)을 같은 조건에서 측정해 보고한다. 20% 넘게 느려지면 thorax 전용으로 줄이고 그 사실을 보고한다. | 8 GB M2, body Hz가 이미 빠듯하다. |
 | 허용 거리 | `INTERACTION_REACH_MM = 12.0` (참여체 중심 → backend ray hit 지점). 잠정값이며 real 측정 뒤 조정 가능. | 참여체 반경 2.5 mm의 약 5배. |
@@ -27,6 +27,7 @@ INTERACTION_RAY_ORIGIN_TOL_FACTOR = 2.0   # × player radius
 CARRY_SPEED_MM_S = 40.0                   # > PLAYER_MOVE_SPEED_MM_S(30) so the object keeps up
 CARRY_GAP_MM = 0.5
 CARRY_PENETRATION_TOL_MM = 0.05
+CARRY_CONTACT_SKIN_MM = 0.005             # V5.6.1: stop short of LabObjects (normal undefined at 0)
 ```
 
 ## 3. Wire 계약 — InteractionCommand (Swift → Python)

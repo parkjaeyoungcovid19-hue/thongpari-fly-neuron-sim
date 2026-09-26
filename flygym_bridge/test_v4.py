@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fly_body import MockBody
 from bridge import Bridge
-from lab_world import LabWorld
 from neural_decoder import LocomotorCommand
 from player_body import PLAYER_MOVE_SPEED_MM_S
 from protocol import (

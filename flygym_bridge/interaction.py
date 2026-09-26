@@ -9,6 +9,9 @@ INTERACTION_RAY_ORIGIN_TOL_FACTOR = 2.0
 CARRY_SPEED_MM_S = 40.0
 CARRY_GAP_MM = 0.5
 CARRY_PENETRATION_TOL_MM = 0.05
+# A carried object stops this far short of another LabObject: at zero distance
+# MuJoCo's witness points coincide and the surface normal is undefined.
+CARRY_CONTACT_SKIN_MM = 0.005
 
 
 class InteractionError(ValueError):
@@ -73,6 +76,8 @@ class InteractionState:
         self.held_object_id = None
         self.carry_blocked = False
         self.blocking_geom_kind = None
+        # Kind of surface that limited the last carry step before it was taken.
+        self.limited_by = None
         self.last = None
         self.contacts = {}  # (object id, fly segment) -> (begin tick, peak force)
         self.previous_position = None
@@ -101,14 +106,78 @@ class InteractionState:
             "hit_distance_mm": hit_distance_mm,
         }
 
-    def desired_xy(self, player, obj):
-        # PlayerBody input yaw is the authoritative horizontal look direction.
-        yaw = player.look_yaw_rad
-        radius = max(obj.size_mm[0], obj.size_mm[1]) * 0.5
-        distance = player.radius_mm + radius + CARRY_GAP_MM
+    @staticmethod
+    def hold_radius_mm(player, obj):
+        """Centre distance at which the held object cannot touch the participant.
+
+        Objects keep their own yaw while carried, so a box uses its horizontal
+        half-diagonal: any look direction then leaves CARRY_GAP_MM of clearance.
+        """
+        if obj.shape in ("sphere", "food"):
+            extent = obj.size_mm[0] * 0.5
+        else:
+            extent = math.hypot(obj.size_mm[0], obj.size_mm[1]) * 0.5
+        return player.radius_mm + extent + CARRY_GAP_MM
+
+    def carry_step_xy(self, player, obj, max_step_mm, constraints=()):
+        """One bounded carry step toward the hold point, constrained before it is taken.
+
+        `constraints` (or a callable returning them, evaluated only when the
+        object has somewhere to go) are (nx, ny, allowance_mm, kind): a unit horizontal normal
+        pointing from a nearby surface to the held object, and how far the object
+        may still approach that surface. The step toward the hold point keeps
+        only what every constraint allows, so the object slides along walls and
+        around the participant instead of pushing into them. A straight chase
+        without the participant constraint cut through it after a turn and the
+        free-joint body drifted with no input (2026-09-26: 31.6 mm in 3 s).
+        """
+        self.limited_by = None
         center = participant_center(player)
-        return (center[0] + math.cos(yaw) * distance,
-                center[1] + math.sin(yaw) * distance)
+        yaw = player.look_yaw_rad
+        hold = self.hold_radius_mm(player, obj)
+        dx = center[0] + math.cos(yaw) * hold - obj.position_mm[0]
+        dy = center[1] + math.sin(yaw) * hold - obj.position_mm[1]
+        distance = math.hypot(dx, dy)
+        length = min(max(0.0, float(max_step_mm)), distance)
+        if length <= 1e-12:
+            return (obj.position_mm[0], obj.position_mm[1])
+        if callable(constraints):
+            constraints = constraints()
+        sx, sy = dx / distance * length, dy / distance * length
+        fx, fy, limited_by = _constrained_step(sx, sy, constraints)
+        if math.hypot(fx, fy) < 0.5 * length and limited_by == "player":
+            # Head-on into the participant (target behind it): go around it,
+            # on the side the look is turning toward.
+            vx, vy = obj.position_mm[0] - center[0], obj.position_mm[1] - center[1]
+            nx, ny = next((c[0], c[1]) for c in constraints if c[3] == "player")
+            side = 1.0 if vx * dy - vy * dx >= 0.0 else -1.0
+            tx, ty, around_limited = _constrained_step(-ny * side * length, nx * side * length,
+                                                       constraints)
+            if math.hypot(tx, ty) > math.hypot(fx, fy):
+                fx, fy, limited_by = tx, ty, around_limited
+        if limited_by is not None and math.hypot(fx, fy) < 0.5 * length:
+            self.limited_by = limited_by
+        return (obj.position_mm[0] + fx, obj.position_mm[1] + fy)
+
+
+def _constrained_step(sx, sy, constraints):
+    """Project a horizontal step until no constraint is exceeded (zero if none fits)."""
+    limited_by, removed = None, 0.0
+    for _ in range(4):
+        exceeded = False
+        for nx, ny, allowance, kind in constraints:
+            approach = -(sx * nx + sy * ny) - allowance
+            if approach > 1e-12:
+                sx, sy = sx + approach * nx, sy + approach * ny
+                exceeded = True
+                if approach > removed:
+                    limited_by, removed = kind, approach
+        if not exceeded:
+            return sx, sy, limited_by
+    for nx, ny, allowance, kind in constraints:
+        if -(sx * nx + sy * ny) - allowance > 1e-9:
+            return 0.0, 0.0, kind
+    return sx, sy, limited_by
 
 
 def participant_center(player):

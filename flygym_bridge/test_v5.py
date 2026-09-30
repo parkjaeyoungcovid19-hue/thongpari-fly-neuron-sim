@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from bridge import Bridge
 from fly_body import RealFlyBody
-from player_body import PLAYER_MOVE_SPEED_MM_S
+from player_body import PLAYER_MOVE_SPEED_MM_S, PLAYER_SPAWN_MM
 from protocol import (
     HelloPacket,
     LabCommand,
@@ -354,7 +354,7 @@ check(
     and player_snapshot.ok
     and player_snapshot.player is not None
     and player_snapshot.player["actor_id"] == "player"
-    and player_snapshot.player["position_mm"] == [24.0, 0.0, 2.5]
+    and player_snapshot.player["position_mm"] == list(PLAYER_SPAWN_MM)
     and player_snapshot.player["orientation_quat_xyzw"] == [0.0, 0.0, 0.0, 1.0]
     and player_snapshot.player["collision_radius_mm"] == 2.5
     and player_snapshot.player["mode"] == "participate",

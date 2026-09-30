@@ -1,0 +1,8 @@
+build exit=0 59s | 
+swift-bridgetest exit=0 1s | ALL BRIDGE TESTS PASS
+swift-labtest exit=0 2s | ALL LAB TESTS PASS
+swift-v4test exit=0 0s | ALL V4 SESSION TESTS PASS
+swift-v4sessiontest exit=0 0s | ALL V4 SESSION TESTS PASS
+swift-v4timingtest exit=0 0s | ALL V4 TIMING TESTS PASS
+swift-simtest exit=0 40s | PASS: GF silent at rest, fires on loom; locomotor drive fluctuates; stim works; siesta alive
+swift-behaviortest exit=0 1s | ALL BEHAVIOR TESTS PASS

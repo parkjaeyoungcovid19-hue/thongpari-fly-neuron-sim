@@ -169,12 +169,20 @@ class ViewStream:
                 self._model = model
                 self._scenes = [mujoco.MjvScene(model, maxgeom=MAX_GEOMS) for _ in range(2)]
                 self._option = mujoco.MjvOption()
+                # View-only effects (BB tracers) live in geom group 3, which
+                # FlyGym's eye renderer never draws.
+                from sandbox_models import VIEW_ONLY_GROUP
+                self._option.geomgroup[VIEW_ONLY_GROUP] = 1
                 self._free_camera = mujoco.MjvCamera()
                 self._free_camera.type = mujoco.mjtCamera.mjCAMERA_FREE
             index = 1 if self._busy == 0 else 0
             if self._ready is not None and self._ready[0] == index:
                 self._ready = None
-        self._next_render = now + self.period
+        # Advance the schedule rather than restarting it from `now`: this is
+        # polled once per physics iteration, and a strict `now + period` gate
+        # halves the rate whenever an iteration is a little shorter than the
+        # period (31 ms iterations gave 16 fps instead of 24, 2026-09-29).
+        self._next_render = max(self._next_render + self.period, now)
         scene = self._scenes[index]
         cam = self._free_camera
         (px, py, pz), (fx, fy, fz) = _resolve_anchor(
@@ -353,15 +361,29 @@ def _resolve_anchor(camera, anchors):
 
 
 def _hide_participant_geom(model, scene):
-    """Drop the participant's own sphere from a first-person frame."""
+    """Drop the participant's own head (sphere and face) from a first-person frame.
+
+    The eye sits inside the head. Face parts lie on the head surface; the
+    limbs and the toy gun lie farther out and stay visible when looking down.
+    """
     import mujoco
     from player_body import PLAYER_GEOM_NAME
-    gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, PLAYER_GEOM_NAME)
-    if gid < 0:
+    head = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, PLAYER_GEOM_NAME)
+    if head < 0:
+        return
+    body = int(model.geom_bodyid[head])
+    reach = float(model.geom_size[head][0]) * 1.05 + 0.1
+    center = None
+    for i in range(scene.ngeom):
+        g = scene.geoms[i]
+        if g.objtype == mujoco.mjtObj.mjOBJ_GEOM and g.objid == head:
+            center = [float(v) for v in g.pos]
+    if center is None:
         return
     for i in range(scene.ngeom):
         g = scene.geoms[i]
-        if g.objtype == mujoco.mjtObj.mjOBJ_GEOM and g.objid == gid:
+        if (g.objtype == mujoco.mjtObj.mjOBJ_GEOM and int(model.geom_bodyid[g.objid]) == body
+                and math.dist(center, [float(v) for v in g.pos]) <= reach):
             g.rgba[3] = 0.0
             g.size[:] = 0.0
 

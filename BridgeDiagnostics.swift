@@ -104,6 +104,29 @@ func runBridgeTest() {
         }
     }
     check("malformed rejected", malformed == 5, "\(malformed)/5")
+    // Optional taste_sugar: absent/null -> 0, valid accepted, anything else rejects the packet.
+    func tastePacket(_ v: String?) -> FlyGymBodyPacket? {
+        parseBodyLine(Data((v.map { #"{"type":"body","vx":0.01,"taste_sugar":\#($0)}"# }
+                           ?? #"{"type":"body","vx":0.01}"#).utf8))
+    }
+    let tasteBad = ["NaN", "1.0001", "-0.1", "1e999", #""0.5""#, "true", "[0.5]"]
+    check("taste_sugar optional strict decode",
+          tastePacket(nil)?.tasteSugar == 0 && tastePacket("null")?.tasteSugar == 0
+          && tastePacket("0")?.tasteSugar == 0 && tastePacket("0.35")?.tasteSugar == 0.35
+          && tastePacket("1")?.tasteSugar == 1
+          && tasteBad.allSatisfy { tastePacket($0) == nil },
+          "rejected: " + tasteBad.filter { tastePacket($0) == nil }.joined(separator: " "))
+    if let tp = tastePacket("0.6") {
+        var fb = FlyGymBodyFeedback(tp)
+        fb.receivedAt = Date()
+        let fresh = FlyGymSensoryMap.sugarTaste(body: fb)
+        fb.receivedAt = Date(timeIntervalSinceNow: -10)
+        check("taste_sugar reaches feedback; stale clears",
+              abs(fresh - 0.6) < 1e-6 && FlyGymSensoryMap.sugarTaste(body: fb) == 0
+              && FlyGymSensoryMap.sugarTaste(body: nil) == 0)
+    } else {
+        check("taste_sugar reaches feedback; stale clears", false, "valid packet rejected")
+    }
 
     // V5.1 atomic render protocol. The viewport may only consume this packet;
     // malformed/mixed payloads never fall back to joining body + lab_state.

@@ -43,6 +43,18 @@ enum SensoryModel {
         return 0.060 * sqrt(sqrt(bounded)) * sensoryGate
     }
 
+    /// Labellar sugar contact (0..1 from the body model) -> current into the
+    /// root-ID-identified sugar GRNs (`MetalSim.sugarGRN`). MODELING ASSUMPTION:
+    /// same bounded compressive form as the ORN transform at twice its gain; full
+    /// contact drives the GRNs at ~85 Hz in this LIF (0.3 -> ~58 Hz; measured by
+    /// --simtest). It is receptor current into
+    /// identified neurons, not a claim about what the fly perceives. Odor never
+    /// enters here: taste drive exists only when the body reports contact.
+    static func sugarTasteCurrent(_ sugar: Float, sensoryGate: Float) -> Float {
+        let bounded = min(1, max(0, sugar))
+        return 0.120 * sqrt(sqrt(bounded)) * sensoryGate
+    }
+
     /// Temperature -> identified warm/cool receptor current. Neutral at 25 C.
     static func thermal(celsius: Double, enabled: Bool,
                         sensoryGate: Float) -> ThermalSensoryDrive {

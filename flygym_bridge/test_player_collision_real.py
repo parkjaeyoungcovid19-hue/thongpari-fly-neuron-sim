@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from environment import ArenaConfig
 from fly_body import RealFlyBody
 from neural_decoder import LocomotorCommand
-from player_body import PLAYER_MOVE_SPEED_MM_S, PLAYER_RADIUS_MM
+from player_body import PLAYER_MOVE_SPEED_MM_S, PLAYER_RADIUS_MM, PLAYER_WORKSPACE_LIMIT_MM
 
 STATIC_PENETRATION_MAX_MM = 0.1
 FLY_PENETRATION_MAX_MM = 1.0
@@ -109,8 +109,8 @@ try:
 
     def look_matches():
         mujoco.mj_forward(m, d)
-        q = player.orientation_quat_xyzw
-        want = np.array([q[3], q[0], q[1], q[2]])
+        # V5.6.2: the collision body carries the look yaw only.
+        want = np.array(player._body_quat_wxyz())
         got = np.asarray(d.xquat[player.body_id], dtype=float)
         return float(min(np.abs(got - want).max(), np.abs(got + want).max()))
 
@@ -294,13 +294,13 @@ try:
     check("F-02 servo motion is deterministic for identical input", det_err == 0.0,
           f"max_abs_diff={det_err:.3e}mm")
 
-    # 11. Workspace bound: the servo stops driving past +/-1000 mm like set_pose().
-    reset_player([999.5, 0.0, 8.0])
+    # 11. Workspace bound: the servo stops driving past the lawn edge like set_pose().
+    reset_player([PLAYER_WORKSPACE_LIMIT_MM - 0.5, 0.0, 8.0])
     hold(1.0)
     run(0.5, q20)
     x_edge = float(player_pos()[0])
-    check("F-02 servo respects the +/-1000 mm participant workspace",
-          x_edge <= 1000.0 + 0.05 and player_speed() <= RELEASE_SPEED_MAX_MM_S,
+    check(f"F-02 servo respects the +/-{PLAYER_WORKSPACE_LIMIT_MM:g} mm participant workspace",
+          x_edge <= PLAYER_WORKSPACE_LIMIT_MM + 0.05 and player_speed() <= RELEASE_SPEED_MAX_MM_S,
           f"x={x_edge:.4f}mm speed={player_speed():.4f}mm/s")
 finally:
     body.close()

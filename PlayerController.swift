@@ -12,6 +12,10 @@ enum PlayerControlAction: String, CaseIterable, Codable {
     case left
     case right
     case interact
+    /// V5.6.2 BB gun: toggle equip, and fire while equipped. Both are
+    /// edge-triggered tool keys, never held actions sent to the backend.
+    case gun
+    case fire
 
     var title: String {
         switch self {
@@ -20,8 +24,19 @@ enum PlayerControlAction: String, CaseIterable, Codable {
         case .left: return "Left"
         case .right: return "Right"
         case .interact: return "Interact"
+        case .gun: return "Gun"
+        case .fire: return "Fire"
         }
     }
+
+    var isToolTrigger: Bool { self == .gun || self == .fire }
+}
+
+/// What a participant tool key or a captured left click asks LabWindow to send.
+enum PlayerToolAction: Equatable {
+    case equipGun(Bool)
+    case fire
+    case grab
 }
 
 struct PlayerKeyChoice: Equatable {
@@ -33,6 +48,7 @@ struct PlayerKeyChoice: Equatable {
         .init(title: "S", keyCode: 1), .init(title: "D", keyCode: 2),
         .init(title: "Q", keyCode: 12), .init(title: "E", keyCode: 14),
         .init(title: "R", keyCode: 15), .init(title: "F", keyCode: 3),
+        .init(title: "G", keyCode: 5),
         .init(title: "I", keyCode: 34), .init(title: "J", keyCode: 38),
         .init(title: "K", keyCode: 40), .init(title: "L", keyCode: 37),
         .init(title: "Space", keyCode: 49), .init(title: "Esc", keyCode: 53),
@@ -61,13 +77,14 @@ struct PlayerKeyBindings: Equatable {
     static let preferencePrefix = "SiliconFly.V5.PlayerInput.Key."
     static let defaults: [PlayerControlAction: UInt16] = [
         .forward: 13, .backward: 1, .left: 0, .right: 2,
-        .interact: 14,
+        .interact: 14, .gun: 5, .fire: 3,
     ]
 
     private(set) var keyCodes: [PlayerControlAction: UInt16]
 
     init(defaults store: UserDefaults = .standard) {
         var loaded = Self.defaults
+        var stored = Set<PlayerControlAction>()
         for action in PlayerControlAction.allCases {
             let key = Self.preferencePrefix + action.rawValue
             if let number = store.object(forKey: key) as? NSNumber {
@@ -75,7 +92,18 @@ struct PlayerKeyBindings: Equatable {
                 if value >= 0, value <= Int(UInt16.max),
                    PlayerKeyChoice.containsRemappable(UInt16(value)) {
                     loaded[action] = UInt16(value)
+                    stored.insert(action)
                 }
+            }
+        }
+        // An action added after the preferences were saved (V5.6.2 gun/fire)
+        // yields its default key to a saved custom mapping instead of forcing
+        // the whole map back to defaults below.
+        for action in PlayerControlAction.allCases where !stored.contains(action) {
+            let others = PlayerControlAction.allCases.filter { $0 != action }.compactMap { loaded[$0] }
+            if let code = loaded[action], others.contains(code),
+               let free = PlayerKeyChoice.remappable.first(where: { !others.contains($0.keyCode) }) {
+                loaded[action] = free.keyCode
             }
         }
         // Corrupt/old preferences must never leave two actions on one key. A
@@ -147,6 +175,9 @@ final class PlayerController {
     private var heldKeyCodes = Set<UInt16>()
     private var blockedUntilFreshPress = Set<UInt16>()
     private(set) var freshInteractPress = false
+    /// Local mirror of the backend gun state, set only from an `equip_gun` ACK.
+    private(set) var gunEquipped = false
+    private var pendingToolAction: PlayerToolAction?
     /// Mouse-look gain in radians per AppKit point. 0.004 (0.23 deg/pt) was
     /// reported as too fast (2026-09-26); the shipped default is 0.0015.
     static let lookSensitivityKey = "SiliconFly.V5.PlayerInput.LookRadiansPerPoint"
@@ -184,6 +215,7 @@ final class PlayerController {
 
     func handleKeyDown(keyCode: UInt16, isRepeat: Bool) -> PlayerInputIntent? {
         freshInteractPress = false
+        pendingToolAction = nil
         guard captureEnabled else { return nil }
         if keyCode == Self.escapeKeyCode {
             if isRepeat { return nil }
@@ -194,7 +226,15 @@ final class PlayerController {
             heldKeyCodes.removeAll(keepingCapacity: true)
             return neutralIntent()
         }
-        guard bindings.action(for: keyCode) != nil else { return nil }
+        guard let action = bindings.action(for: keyCode) else { return nil }
+        if action.isToolTrigger {
+            // One fresh physical press = one command; key-repeat never fires.
+            if !isRepeat {
+                pendingToolAction = action == .gun ? .equipGun(!gunEquipped)
+                    : (gunEquipped ? .fire : nil)
+            }
+            return nil
+        }
         if blockedUntilFreshPress.contains(keyCode) {
             // Key-repeat after a focus/mode loss is the dangerous stale-W case.
             // A brand-new physical press (non-repeat) explicitly re-arms the key.
@@ -229,6 +269,7 @@ final class PlayerController {
 
     func releaseHeldInput(blockUntilFreshPress: Bool) -> PlayerInputIntent? {
         freshInteractPress = false
+        pendingToolAction = nil
         let hadInput = !heldKeyCodes.isEmpty
         if blockUntilFreshPress { blockedUntilFreshPress.formUnion(heldKeyCodes) }
         heldKeyCodes.removeAll(keepingCapacity: true)
@@ -240,6 +281,26 @@ final class PlayerController {
         let release = releaseHeldInput(blockUntilFreshPress: true)
         bindings.rebind(action, to: keyCode, defaults: defaults)
         return release
+    }
+
+    /// The tool command from the last key down, consumed once. Nothing while
+    /// capture is off or focus sits in a text field/control.
+    func takeToolAction(focusAllowsCapture: Bool) -> PlayerToolAction? {
+        defer { pendingToolAction = nil }
+        guard captureEnabled, focusAllowsCapture else { return nil }
+        return pendingToolAction
+    }
+
+    /// A captured left click fires while the gun is equipped and otherwise
+    /// grabs/places exactly like the interact key.
+    func primaryClickAction(focusAllowsCapture: Bool) -> PlayerToolAction? {
+        guard captureEnabled, focusAllowsCapture else { return nil }
+        return gunEquipped ? .fire : .grab
+    }
+
+    func setGunEquipped(_ equipped: Bool) {
+        gunEquipped = equipped
+        pendingToolAction = nil
     }
 
     func heldIntent() -> PlayerInputIntent {

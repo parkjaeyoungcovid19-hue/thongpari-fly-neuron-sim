@@ -206,6 +206,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     private var labThermosensoryEnabled = false
     private var labOdorDriveL: Float = 0
     private var labOdorDriveR: Float = 0
+    private var labTasteSugarDrive: Float = 0   // modeled sugar-GRN current (threshold units/ms)
     private var labThermoWarmDrive: Float = 0
     private var labThermoCoolDrive: Float = 0
     private var labWindCDrive: Float = 0
@@ -338,7 +339,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         msAccumulator = 0
         loomOverride = 0
         windowLoomL = 0; windowLoomR = 0
-        labOdorDriveL = 0; labOdorDriveR = 0
+        labOdorDriveL = 0; labOdorDriveR = 0; labTasteSugarDrive = 0
         labThermoWarmDrive = 0; labThermoCoolDrive = 0
         labWindCDrive = 0; labWindEDrive = 0
         var initial = signalBuilder.make(sim, dt: 0)
@@ -468,7 +469,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
                 labWindDirectionDeg = 0
                 labTemperatureC = 25; labTempoOverride = nil
                 labThermosensoryEnabled = false
-                labOdorDriveL = 0; labOdorDriveR = 0
+                labOdorDriveL = 0; labOdorDriveR = 0; labTasteSugarDrive = 0
                 labThermoWarmDrive = 0; labThermoCoolDrive = 0
                 labWindCDrive = 0; labWindEDrive = 0
                 labTouchDrive = 0; labTouchRemainingS = 0
@@ -747,7 +748,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
             // Brain reset clears neural state, not the physical/environmental
             // experiment. Active wind/touch/temperature are re-applied on the
             // next render step from their preserved environment state.
-            c.labOdorDriveL = 0; c.labOdorDriveR = 0
+            c.labOdorDriveL = 0; c.labOdorDriveR = 0; c.labTasteSugarDrive = 0
             c.labThermoWarmDrive = 0; c.labThermoCoolDrive = 0
             c.labWindCDrive = 0; c.labWindEDrive = 0
         }
@@ -762,7 +763,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
             c.labTemperatureC = 25
             c.labTempoOverride = nil
             c.labThermosensoryEnabled = false
-            c.labOdorDriveL = 0; c.labOdorDriveR = 0
+            c.labOdorDriveL = 0; c.labOdorDriveR = 0; c.labTasteSugarDrive = 0
             c.labThermoWarmDrive = 0; c.labThermoCoolDrive = 0
             c.labWindCDrive = 0; c.labWindEDrive = 0
             c.labTouchDrive = 0
@@ -809,6 +810,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
             t.odorDriveL = Double(labOdorDriveL); t.odorDriveR = Double(labOdorDriveR)
             t.thermoWarmDrive = Double(labThermoWarmDrive); t.thermoCoolDrive = Double(labThermoCoolDrive)
             t.windCDrive = Double(labWindCDrive); t.windEDrive = Double(labWindEDrive)
+            t.tasteSugarDrive = Double(labTasteSugarDrive)
             t.applyReceptorRates(sim)
         }
         t.applyBodyFeedback(bodyFeedback)
@@ -935,6 +937,14 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         labOdorDriveR = SensoryModel.odorCurrent(odor.r, sensoryGate: sim.sensoryGate)
         sim.setModeledSensoryDrive(.foodOdorLeft, indices: sim.foodOdorLeft, strength: labOdorDriveL)
         sim.setModeledSensoryDrive(.foodOdorRight, indices: sim.foodOdorRight, strength: labOdorDriveR)
+
+        // Taste: only the body's labellar contact scalar reaches the root-ID-identified
+        // sugar GRNs; odor has no path here. The readout tags the spare histogram
+        // slot (sugar GRN / MN9 rates) without touching the dynamics.
+        sim.tasteReadout = true
+        let sugar = FlyGymSensoryMap.sugarTaste(body: bodyFeedback, maxAge: bodyMaxAge)
+        labTasteSugarDrive = SensoryModel.sugarTasteCurrent(sugar, sensoryGate: sim.sensoryGate)
+        sim.setModeledSensoryDrive(.tasteSugar, indices: sim.sugarGRN, strength: labTasteSugarDrive)
 
         let thermal = SensoryModel.thermal(celsius: labTemperatureC,
                                            enabled: labThermosensoryEnabled,
@@ -1065,7 +1075,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         labWind = 0; labWindDirectionDeg = 0; labWindContinuous = false; labWindRemainingS = 0
         labTouchDrive = 0; labTouchRemainingS = 0
         labTemperatureC = 25; labTempoOverride = nil; labThermosensoryEnabled = false
-        labOdorDriveL = 0; labOdorDriveR = 0
+        labOdorDriveL = 0; labOdorDriveR = 0; labTasteSugarDrive = 0
         labThermoWarmDrive = 0; labThermoCoolDrive = 0
         labWindCDrive = 0; labWindEDrive = 0
         sim?.clearModeledSensoryDrives()
@@ -1205,7 +1215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var statusItem: NSStatusItem!
     var mouseTimer: Timer?
     var windowTimer: Timer?
-    var integratedSimulationTimer: Timer?
+    var integratedSimulationThread: Thread?
     var clickMonitor: Any?
     let windowSense = WindowSense()
     var typingLevel: CGFloat = 0
@@ -1399,15 +1409,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         // Never leave the cursor frozen if Participate capture was active.
         CGAssociateMouseAndMouseCursorPosition(1)
-        integratedSimulationTimer?.invalidate()
+        integratedSimulationThread?.cancel()
         flyGymBridge?.stop()
         flyGymService?.stop()
     }
 
     /// The one-window Lab: no overlay, no floating brain panel, no global
-    /// mouse/click/window senses. The brain and body step from a main-run-loop
-    /// timer in `.common` mode so resizing, scrolling or an open menu never
-    /// freezes the simulation behind the window.
+    /// mouse/click/window senses. The brain and body step from a 60 Hz timer
+    /// on their own thread and run loop, so resizing, scrolling or an open menu
+    /// never freezes the simulation behind the window, and the Metal step's GPU
+    /// wait (~2.4 ms per tick on an M2, ~4.5 ms while MuJoCo renders) no longer
+    /// blocks input and frame delivery on the main thread (a quarter of it,
+    /// 2026-09-29 profile). Coordinator already steps off the main thread in the
+    /// overlay (SceneKit renderer) and in V4 lockstep; the UI reaches it only
+    /// through its locked queues and snapshots.
     private func startIntegratedLab(serviceMode: FlyGymServiceMode?) {
         let port: UInt16
         if let serviceMode {
@@ -1427,12 +1442,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         labWC = LabWindowController(coordinator: coordinator, bridge: fg,
                                     connectome: labConnectome, service: flyGymService)
         labWC?.show()
-        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-            self?.coordinator.advanceFrame(at: ProcessInfo.processInfo.systemUptime,
-                                           desktopInputs: false)
+        let coordinator = coordinator!
+        let thread = Thread {
+            let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { timer in
+                guard !Thread.current.isCancelled else { timer.invalidate(); return }
+                coordinator.advanceFrame(at: ProcessInfo.processInfo.systemUptime,
+                                         desktopInputs: false)
+            }
+            RunLoop.current.add(timer, forMode: .default)
+            RunLoop.current.run()   // returns once the timer is invalidated
         }
-        RunLoop.main.add(timer, forMode: .common)
-        integratedSimulationTimer = timer
+        thread.name = "lab-simulation"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+        integratedSimulationThread = thread
     }
 
     @objc func togglePause(_ sender: NSMenuItem) {

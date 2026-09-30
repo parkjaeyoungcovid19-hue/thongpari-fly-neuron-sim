@@ -4,7 +4,9 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
-INTERACTION_REACH_MM = 12.0
+# 16 mm since V5.6.2: the stick figure's eye is 10.3 mm up, so a floor item
+# 9 mm ahead is already ~12.6 mm from the head centre.
+INTERACTION_REACH_MM = 16.0
 INTERACTION_RAY_ORIGIN_TOL_FACTOR = 2.0
 CARRY_SPEED_MM_S = 40.0
 CARRY_GAP_MM = 0.5

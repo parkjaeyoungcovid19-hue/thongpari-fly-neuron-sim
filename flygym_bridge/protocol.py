@@ -182,6 +182,15 @@ def _strict_render_object(value, index):
         if not isinstance(classification, str) or len(classification) > 64:
             raise ValueError(f"{name}.classification is invalid")
         out["classification"] = classification
+    if value.get("trap_state") is not None:
+        if value["trap_state"] not in ("armed", "dropping", "closed"):
+            raise ValueError(f"{name}.trap_state is invalid")
+        out["trap_state"] = value["trap_state"]
+    if value.get("food_variant") is not None:
+        variant = value["food_variant"]
+        if not isinstance(variant, str) or not variant.strip() or len(variant) > 32:
+            raise ValueError(f"{name}.food_variant is invalid")
+        out["food_variant"] = variant.strip()
     return out
 
 @dataclass
@@ -256,6 +265,9 @@ class BodyPacket:
     odor_left: float = 0.0
     odor_right: float = 0.0
     nearest_food_distance_mm: float | None = None
+    # V5.6.2 modeled sugar-contact signal (0..1) while the mouth touches food.
+    taste_sugar: float = 0.0
+    eating_food_id: str | None = None
     position_x_mm: float = 0.0
     position_y_mm: float = 0.0
     heading_rad: float = 0.0
@@ -309,6 +321,9 @@ class BodyPacket:
         nearest_food = d.get("nearest_food_distance_mm", None)
         p.nearest_food_distance_mm = (
             clamp(nearest_food, 0.0, 1e6) if nearest_food is not None else None)
+        p.taste_sugar = clamp(d.get("taste_sugar", 0.0), 0.0, 1.0)
+        eating = d.get("eating_food_id")
+        p.eating_food_id = eating[:64] if isinstance(eating, str) and eating else None
         p.position_x_mm = clamp(d.get("position_x_mm", 0.0), -1e6, 1e6)
         p.position_y_mm = clamp(d.get("position_y_mm", 0.0), -1e6, 1e6)
         p.heading_rad = clamp(d.get("heading_rad", 0.0), -math.pi, math.pi)
@@ -337,10 +352,13 @@ class BodyPacket:
              "optic_expansion_right": self.optic_expansion_right,
              "flash_left": self.flash_left, "flash_right": self.flash_right,
              "odor_left": self.odor_left, "odor_right": self.odor_right,
+             "taste_sugar": self.taste_sugar,
              "position_x_mm": self.position_x_mm, "position_y_mm": self.position_y_mm,
              "heading_rad": self.heading_rad, "bearing": self.bearing}
         if self.nearest_food_distance_mm is not None:
             d["nearest_food_distance_mm"] = self.nearest_food_distance_mm
+        if self.eating_food_id is not None:
+            d["eating_food_id"] = self.eating_food_id
         if self.eye_sample_sim_tick is not None:
             d["eye_sample_sim_tick"] = int(self.eye_sample_sim_tick)
         if self.gait_phase is not None:
@@ -801,6 +819,7 @@ class WorldRenderSnapshotPacket:
     fly: dict | None = None
     objects: list[dict] | None = None
     player: dict | None = None
+    projectiles: list[dict] | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "WorldRenderSnapshotPacket":
@@ -840,11 +859,28 @@ class WorldRenderSnapshotPacket:
                 raise ValueError("player.mode is required")
             actor_id = player.pop("id")
             player["actor_id"] = actor_id
+        projectiles = None
+        if "projectiles" in d:
+            raw = d["projectiles"]
+            if not isinstance(raw, list) or len(raw) > 8:
+                raise ValueError("projectiles must be an array of at most 8")
+            projectiles = []
+            for index, item in enumerate(raw):
+                if not isinstance(item, dict):
+                    raise ValueError("projectile must be an object")
+                projectile_id = item.get("id")
+                if not isinstance(projectile_id, str) or not projectile_id or len(projectile_id) > 64:
+                    raise ValueError("projectile id invalid")
+                projectiles.append({"id": projectile_id,
+                                    "position_mm": _strict_vec(item.get("position_mm"), 3,
+                                                               f"projectiles[{index}].position_mm")})
+            if len({p["id"] for p in projectiles}) != len(projectiles):
+                raise ValueError("duplicate projectile ids")
         return WorldRenderSnapshotPacket(
             protocol_version=protocol_version, session_id=session_id, epoch=epoch,
             request_seq=request_seq, sim_tick=sim_tick, ok=True,
             snapshot_seq=snapshot_seq, world_revision=world_revision,
-            fly=fly, objects=objects, player=player)
+            fly=fly, objects=objects, player=player, projectiles=projectiles)
 
     def to_dict(self) -> dict:
         out = {
@@ -869,6 +905,8 @@ class WorldRenderSnapshotPacket:
             objects=self.objects,
             player=self.player,
         )
+        if self.projectiles is not None:
+            out["projectiles"] = self.projectiles
         # Validate every required success field before it reaches json.dumps.
         validated = WorldRenderSnapshotPacket.from_dict(out)
         out["snapshot_seq"] = validated.snapshot_seq
@@ -879,6 +917,8 @@ class WorldRenderSnapshotPacket:
             out["player"] = validated.player
         else:
             out.pop("player", None)
+        if validated.projectiles is not None:
+            out["projectiles"] = validated.projectiles
         return out
 
 
@@ -1123,6 +1163,42 @@ class LabCommand:
         if op in ("set_eye_state", "eye_state") and target in ("left", "right") and "value" in d:
             # Swift value=1 means covered; value=0 means restored.
             args[f"{target}_mask"] = d.get("value")
+        if op in ("drive_object", "arm_trap", "equip_gun", "fire_bb"):
+            def required_id(name):
+                value = args.get(name)
+                if not isinstance(value, str) or not value.strip() or len(value.strip()) > 64:
+                    raise ValueError(f"{name} is required")
+            if op in ("drive_object", "arm_trap"):
+                required_id("id")
+            else:
+                required_id("actor_id")
+            if op == "drive_object":
+                for name, default, hi in (("speed_mm_s", 20, 60), ("distance_mm", 80, 300)):
+                    value = _strict_number(args.get(name, default), name)
+                    if not 0 < value <= hi:
+                        raise ValueError(f"{name} out of range")
+            elif op == "equip_gun":
+                if not isinstance(args.get("equipped"), bool):
+                    raise ValueError("equipped must be boolean")
+            elif op == "fire_bb":
+                direction = _strict_vec(args.get("direction"), 3, "direction")
+                if abs(math.sqrt(sum(v * v for v in direction)) - 1.0) > 1e-3:
+                    raise ValueError("direction must be a unit 3-vector")
+        toy_shape = args.get("shape")
+        toy_shape = toy_shape.strip().lower() if isinstance(toy_shape, str) else toy_shape
+        if op == "spawn_object" and toy_shape in ("car", "trap"):
+            size = args.get("size_mm", 14 if toy_shape == "car" else 20)
+            if isinstance(size, (list, tuple)):
+                if len(size) != 1:
+                    raise ValueError("toy size_mm must be scalar length")
+                size = size[0]
+            size = _strict_number(size, "size_mm")
+            if not (4 if toy_shape == "car" else 8) <= size <= 60:
+                raise ValueError("size_mm out of range")
+            if "position_mm" in args:
+                _strict_vec(args["position_mm"], 3, "position_mm")
+            if "yaw_deg" in args:
+                _strict_number(args["yaw_deg"], "yaw_deg")
         session_id = None if d.get("session_id") is None else _session_id(d.get("session_id"))
         epoch = None if d.get("epoch") is None else _bounded_int(d.get("epoch"), 1)
         requested_tick = (None if d.get("requested_tick") is None else

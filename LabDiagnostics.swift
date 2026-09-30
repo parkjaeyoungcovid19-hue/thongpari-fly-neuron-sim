@@ -2,6 +2,7 @@
 // presentation and input checks (no socket, no backend).
 import Foundation
 import Cocoa
+import SceneKit
 
 /// Headless lab protocol test. No socket is opened; queue behavior, tolerant
 /// state parsing and direct-neural population selection are exercised directly.
@@ -580,6 +581,39 @@ func runLabTest() {
             }
             check("V3 extraction preserves same-seed downstream neural state", neuralParity,
                   neuralParityDetail)
+
+            // V5.7: clicking every activity card must leave the neural state
+            // bit-identical to an untouched same-seed twin. The control run wires
+            // a click to a real GF stimulus and must be caught by the same probe.
+            func cardClicksDiverge(stimulateOnClick: Bool) -> (diverged: Bool, missed: [ActivityCardID]) {
+                sim.reset(seed: SIM_SEED); legacySim.reset(seed: SIM_SEED)
+                sim.step(20); legacySim.step(20)
+                let panel = ActivityCardPanel()
+                var t = LabTelemetry()
+                t.ratePop = Double(sim.ratePop); t.rateLoom = Double(sim.rateLoom)
+                t.rateDNaL = Double(sim.rateDNaL); t.rateDNaR = Double(sim.rateDNaR)
+                t.rateMDN = Double(sim.rateMDN)
+                t.applyReceptorRates(sim)
+                t.applyBrainSignals(SignalBuilder().make(MotorReadoutInput(ratePop: sim.ratePop), dt: 0.02))
+                panel.update(ActivityCardInput(telemetry: t, brainSimLoaded: true))
+                let missed = clickEveryActivityCard(panel) { _ in
+                    if stimulateOnClick { sim.stimulate(sim.gf, strength: 0.5, durationMs: 30) }
+                }
+                sim.step(40); legacySim.step(40)
+                let same = sim.membrane() == legacySim.membrane()
+                    && sim.debugRefr() == legacySim.debugRefr()
+                    && sim.lastStepSpikes().sorted() == legacySim.lastStepSpikes().sorted()
+                    && sim.simMs == legacySim.simMs
+                return (!same, missed)
+            }
+            let cardRun = cardClicksDiverge(stimulateOnClick: false)
+            let cardControl = cardClicksDiverge(stimulateOnClick: true)
+            check("V5.7 activity card clicks leave neural state identical to an untouched twin",
+                  !cardRun.diverged && cardRun.missed.isEmpty,
+                  "diverged=\(cardRun.diverged) missed=\(cardRun.missed)")
+            check("V5.7 control: a click wired to a GF stimulus is detected by the same probe",
+                  cardControl.diverged)
+            sim.reset(seed: SIM_SEED); legacySim.reset(seed: SIM_SEED)
         } else {
             check("V3 extraction preserves same-seed downstream neural state", false,
                   "could not initialize legacy parity sim")
@@ -913,9 +947,420 @@ func runLabTest() {
     check("participant first/third person cameras follow the participant's look",
           eyeOK && behindOK && dragIgnored && viewer.mujocoCamera.anchor == "fly",
           "eye=\(eye.positionMM) fwd=\(eye.forward) behind=\(behind.positionMM)")
+    // V5.7 read-only activity cards: existing telemetry only, hunger unsupported,
+    // absent sources shown as "—", and clicks that reach no command queue.
+    var cardSignals = BrainSignals()
+    cardSignals.arousal = 0.4375; cardSignals.nervous = 0.6875
+    cardSignals.walkDrive = 0.8125; cardSignals.turnBias = -0.3125
+    cardSignals.groomDrive = 1.125; cardSignals.sleep = true; cardSignals.escape = true
+    var cardFixture = LabTelemetry()
+    cardFixture.applyBrainSignals(cardSignals)
+    cardFixture.ratePop = 3.625; cardFixture.rateLoom = 41.75
+    cardFixture.rateDNaL = 37.75; cardFixture.rateDNaR = 12.5; cardFixture.rateMDN = 22.25
+    cardFixture.rateFoodOdorL = 88.5; cardFixture.rateFoodOdorR = 61.25
+    cardFixture.rateSugarGRN = 42.75; cardFixture.rateMN9 = 17.5
+    cardFixture.bodyOdorL = 0.9; cardFixture.bodyOdorR = 0.8
+    let expectedCards: [ActivityCardID: ActivityCardValue] = [
+        .arousal: .number(cardFixture.brainArousal), .nervous: .number(cardFixture.brainNervous),
+        .walk: .number(cardFixture.brainWalkDrive), .turn: .number(cardFixture.brainTurnBias),
+        .groom: .number(cardFixture.brainGroomDrive), .sleep: .flag(cardFixture.brainSleep),
+        .gfSpike: .flag(cardFixture.brainEscape), .populationRate: .number(cardFixture.ratePop),
+        .loomRate: .number(cardFixture.rateLoom), .dnaLeft: .number(cardFixture.rateDNaL),
+        .dnaRight: .number(cardFixture.rateDNaR), .mdn: .number(cardFixture.rateMDN),
+        .ornFoodLeft: .number(cardFixture.rateFoodOdorL), .ornFoodRight: .number(cardFixture.rateFoodOdorR),
+        .sugarGRN: .number(cardFixture.rateSugarGRN), .mn9: .number(cardFixture.rateMN9),
+        .hunger: .unsupported,
+    ]
+    let cardPanel = ActivityCardPanel()
+    cardPanel.update(ActivityCardInput(telemetry: cardFixture, brainSimLoaded: true))
+    let wrongCards = cardPanel.cards.filter { card in
+        guard card.displayedValue == expectedCards[card.spec.id] else { return true }
+        if case .number(let v) = card.displayedValue {
+            // The text is the same number, only rounded for display.
+            guard let shown = Double(card.valueText) else { return true }
+            return abs(shown - v) > 0.5 * pow(10, -Double(card.spec.decimals)) + 1e-9
+        }
+        return false
+    }.map(\.spec.id)
+    check("V5.7 activity cards pass existing telemetry through unchanged",
+          cardPanel.cards.count == expectedCards.count && wrongCards.isEmpty,
+          "cards=\(cardPanel.cards.count) wrong=\(wrongCards)")
+
+    let hungerWithOdor = cardPanel.card(.hunger)
+    var noOdor = cardFixture
+    noOdor.rateFoodOdorL = 0; noOdor.rateFoodOdorR = 0; noOdor.bodyOdorL = 0; noOdor.bodyOdorR = 0
+    let hungerPanel = ActivityCardPanel()
+    hungerPanel.update(ActivityCardInput(telemetry: noOdor, brainSimLoaded: true))
+    check("V5.7 hunger card is unsupported, with no odour-derived proxy",
+          hungerWithOdor?.displayedValue == .unsupported && hungerWithOdor?.spec.kind == .unsupported
+          && hungerWithOdor?.valueText == "Unsupported" && Double(hungerWithOdor?.valueText ?? "0") == nil
+          && hungerPanel.card(.hunger)?.displayedValue == .unsupported
+          && hungerPanel.card(.hunger)?.valueText == hungerWithOdor?.valueText)
+
+    var absent = LabTelemetry()
+    absent.applyBrainSignals(nil)
+    let absentPanel = ActivityCardPanel()
+    absentPanel.update(ActivityCardInput(telemetry: absent, brainSimLoaded: false))
+    let absentShown = absentPanel.cards.filter { $0.spec.id != .hunger }
+        .filter { $0.displayedValue != .missing || $0.valueText != "—" }.map(\.spec.id)
+    var paused = cardFixture
+    paused.applyBrainSignals(nil)
+    paused.rateMDN = .nan
+    let pausedPanel = ActivityCardPanel()
+    pausedPanel.update(ActivityCardInput(telemetry: paused, brainSimLoaded: true))
+    let pausedSignalDash = pausedPanel.cards.filter { $0.spec.kind == .modelIndex || $0.spec.id == .gfSpike }
+        .allSatisfy { $0.displayedValue == .missing && $0.valueText == "—" }
+    let pausedRatesShown = pausedPanel.card(.dnaLeft)?.displayedValue == .number(paused.rateDNaL)
+        && pausedPanel.card(.mdn)?.valueText == "—"
+    check("V5.7 absent telemetry shows — never 0 (no brain, paused, non-finite)",
+          absentShown.isEmpty && pausedSignalDash && pausedRatesShown,
+          "absent-but-shown=\(absentShown) pausedDash=\(pausedSignalDash) pausedRates=\(pausedRatesShown)")
+
+    let unlabeled = cardPanel.cards.filter { card in
+        let s = card.spec
+        let unitOK: Bool
+        switch s.kind {
+        case .measured: unitOK = s.unit.contains("Hz") || card.displayedValue == .flag(true) || card.displayedValue == .flag(false)
+        case .modelIndex: unitOK = !s.unit.isEmpty && s.meaning.contains("not a feeling")
+        case .unsupported: unitOK = s.meaning.contains("Not modelled")
+        }
+        return !unitOK || s.source.isEmpty || !(card.toolTip ?? "").contains(s.source)
+    }.map(\.spec.id)
+    check("V5.7 every card states its unit, classification and source",
+          unlabeled.isEmpty && ActivityCardKind.measured.label.contains("MEASURED")
+          && ActivityCardKind.modelIndex.label == "MODEL INDEX"
+          && ActivityCardKind.unsupported.label == "UNSUPPORTED",
+          "unlabeled=\(unlabeled)")
+
+    let clickBridge = FlyGymBridge()
+    let missedClicks = clickEveryActivityCard(cardPanel)
+    check("V5.7 every card click selects it and shows its source",
+          missedClicks.isEmpty && cardPanel.selectedCard != nil, "missed=\(missedClicks)")
+    check("V5.7 card clicks queue no bridge, lab or player command",
+          clickBridge.pendingDepth() == 0 && clickBridge.pendingLabDepth() == 0
+          && clickBridge.dequeueSendForTesting(at: Date()) == nil)
+    let controlBridge = FlyGymBridge()
+    _ = clickEveryActivityCard(ActivityCardPanel()) { _ in
+        _ = controlBridge.sendLab(action: "stimulate", target: "GF", strength: 0.5, durationMs: 30)
+    }
+    check("V5.7 control: a click wired to a lab command is detected by the same probe",
+          controlBridge.pendingDepth() > 0)
+
+    runSandboxToyChecks(check)
+
     check("interface language is pinned to English for suites",
           LabLanguage.current == .english && L("Observe", "관찰") == "Observe")
 
     print(failures == 0 ? "ALL LAB TESTS PASS" : "\(failures) LAB TEST FAILURES")
     exit(failures == 0 ? 0 : 1)
+}
+
+/// V5.7: clicks every activity card the way AppKit delivers a click — hit-test
+/// the card's centre inside an (offscreen, never shown) window and send the hit
+/// view a mouse-down — and then again through the accessibility press action.
+/// Returns the cards whose click did not select exactly that card and show its
+/// source.
+private func clickEveryActivityCard(_ panel: ActivityCardPanel,
+                                    afterEach: (ActivityCardID) -> Void = { _ in }) -> [ActivityCardID] {
+    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 900),
+                          styleMask: [.borderless], backing: .buffered, defer: true)
+    let content = NSView(frame: NSRect(x: 0, y: 0, width: 420, height: 900))
+    window.contentView = content
+    panel.translatesAutoresizingMaskIntoConstraints = false
+    content.addSubview(panel)
+    NSLayoutConstraint.activate([
+        panel.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
+        panel.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
+        panel.topAnchor.constraint(equalTo: content.topAnchor, constant: 16)
+    ])
+    content.layoutSubtreeIfNeeded()
+    defer { panel.removeFromSuperview() }
+
+    var missed: [ActivityCardID] = []
+    for card in panel.cards {
+        let id = card.spec.id
+        let centre = card.convert(NSPoint(x: card.bounds.midX, y: card.bounds.midY), to: nil)
+        let hit = content.hitTest(content.superview?.convert(centre, from: nil) ?? centre)
+        if let event = NSEvent.mouseEvent(with: .leftMouseDown, location: centre, modifierFlags: [],
+                                          timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                                          eventNumber: 0, clickCount: 1, pressure: 1) {
+            hit?.mouseDown(with: event)
+        }
+        afterEach(id)
+        if hit !== card || card.bounds.isEmpty || panel.selectedCard != id
+            || !panel.detailText.contains(card.spec.source) {
+            missed.append(id)
+        }
+    }
+    for card in panel.cards.reversed() {
+        let pressed = card.accessibilityPerformPress()
+        afterEach(card.spec.id)
+        if !pressed || panel.selectedCard != card.spec.id { missed.append(card.spec.id) }
+    }
+    return missed
+}
+
+/// V5.6.2 sandbox toys: wire names against the backend schema, gun key/click
+/// routing, focus suppression, remap persistence, shape-gated actions and
+/// tolerant decoding of the new optional state fields.
+private func runSandboxToyChecks(_ report: (String, Bool, String) -> Void) {
+    func check(_ name: String, _ ok: Bool, _ detail: String = "") { report(name, ok, detail) }
+    func wire(_ command: LabCommand?) -> [String: Any] {
+        guard let command, let data = try? JSONEncoder().encode(command),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
+        return object
+    }
+    func isJSONBool(_ value: Any?) -> Bool {
+        guard let n = value as? NSNumber else { return false }
+        return CFGetTypeID(n) == CFBooleanGetTypeID()
+    }
+    /// flygym_bridge/protocol.py LabCommand.from_dict: every top-level key
+    /// outside the envelope becomes an arg, `target` becomes `id`, x/y/z
+    /// become `position_mm`, and `size` becomes `size_mm` only when absent.
+    func backendArgs(_ w: [String: Any]) -> [String: Any] {
+        let envelope: Set<String> = ["type", "seq", "op", "id", "action", "args", "session_id",
+                                     "epoch", "requested_tick", "protocol_version"]
+        var args = w.filter { !envelope.contains($0.key) }
+        if let target = w["target"] { args["id"] = target }
+        if ["x", "y", "z"].contains(where: { w[$0] != nil }) {
+            args["position_mm"] = [w["x"] ?? 0.0, w["y"] ?? 0.0, w["z"] ?? 0.0]
+        }
+        if let size = w["size"], args["size_mm"] == nil { args["size_mm"] = [size, size, size] }
+        return args
+    }
+    // Field names apply_command reads (flygym_bridge/lab_world.py), verbatim.
+    let backendKeys: [String: [String]] = [
+        "spawn_object": ["shape", "id", "position_mm", "size_mm"],
+        "drive_object": ["id", "speed_mm_s", "distance_mm"],
+        "arm_trap": ["id"],
+        "equip_gun": ["actor_id", "equipped"],
+        "fire_bb": ["actor_id", "direction"],
+    ]
+
+    let car = wire(LabCommand.spawnToy(shape: "car", target: "car_1",
+                                       positionMM: [30, -4, LabToy.spawnCenterZ(shape: "car", sizeMM: 14)],
+                                       sizeMM: 14))
+    let trap = wire(LabCommand.spawnToy(shape: "trap", target: "trap_1",
+                                        positionMM: [40, 0, LabToy.spawnCenterZ(shape: "trap", sizeMM: 20)],
+                                        sizeMM: 20))
+    let drive = wire(LabCommand.driveObject(target: "car_1"))
+    let arm = wire(LabCommand.armTrap(target: "trap_1"))
+    let equip = wire(LabCommand.equipGun(actorID: "player", equipped: true))
+    let fire = wire(LabCommand.fireBB(actorID: "player", direction: [2, 0, 0]))
+    let carArgs = backendArgs(car), trapArgs = backendArgs(trap)
+    check("V5.6.2 spawn_object toy wire: shape + scalar size_mm, never size",
+          car["action"] as? String == "spawn_object" && car["shape"] as? String == "car"
+          && car["size_mm"] as? Double == 14 && car["size"] == nil
+          && carArgs["id"] as? String == "car_1"
+          && (carArgs["position_mm"] as? [Double]).map { abs($0[2] - 2.87) < 1e-9 } == true
+          && trap["shape"] as? String == "trap" && trap["size_mm"] as? Double == 20
+          && (trapArgs["position_mm"] as? [Double]).map { abs($0[2] - 10.0) < 1e-9 } == true, "\(car)")
+    check("V5.6.2 drive/arm/equip/fire wire names and defaults",
+          drive["action"] as? String == "drive_object" && drive["target"] as? String == "car_1"
+          && drive["speed_mm_s"] as? Double == 20 && drive["distance_mm"] as? Double == 80
+          && drive["speed"] == nil
+          && arm["action"] as? String == "arm_trap" && arm["target"] as? String == "trap_1"
+          && equip["action"] as? String == "equip_gun" && equip["actor_id"] as? String == "player"
+          && isJSONBool(equip["equipped"]) && equip["equipped"] as? Bool == true
+          && fire["action"] as? String == "fire_bb" && fire["actor_id"] as? String == "player"
+          && fire["direction"] as? [Double] == [1, 0, 0], "drive=\(drive.keys.sorted())")
+    let merged = ["spawn_object": carArgs, "drive_object": backendArgs(drive), "arm_trap": backendArgs(arm),
+                  "equip_gun": backendArgs(equip), "fire_bb": backendArgs(fire)]
+    let missing = backendKeys.flatMap { op, keys in
+        keys.filter { merged[op]?[$0] == nil }.map { "\(op).\($0)" }
+    }.sorted()
+    check("V5.6.2 every backend-read argument arrives after Python's flat merge",
+          missing.isEmpty, "missing=\(missing)")
+    check("V5.6.2 toy constructors enforce the backend bounds",
+          LabCommand.spawnToy(shape: "car", target: "c", positionMM: [0, 0, 1], sizeMM: 3.9) == nil
+          && LabCommand.spawnToy(shape: "car", target: "c", positionMM: [0, 0, 1], sizeMM: 60) != nil
+          && LabCommand.spawnToy(shape: "trap", target: "t", positionMM: [0, 0, 1], sizeMM: 7.9) == nil
+          && LabCommand.spawnToy(shape: "trap", target: "t", positionMM: [0, 0, 1], sizeMM: 60.1) == nil
+          && LabCommand.spawnToy(shape: "box", target: "b", positionMM: [0, 0, 1], sizeMM: 10) == nil
+          && LabCommand.driveObject(target: "c", speedMMs: 0) == nil
+          && LabCommand.driveObject(target: "c", speedMMs: 60.5) == nil
+          && LabCommand.driveObject(target: "c", distanceMM: 300.5) == nil
+          && LabCommand.driveObject(target: "", speedMMs: 20) == nil
+          && LabCommand.equipGun(actorID: "", equipped: true) == nil
+          && LabCommand.fireBB(actorID: "player", direction: [0, 0, 0]) == nil
+          && LabCommand.fireBB(actorID: "player", direction: [.nan, 1, 0]) == nil)
+
+    // The fire direction is the participant look forward — the same ray a grab uses.
+    let pitchedLine = #"{"type":"world_render_snapshot","protocol_version":4,"session_id":"","epoch":0,"request_seq":4,"sim_tick":40,"ok":true,"snapshot_seq":4,"world_revision":6,"fly":{"id":"fly","position_mm":[1,2,0.7],"orientation_quat_xyzw":[0,0,0,1]},"objects":[],"player":{"actor_id":"player","position_mm":[24,0,10.3],"orientation_quat_xyzw":[-0.099046,0.239118,0.369644,0.892399],"collision_radius_mm":2.5,"mode":"participate"}}"#
+    let pitched = parseWorldRenderSnapshotLine(Data(pitchedLine.utf8))
+    let aim = pitched?.player.flatMap { WorldViewer.participantAimRay(player: $0) }
+    let aimFire = wire(aim.flatMap { LabCommand.fireBB(actorID: "player", direction: $0.direction) })
+    let fireDir = aimFire["direction"] as? [Double] ?? []
+    let fireNorm = sqrt(fireDir.reduce(0) { $0 + $1 * $1 })
+    check("V5.6.2 fire_bb direction = participant aim forward, unit length",
+          aim != nil && fireDir.count == 3 && abs(fireNorm - 1) < 1e-9
+          && zip(fireDir, aim!.direction).allSatisfy { abs($0 - $1) < 1e-3 }
+          && fireDir[2] < -0.1 && fireDir[1] > 0.1, "dir=\(fireDir)")
+
+    // G/F/click routing through the real PlayerController + WorldViewer.
+    let suite = "SiliconFly.PlayerInput.labtest.toys.\(UUID().uuidString)"
+    let store = UserDefaults(suiteName: suite)!
+    store.removePersistentDomain(forName: suite)
+    let player = PlayerController(defaults: store, lookRadiansPerPoint: 0.01)
+    _ = player.setCaptureEnabled(true)
+    let gunKey = player.bindings.keyCode(for: .gun), fireKey = player.bindings.keyCode(for: .fire)
+    let forwardKey = player.bindings.keyCode(for: .forward)
+    _ = player.handleKeyDown(keyCode: forwardKey, isRepeat: false)
+    let fireUnequippedIntent = player.handleKeyDown(keyCode: fireKey, isRepeat: false)
+    let fireUnequipped = player.takeToolAction(focusAllowsCapture: true)
+    let gunIntent = player.handleKeyDown(keyCode: gunKey, isRepeat: false)
+    let equipAction = player.takeToolAction(focusAllowsCapture: true)
+    let clickBeforeAck = player.primaryClickAction(focusAllowsCapture: true)
+    player.setGunEquipped(true)   // the equip_gun ACK
+    _ = player.handleKeyDown(keyCode: fireKey, isRepeat: false)
+    let fireEquipped = player.takeToolAction(focusAllowsCapture: true)
+    _ = player.handleKeyDown(keyCode: fireKey, isRepeat: true)
+    let fireRepeat = player.takeToolAction(focusAllowsCapture: true)
+    _ = player.handleKeyDown(keyCode: gunKey, isRepeat: false)
+    let holster = player.takeToolAction(focusAllowsCapture: true)
+    let clickEquipped = player.primaryClickAction(focusAllowsCapture: true)
+    let held = player.heldIntent()
+    check("V5.6.2 G toggles equip, F fires only when equipped, never on key-repeat",
+          player.bindings.keyCode(for: .gun) == 5 && fireKey == 3
+          && fireUnequippedIntent == nil && fireUnequipped == nil
+          && gunIntent == nil && equipAction == .equipGun(true) && clickBeforeAck == .grab
+          && fireEquipped == .fire && fireRepeat == nil && holster == .equipGun(false)
+          && clickEquipped == .fire,
+          "unequipped=\(String(describing: fireUnequipped)) equip=\(String(describing: equipAction)) fire=\(String(describing: fireEquipped))")
+    check("V5.6.2 tool keys are never held movement/actions",
+          held.moveAxes == [1, 0] && held.heldActions.isEmpty)
+
+    let viewer = WorldViewer(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+    let textField = NSTextField(string: "typing f and g")
+    var focusResponder: NSResponder = viewer
+    var captures = 0
+    var routed: [PlayerToolAction] = []
+    viewer.onPlayerCaptureRequested = { captures += 1 }
+    viewer.onPlayerPrimaryClick = {
+        let focus = PlayerInputFocusPolicy.allowsCapture(windowIsKey: true, firstResponder: focusResponder,
+                                                         viewer: viewer)
+        if let action = player.primaryClickAction(focusAllowsCapture: focus) { routed.append(action) }
+    }
+    viewer.participateModeEnabled = false
+    let observeClick = viewer.routeParticipateClick()
+    viewer.participateModeEnabled = true
+    let captureClick = viewer.routeParticipateClick()
+    viewer.participateInputEnabled = true
+    player.setGunEquipped(false)
+    let grabClick = viewer.routeParticipateClick()
+    player.setGunEquipped(true)
+    _ = viewer.routeParticipateClick()
+    check("V5.6.2 click: first captures, then fires when equipped and grabs when not",
+          observeClick == .ignored && captureClick == .capture && captures == 1
+          && grabClick == .action && routed == [.grab, .fire], "routed=\(routed)")
+
+    focusResponder = textField
+    let textFocus = PlayerInputFocusPolicy.allowsCapture(windowIsKey: true, firstResponder: textField,
+                                                        viewer: viewer)
+    _ = player.handleKeyDown(keyCode: fireKey, isRepeat: false)
+    let textKeyFire = player.takeToolAction(focusAllowsCapture: textFocus)
+    let routedBefore = routed.count
+    _ = viewer.routeParticipateClick()
+    let textClickRouted = routed.count != routedBefore
+    _ = player.setCaptureEnabled(false)   // Esc / focus loss path
+    let releasedClick = player.primaryClickAction(focusAllowsCapture: true)
+    _ = player.handleKeyDown(keyCode: fireKey, isRepeat: false)
+    let releasedFire = player.takeToolAction(focusAllowsCapture: true)
+    check("V5.6.2 no fire while a text field has focus or capture is released",
+          !textFocus && textKeyFire == nil && !textClickRouted
+          && releasedClick == nil && releasedFire == nil)
+
+    // Remap persistence round trip, including a swap and the upgrade path.
+    _ = player.setCaptureEnabled(true)
+    _ = player.rebind(.gun, to: 40, defaults: store)            // K
+    _ = player.rebind(.fire, to: 40, defaults: store)           // swap: gun takes F
+    let reloaded = PlayerKeyBindings(defaults: store)
+    player.setGunEquipped(false)
+    _ = player.handleKeyDown(keyCode: 3, isRepeat: false)      // F is now the gun key
+    let remappedGun = player.takeToolAction(focusAllowsCapture: true)
+    let upgradeSuite = "SiliconFly.PlayerInput.labtest.upgrade.\(UUID().uuidString)"
+    let upgradeStore = UserDefaults(suiteName: upgradeSuite)!
+    upgradeStore.removePersistentDomain(forName: upgradeSuite)
+    upgradeStore.set(3, forKey: PlayerKeyBindings.preferencePrefix + "interact")  // pre-V5.6.2 custom F
+    let upgraded = PlayerKeyBindings(defaults: upgradeStore)
+    let upgradedCodes = PlayerControlAction.allCases.map { upgraded.keyCode(for: $0) }
+    check("V5.6.2 gun/fire remap persists and older custom keys survive the upgrade",
+          reloaded.keyCode(for: .fire) == 40 && reloaded.keyCode(for: .gun) == 3
+          && remappedGun == .equipGun(true)
+          && upgraded.keyCode(for: .interact) == 3 && upgraded.keyCode(for: .gun) == 5
+          && upgraded.keyCode(for: .forward) == 13 && upgraded.keyCode(for: .fire) != 3
+          && Set(upgradedCodes).count == upgradedCodes.count,
+          "reloaded fire=\(reloaded.keyCode(for: .fire)) gun=\(reloaded.keyCode(for: .gun)) upgraded=\(upgradedCodes)")
+    store.removePersistentDomain(forName: suite)
+    upgradeStore.removePersistentDomain(forName: upgradeSuite)
+
+    let enable = ["car", "trap", "box", "sphere", "wall", "food"].map { LabToy.actions(forShape: $0) }
+    check("V5.6.2 Drive only for a car, Re-arm only for a trap",
+          enable[0] == (true, false) && enable[1] == (false, true)
+          && enable.dropFirst(2).allSatisfy { $0 == (false, false) }
+          && LabToy.actions(forShape: nil) == (false, false))
+
+    // New optional fields: present, absent (older backend) and malformed.
+    let toyState = #"{"type":"lab_state","ack":1,"ok":true,"state":{"objects":[{"id":"trap_1","shape":"trap","position_mm":[40,0,10],"size_mm":[20,20,12],"yaw_deg":0,"trap_state":"closed"},{"id":"food_1","shape":"food","position_mm":[20,0,1.5],"size_mm":[3,3,3],"yaw_deg":0,"food_variant":"apple"},{"id":"box_1","shape":"box","position_mm":[1,0,5],"size_mm":[5,5,5],"yaw_deg":0}],"projectiles":[{"id":"bb_1","position_mm":[1,2,3]}]}}"#
+    let oldState = #"{"type":"lab_state","state":{"objects":[{"id":"trap_1","shape":"trap","position_mm":[40,0,10],"size_mm":[20,20,12],"yaw_deg":0}]}}"#
+    let badState = #"{"type":"lab_state","state":{"objects":[{"id":"trap_1","shape":"trap","position_mm":[40,0,10],"size_mm":[20,20,12],"yaw_deg":0,"trap_state":7,"food_variant":[1]}],"projectiles":"many"}}"#
+    let toys = parseLabStateLine(Data(toyState.utf8))?.authoritativeObjects ?? []
+    let old = parseLabStateLine(Data(oldState.utf8))
+    let bad = parseLabStateLine(Data(badState.utf8))
+    let renderTrap = #"{"id":"trap_1","shape":"trap","position_mm":[40,0,10],"orientation_quat_xyzw":[0,0,0,1],"size_mm":[20,20,12],"revision":1,"trap_state":"armed"}"#
+    let renderOld = #"{"id":"trap_1","shape":"trap","position_mm":[40,0,10],"orientation_quat_xyzw":[0,0,0,1],"size_mm":[20,20,12],"revision":1}"#
+    let decodedTrap = try? JSONDecoder().decode(WorldRenderObject.self, from: Data(renderTrap.utf8))
+    let decodedOld = try? JSONDecoder().decode(WorldRenderObject.self, from: Data(renderOld.utf8))
+    check("V5.6.2 trap_state/food_variant/projectiles decode when present",
+          toys.count == 3 && toys[0].trapState == "closed" && toys[1].foodVariant == "apple"
+          && toys[2].trapState == nil && toys[2].foodVariant == nil
+          && parseLabStateLine(Data(toyState.utf8))?.worldState?.projectiles?.first?.id == "bb_1"
+          && decodedTrap?.trapState == "armed"
+          && LabToy.objectLine(toys[1]).contains("apple") && LabToy.objectLine(toys[0]).contains("closed"))
+    check("V5.6.2 older/malformed toy fields decode as absent, never drop the state",
+          old?.authoritativeObjects?.first?.trapState == nil && old?.worldState?.projectiles == nil
+          && bad?.authoritativeObjects?.first?.id == "trap_1"
+          && bad?.authoritativeObjects?.first?.trapState == nil
+          && bad?.authoritativeObjects?.first?.foodVariant == nil && bad?.worldState?.projectiles == nil
+          && decodedOld != nil && decodedOld?.trapState == nil)
+
+    // Timeline wording: physical events with backend force units, no feelings.
+    let hitLine = #"{"type":"lab_event","event":"car_hit_fly","data":{"id":"car_1","peak_normal_force":0.0123,"force_units":"mujoco_model","classification":"PHYSICAL","sim_tick_ms":1200}}"#
+    let bbObject = #"{"type":"lab_event","event":"bb_hit_object","data":{"id":"bb_3","object_id":"box_1"}}"#
+    let hit = parseLabEventLine(Data(hitLine.utf8))
+    let bbHit = parseLabEventLine(Data(bbObject.utf8))
+    let toyEvents = ["car_hit_fly", "car_blocked", "drive_complete", "trap_triggered", "trap_closed",
+                     "trap_armed", "trap_blocked", "bb_fired", "bb_hit_fly", "bb_hit_object", "bb_expired"]
+    let lines = toyEvents.map { LabToy.eventLine($0, hit?.detail) ?? "" }
+    let feelings = ["pain", "hurt", "scared", "angry", "afraid", "feel", "suffer"]
+    let hitText = LabToy.eventLine("car_hit_fly", hit?.detail) ?? ""
+    check("V5.6.2 toy events read as physical events with force in model units",
+          !lines.contains("") && hitText.contains("0.0123") && hitText.contains("model units")
+          && (LabToy.eventLine("bb_hit_object", bbHit?.detail) ?? "").contains("box_1")
+          && !lines.contains { line in feelings.contains { line.lowercased().contains($0) } }
+          && LabToy.eventLine("object_grabbed", nil) == nil, hitText)
+
+    // Feeding events (backend `lab_world.feeding_update`) get a timeline line in
+    // both languages instead of the raw event name.
+    let eaten = parseLabEventLine(Data(#"{"type":"lab_event","event":"food_eaten","data":{"id":"food_2","food_variant":"apple","contact_s":1.5}}"#.utf8))
+    let feedLines = ["feeding_begin", "feeding_end", "food_eaten"].map { LabToy.eventLine($0, eaten?.detail) ?? "" }
+    let eatenText = feedLines[2]
+    check("V5.6.2 feeding events have their own wording, not the raw event name",
+          !feedLines.contains("") && !feedLines.contains { $0.contains("_begin") || $0.contains("_end") || $0.contains("_eaten") }
+          && eatenText.contains("food_2") && eatenText.contains(LabToy.foodName("apple")) && eatenText.contains("1.50")
+          && !feedLines.contains { line in feelings.contains { line.lowercased().contains($0) } }
+          && LabToy.eventLine("feeding_end", nil) != nil, feedLines.joined(separator: " | "))
+
+    // SceneKit fallback draws car/trap boxes at their backend size.
+    let toySnapshot = #"{"type":"world_render_snapshot","protocol_version":4,"session_id":"","epoch":0,"request_seq":1,"sim_tick":40,"ok":true,"snapshot_seq":9,"world_revision":3,"fly":{"id":"fly","position_mm":[1,2,0.7],"orientation_quat_xyzw":[0,0,0,1]},"objects":[{"id":"car_1","shape":"car","position_mm":[30,0,2.87],"orientation_quat_xyzw":[0,0,0,1],"size_mm":[14,6.16,5.74],"revision":1},{"id":"trap_1","shape":"trap","position_mm":[40,0,10],"orientation_quat_xyzw":[0,0,0,1],"size_mm":[20,20,12],"revision":1,"trap_state":"armed"}]}"#
+    let fallback = WorldViewer(frame: NSRect(x: 0, y: 0, width: 320, height: 180))
+    if let snap = parseWorldRenderSnapshotLine(Data(toySnapshot.utf8)) { fallback.apply(snapshot: snap) }
+    let carBox = fallback.scene?.rootNode.childNode(withName: "car_1", recursively: false)?.geometry as? SCNBox
+    let trapNode = fallback.scene?.rootNode.childNode(withName: "trap_1", recursively: false)
+    let trapBox = trapNode?.geometry as? SCNBox
+    check("V5.6.2 SceneKit fallback draws car/trap as sized boxes",
+          carBox.map { abs($0.width - 14) < 1e-4 && abs($0.length - 6.16) < 1e-4 && abs($0.height - 5.74) < 1e-4 } == true
+          && trapBox.map { abs($0.width - 20) < 1e-4 && abs($0.height - 12) < 1e-4 } == true
+          && (trapBox?.firstMaterial?.transparency ?? 1) < 1,
+          "car=\(String(describing: carBox)) trap=\(String(describing: trapBox))")
 }

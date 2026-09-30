@@ -1,0 +1,27 @@
+ BridgeDiagnostics.swift                     |  23 +
+ FlyGymBridge.swift                          |  30 +-
+ FlyGymPackets.swift                         |  22 +
+ LabDiagnostics.swift                        | 445 +++++++++++++++
+ LabProtocol.swift                           | 241 +++++++-
+ LabWindow.swift                             | 330 ++++++++++-
+ MetalSim.swift                              | 101 +++-
+ PlayerController.swift                      |  65 ++-
+ SensoryModel.swift                          |  12 +
+ SimDiagnostics.swift                        | 105 +++-
+ WorldViewer.swift                           |  28 +-
+ build.sh                                    |   2 +-
+ docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md       |   2 +
+ docs/reports/V5_PROGRESS.md                 |   3 +-
+ flygym_bridge/fly_body.py                   |  30 +-
+ flygym_bridge/interaction.py                |   4 +-
+ flygym_bridge/lab_world.py                  | 858 ++++++++++++++++++++++++++--
+ flygym_bridge/player_body.py                |  93 ++-
+ flygym_bridge/protocol.py                   |  78 ++-
+ flygym_bridge/test_lab.py                   |   6 +-
+ flygym_bridge/test_lab_real.py              |   5 +-
+ flygym_bridge/test_player_collision_real.py |  14 +-
+ flygym_bridge/test_v5.py                    |   4 +-
+ flygym_bridge/test_v5_6.py                  |   4 +
+ flygym_bridge/view_stream.py                |  26 +-
+ main.swift                                  |  20 +-
+ 26 files changed, 2415 insertions(+), 136 deletions(-)

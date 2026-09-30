@@ -1,0 +1,97 @@
+[
+  {
+    "name": "gpucheck",
+    "exit": 0,
+    "seconds": 23.2
+  },
+  {
+    "name": "test_bridge",
+    "exit": 0,
+    "seconds": 0.5
+  },
+  {
+    "name": "test_lab",
+    "exit": 0,
+    "seconds": 0.3
+  },
+  {
+    "name": "test_lab_real",
+    "exit": 1,
+    "seconds": 28.7
+  },
+  {
+    "name": "test_v4",
+    "exit": 0,
+    "seconds": 1.4
+  },
+  {
+    "name": "test_v5",
+    "exit": 0,
+    "seconds": 0.4
+  },
+  {
+    "name": "test_v5_6",
+    "exit": 0,
+    "seconds": 0.2
+  },
+  {
+    "name": "test_v5_6_2",
+    "exit": 0,
+    "seconds": 8.3
+  },
+  {
+    "name": "test_v5_6_2_tools",
+    "exit": 0,
+    "seconds": 22.4
+  },
+  {
+    "name": "test_interaction_real",
+    "exit": 0,
+    "seconds": 117.3
+  },
+  {
+    "name": "test_player_collision_real",
+    "exit": 0,
+    "seconds": 66.3
+  },
+  {
+    "name": "test_vision_real",
+    "exit": 0,
+    "seconds": 5.6
+  },
+  {
+    "name": "mock-bridgeloop",
+    "exit": 0,
+    "seconds": 4.3
+  },
+  {
+    "name": "mock-labloop",
+    "exit": 0,
+    "seconds": 0.6
+  },
+  {
+    "name": "mock-interactionloop",
+    "exit": 0,
+    "seconds": 3.3
+  },
+  {
+    "name": "headless-labloop",
+    "exit": 0,
+    "seconds": 1.9
+  },
+  {
+    "name": "headless-interactionloop",
+    "exit": 0,
+    "seconds": 7.2
+  },
+  {
+    "name": "headless-bridgeloop",
+    "exit": 1,
+    "seconds": 4.3
+  },
+  {
+    "name": "diff-check",
+    "exit": 0,
+    "seconds": 0.1
+  }
+]

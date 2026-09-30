@@ -1,13 +1,18 @@
 """Backend-owned V5 participant probe living in the same MuJoCo world as the fly.
 
-This actor is a small collidable free-joint sphere whose pose is owned by the
-simulation process. V5.5 PlayerInput moves it: the mock body integrates the pose
+This actor is a collidable free-joint body whose pose is owned by the
+simulation process. Since V5.6.2 it is drawn and collides as a stick figure:
+the head sphere is the participant geom (its centre is the participant
+position and its radius the collision radius), and the limbs are capsules on
+the same body. The body frame only yaws; look pitch stays in the camera pose. V5.5 PlayerInput moves it: the mock body integrates the pose
 kinematically, while the real MuJoCo body drives it through a bounded per-substep
 force servo so contacts are resolved by the solver (F-02).
 """
 from __future__ import annotations
 
 import math
+
+import sandbox_models as sm
 
 
 PLAYER_ACTOR_ID = "player"
@@ -19,9 +24,10 @@ PLAYER_RADIUS_MM = 2.5
 # shipped thorax body uses 0.00034 mass units; leaving this sphere unspecified
 # makes MuJoCo apply its default density and yields a ~65,000-unit body.
 PLAYER_MASS = 0.00034
-PLAYER_SPAWN_MM = (24.0, 0.0, 2.5)
+# The head centre sits high enough for the stick figure's feet to clear the floor.
+PLAYER_SPAWN_MM = (24.0, 0.0, sm.FIGURE_HEAD_HEIGHT_MM)
 PLAYER_FAR_POS = (0.0, 0.0, -500.0)
-PLAYER_RGBA = (0.58, 0.22, 0.86, 1.0)
+PLAYER_RGBA = sm.FACE
 # V5.5 movement is simulation-time-owned. A full-scale move axis produces this
 # bounded planar speed regardless of render/input packet frequency.
 PLAYER_MOVE_SPEED_MM_S = 30.0
@@ -39,7 +45,12 @@ PLAYER_SERVO_MAX_ACCEL_MM_S2 = PLAYER_MOVE_SPEED_MM_S / PLAYER_SERVO_TIME_CONSTA
 # with ordinary LabObjects use this value. Explicit fly pairs keep their own
 # solref, so the V5.4 fly contact response is unchanged.
 PLAYER_CONTACT_SOLREF = (0.002, 1.0)
-PLAYER_WORKSPACE_LIMIT_MM = 1000.0
+# The participant stays on the square lawn (sandbox_models.ARENA_HALF_SIZE_MM).
+PLAYER_WORKSPACE_LIMIT_MM = sm.ARENA_HALF_SIZE_MM - 5.0
+PLAYER_FIGURE_PREFIX = "v562_player"
+# Limbs are the first capsules of every figure fill (figure_body_parts comes
+# first), so these palette slots are always solid while the participant is.
+PLAYER_LIMB_COUNT = len(sm.figure_body_parts())
 PLAYER_CONTACT_SOLMIX = 100.0
 
 
@@ -100,6 +111,9 @@ class PlayerBody:
         self.qpos_adr = -1
         self.dof_adr = -1
         self._mjcf_geom = None
+        self.figure = sm.Palette(sm.FIGURE_PALETTE)
+        self.limb_geom_ids = []
+        self.gun_visible = False
         if world is not None:
             self.install(world)
 
@@ -128,6 +142,7 @@ class PlayerBody:
             solref=list(PLAYER_CONTACT_SOLREF),
             solmix=PLAYER_CONTACT_SOLMIX,
         )
+        self.figure.install(body, PLAYER_FIGURE_PREFIX, max_extent_mm=12.0, collidable=True)
 
     def install_fly_contact_pairs(self, world, fly):
         """Add explicit player<->thorax contact before Simulation compilation.
@@ -147,6 +162,17 @@ class PlayerBody:
                 geomname2=fly_geom.name,
                 name=f"v5-player-thorax-{index}",
             )
+        # Explicit pairs ignore contype/conaffinity, so only the always-solid
+        # limb capsules get one. The legs are what reaches the fly's height.
+        limbs = self.figure.names[sm.CAPSULE][:PLAYER_LIMB_COUNT]
+        segments = {"thorax": "c_thorax", "head": "c_head", "abdomen": "c_abdomen4"}
+        for segment, seg_name in segments.items():
+            geoms = [g for key, gs in fly.bodyseg_to_mjcfgeom.items()
+                     if getattr(key, "name", str(key)) == seg_name for g in gs]
+            for limb in limbs:
+                for index, fly_geom in enumerate(geoms):
+                    world.mjcf_root.add_pair(geomname1=limb, geomname2=fly_geom.name,
+                                             name=f"v562-{limb}-{segment}-{index}")
 
     def bind(self, sim):
         import mujoco
@@ -163,6 +189,8 @@ class PlayerBody:
             raise RuntimeError("compiled V5 player body missing")
         self.qpos_adr = int(self.model.jnt_qposadr[self.joint_id])
         self.dof_adr = int(self.model.jnt_dofadr[self.joint_id])
+        self.figure.bind(self.model)
+        self.limb_geom_ids = self.figure.gids[sm.CAPSULE][:PLAYER_LIMB_COUNT]
         self._bound = True
         self._sync()
 
@@ -174,24 +202,44 @@ class PlayerBody:
         start = self.qpos_adr
         dstart = self.dof_adr
         if self.active:
-            q = self.orientation_quat_xyzw
             qpos[start:start + 3] = self.position_mm
-            qpos[start + 3:start + 7] = [q[3], q[0], q[1], q[2]]
+            qpos[start + 3:start + 7] = self._body_quat_wxyz()
             qvel[dstart:dstart + 6] = 0.0
             self.model.geom_size[self.geom_id] = [self.radius_mm, 0.0, 0.0]
             self.model.geom_rgba[self.geom_id] = PLAYER_RGBA
             # Generic LabObjects use mask 1/1, so the participant collides with
             # the physical lab world. Fly contact is handled by the explicit pair
             # installed above because FlyGym's fly geoms use mask 0/0.
-            self.model.geom_contype[self.geom_id] = 1
-            self.model.geom_conaffinity[self.geom_id] = 1
+            sm.set_geom_collidable(self.model, self.geom_id, True)
+            self.figure.fill(self.model, sm.figure_parts(self.radius_mm, gun=self.gun_visible))
         else:
             qpos[start:start + 3] = PLAYER_FAR_POS
             qpos[start + 3:start + 7] = [1.0, 0.0, 0.0, 0.0]
             qvel[dstart:dstart + 6] = 0.0
             self.model.geom_rgba[self.geom_id, 3] = 0.0
-            self.model.geom_contype[self.geom_id] = 0
-            self.model.geom_conaffinity[self.geom_id] = 0
+            sm.set_geom_collidable(self.model, self.geom_id, False)
+            self.figure.fill(self.model, (), visible=False)
+
+    def set_gun_visible(self, visible):
+        """Show the toy BB pistol (and raise the aiming arm) on the figure."""
+        visible = bool(visible)
+        if visible != self.gun_visible:
+            self.gun_visible = visible
+            if self._bound and self.active:
+                self.figure.fill(self.model, sm.figure_parts(self.radius_mm, gun=visible))
+        return self.gun_visible
+
+    def solid_geom_ids(self):
+        """Every geom that collides while the participant is active."""
+        if not self._bound:
+            return []
+        return [self.geom_id] + list(self.limb_geom_ids)
+
+    def _body_quat_wxyz(self):
+        """Yaw-only body orientation derived from the look orientation."""
+        x, y, z, w = self.orientation_quat_xyzw
+        yaw = math.atan2(2.0 * (x * y + w * z), 1.0 - 2.0 * (y * y + z * z))
+        return [math.cos(yaw * 0.5), 0.0, 0.0, math.sin(yaw * 0.5)]
 
     def set_active(self, active, *, mode=None):
         active = bool(active)
@@ -306,9 +354,9 @@ class PlayerBody:
     def begin_physics_quantum(self):
         """Prepare one exact simulation quantum; returns the start position.
 
-        Position is never written here. Only a pending look change is applied to
-        the free-joint orientation, which does not alter the sphere's collision
-        volume.
+        Position is never written here. A pending look-yaw change reaches the
+        free-joint orientation at the next servo substep; it turns the limbs
+        kinematically (a pure pitch change moves nothing).
         """
         if not self.active or not self._bound:
             return None
@@ -339,12 +387,11 @@ class PlayerBody:
             accel = [a * scale for a in accel]
         self.data.xfrc_applied[self.body_id, :3] = [mass * a for a in accel]
         self.data.xfrc_applied[self.body_id, 3:] = 0.0
-        self._hold_look_orientation()
+        self._hold_body_orientation()
 
-    def _hold_look_orientation(self):
-        """Orientation is owned by look input, not by contact torque."""
-        q = self.orientation_quat_xyzw
-        self.data.qpos[self.qpos_adr + 3:self.qpos_adr + 7] = [q[3], q[0], q[1], q[2]]
+    def _hold_body_orientation(self):
+        """Orientation is owned by look yaw, not by contact torque."""
+        self.data.qpos[self.qpos_adr + 3:self.qpos_adr + 7] = self._body_quat_wxyz()
         self.data.qvel[self.dof_adr + 3:self.dof_adr + 6] = 0.0
 
     def end_physics_quantum(self, start):
@@ -355,8 +402,8 @@ class PlayerBody:
         if not self.active or start is None:
             return False
         # The last mj_step may have applied a contact torque; restore the look
-        # orientation so render/eye pose never shows physics-driven rotation.
-        self._hold_look_orientation()
+        # yaw so render/eye pose never shows physics-driven rotation.
+        self._hold_body_orientation()
         self.position_mm = [float(v) for v in
                             self.data.qpos[self.qpos_adr:self.qpos_adr + 3]]
         moved = math.dist(self.position_mm, start["position_mm"]) > 1e-6
@@ -398,16 +445,16 @@ class PlayerBody:
     def render_pose(self):
         if not self.active:
             return None
+        # orientation_quat_xyzw is the look (camera) orientation. The body's
+        # collision frame is its yaw-only part, so the figure never tips over.
+        quat = [float(v) for v in self.orientation_quat_xyzw]
         if self._bound:
-            # body xpos/xquat is the collision pose after mj_forward/step and is
+            # body xpos is the collision pose after mj_forward/step and is
             # therefore the exact same source the renderer and contact solver use.
             pos = [float(v) for v in self.data.xpos[self.body_id]]
-            wxyz = [float(v) for v in self.data.xquat[self.body_id]]
-            quat = [wxyz[1], wxyz[2], wxyz[3], wxyz[0]]
             radius = float(self.model.geom_size[self.geom_id][0])
         else:
             pos = [float(v) for v in self.position_mm]
-            quat = [float(v) for v in self.orientation_quat_xyzw]
             radius = float(self.radius_mm)
         return {
             "actor_id": self.actor_id,
@@ -421,7 +468,7 @@ class PlayerBody:
         if not self.active or not self._bound:
             return None
         try:
-            matches = int(geom_id) == self.geom_id
+            matches = int(geom_id) == self.geom_id or int(geom_id) in self.figure.all_gids()
         except (TypeError, ValueError, OverflowError):
             matches = False
         if not matches:

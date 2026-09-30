@@ -67,6 +67,9 @@ def rejected(code, args, ray=None):
 
 rejected("not_participating", valid)
 world.set_player_active(True)
+# V5.6.2 raised the stick-figure head to 10.3 mm; these fixtures keep the
+# original V5.6 geometry with the head centre at 2.5 mm.
+world.set_player_pose(position_mm=[24, 0, 2.5])
 world.spawn_object(shape="sphere", object_id="near", position_mm=[31, 0, 2.5], size_mm=2)
 world.spawn_object(shape="sphere", object_id="far", position_mm=[50, 0, 2.5], size_mm=2)
 rejected("invalid_interaction", fixtures["missing origin"])
@@ -139,6 +142,7 @@ bridge = Bridge(mode="mock")
 bridge.session_id = "interaction-test"
 bridge.session_epoch = 1
 bridge.body.lab_world.set_player_active(True)
+bridge.body.lab_world.set_player_pose(position_mm=[24, 0, 2.5])  # V5.6 geometry
 bridge.body.lab_world.spawn_object(shape="sphere", object_id="once",
                                    position_mm=[31, 0, 2.5], size_mm=2)
 packet = LabCommand(seq=7, op="interaction", args=dict(valid),

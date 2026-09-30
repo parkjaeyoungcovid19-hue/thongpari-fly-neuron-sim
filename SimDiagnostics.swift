@@ -188,11 +188,114 @@ func runSimtest() {
                      b16q.us, b16q.spikes))
     }
 
+    let tasteOK = runTasteProbe(sim)
+
     let pass = gfSpont == 0 && gfLoom > 0 && walkOn > 0 && gfStim && siestaPct > 3
-        && consistent && realtime
+        && consistent && realtime && tasteOK
     print(pass ? "PASS: GF silent at rest, fires on loom; locomotor drive fluctuates; stim works; siesta alive"
                : "FAIL: tune weights/noise")
     exit(pass ? 0 : 1)
+}
+
+// MARK: - Taste probe (--simtest phase 9)
+
+/// Sugar-taste path: root-ID-identified sugar GRNs driven only by the body's
+/// contact scalar through `SensoryModel.sugarTasteCurrent`; MN9 is a read-only
+/// readout. Rates are exact spike counts over the steps each population's
+/// multiplex window was counted (half the run each), not the EMA.
+func runTasteProbe(_ sim: MetalSim) -> Bool {
+    var ok = true
+    func check(_ name: String, _ cond: Bool, _ detail: String) {
+        print("\(cond ? "PASS" : "FAIL") taste: \(name) — \(detail)")
+        if !cond { ok = false }
+    }
+    print("taste groups: sugar GRN \(sim.sugarGRN.count)/\(IdentifiedTasteNeurons.sugarGRNRootIds.count)"
+          + " root IDs matched, MN9 \(sim.mn9.count)/\(IdentifiedTasteNeurons.mn9RootIds.count)")
+    check("identified groups present", sim.sugarGRN.count == IdentifiedTasteNeurons.sugarGRNRootIds.count
+          && sim.mn9.count == IdentifiedTasteNeurons.mn9RootIds.count,
+          "every shipped root ID found in data/")
+
+    struct Run { var v: [Float]; var refr: [UInt8]; var spikes: Int; var sugarHz: Double; var mn9Hz: Double
+                 var slot15: UInt32 }
+    func run(seed: UInt32, readout: Bool, sugar: Float?, odor: Float = 0, ms: Int = 2_000) -> Run {
+        sim.reset(seed: seed)
+        sim.tasteReadout = readout
+        if let sugar {
+            sim.setModeledSensoryDrive(.tasteSugar, indices: sim.sugarGRN,
+                                       strength: SensoryModel.sugarTasteCurrent(sugar, sensoryGate: sim.sensoryGate))
+        }
+        if odor > 0 {
+            let o = SensoryModel.odorCurrent(odor, sensoryGate: sim.sensoryGate)
+            sim.setModeledSensoryDrive(.foodOdorLeft, indices: sim.foodOdorLeft, strength: o)
+            sim.setModeledSensoryDrive(.foodOdorRight, indices: sim.foodOdorRight, strength: o)
+        }
+        var slot15: UInt32 = 0
+        for _ in 0..<(ms / 16) { sim.step(16); slot15 += sim.lastStepGroupCounts()[15] }
+        func hz(_ p: Int, _ n: Int) -> Double {
+            Double(sim.tasteSpikes[p]) * 1000 / Double(max(1, sim.tasteSampledMs[p])) / Double(max(1, n))
+        }
+        let r = Run(v: sim.membrane(), refr: sim.debugRefr(), spikes: sim.totalSpikes,
+                    sugarHz: hz(0, sim.sugarGRN.count), mn9Hz: hz(1, sim.mn9.count), slot15: slot15)
+        sim.clearModeledSensoryDrives()
+        sim.tasteReadout = false
+        return r
+    }
+
+    // (a) zero sugar drive is exactly the no-taste baseline, and the readout
+    // itself only relabels the histogram.
+    let base = run(seed: SIM_SEED, readout: true, sugar: nil)
+    let zero = run(seed: SIM_SEED, readout: true, sugar: 0)
+    let off = run(seed: SIM_SEED, readout: false, sugar: nil)
+    check("sugar 0 == no-taste baseline",
+          zero.v == base.v && zero.refr == base.refr && zero.spikes == base.spikes
+          && zero.sugarHz == base.sugarHz && zero.mn9Hz == base.mn9Hz
+          && SensoryModel.sugarTasteCurrent(0, sensoryGate: 1) == 0,
+          String(format: "sugar GRN %.2f Hz, MN9 %.2f Hz, %d spikes both", base.sugarHz, base.mn9Hz, base.spikes))
+    check("readout does not change dynamics",
+          off.v == base.v && off.refr == base.refr && off.spikes == base.spikes
+          && off.slot15 == 0 && off.sugarHz == 0 && off.mn9Hz == 0,
+          "readout-off run bit-identical, slot 15 empty at every sampled step (the --gpucheck ABI)")
+
+    // (b) sugar drive raises the identified GRNs. MN9 is a 2-cell downstream
+    // readout: short windows are noisy (a 2 s run can show no change), so it is
+    // judged on 8 s runs over three seeds, and only the mean rise is asserted.
+    let full = run(seed: SIM_SEED, readout: true, sugar: 1)
+    let half = run(seed: SIM_SEED, readout: true, sugar: 0.3)
+    check("sugar drive raises sugar-GRN rate",
+          full.sugarHz > base.sugarHz + 20 && half.sugarHz > base.sugarHz && full.sugarHz >= half.sugarHz,
+          String(format: "sugar GRN %.1f -> %.1f (0.3) -> %.1f Hz (1.0)", base.sugarHz, half.sugarHz, full.sugarHz))
+    var mn9Line = "MN9 8 s (base | sugar 1.0 | odor-only 1.0):"
+    var mn9Base = 0.0, mn9Sugar = 0.0, mn9Odor = 0.0
+    for s in [SIM_SEED, 0x0BAD_5EED, 0x1234_5678] {
+        let b = run(seed: s, readout: true, sugar: nil, ms: 8_000)
+        let f = run(seed: s, readout: true, sugar: 1, ms: 8_000)
+        let od = run(seed: s, readout: true, sugar: nil, odor: 1, ms: 8_000)
+        mn9Base += b.mn9Hz / 3; mn9Sugar += f.mn9Hz / 3; mn9Odor += od.mn9Hz / 3
+        mn9Line += String(format: " seed %08X %.1f | %.1f | %.1f Hz;", s, b.mn9Hz, f.mn9Hz, od.mn9Hz)
+    }
+    print(mn9Line)
+    check("MN9 readout rises with sugar (3-seed mean)", mn9Sugar > mn9Base + 5,
+          String(format: "mean %.1f -> %.1f Hz with sugar, %.1f Hz odor-only", mn9Base, mn9Sugar, mn9Odor))
+
+    // (c) odor alone never produces taste current (V10 §10.7).
+    sim.reset(seed: SIM_SEED)
+    let o = SensoryModel.odorCurrent(1, sensoryGate: 1)
+    sim.setModeledSensoryDrive(.foodOdorLeft, indices: sim.foodOdorLeft, strength: o)
+    sim.setModeledSensoryDrive(.foodOdorRight, indices: sim.foodOdorRight, strength: o)
+    let sugarExt = sim.debugExternalInput(sim.sugarGRN)
+    let odorExt = sim.debugExternalInput(sim.foodOdorLeft + sim.foodOdorRight)
+    var odorOnly = FlyGymBodyFeedback(FlyGymBodyPacket())
+    odorOnly.odorLeft = 1; odorOnly.odorRight = 1; odorOnly.receivedAt = Date()
+    let disjoint = Set(sim.sugarGRN).isDisjoint(with: sim.foodOdorLeft + sim.foodOdorRight)
+    sim.clearModeledSensoryDrives()
+    let odorRun = run(seed: SIM_SEED, readout: true, sugar: nil, odor: 1)
+    check("odor-only input gives zero taste current",
+          sugarExt.allSatisfy { $0 == 0 } && odorExt.allSatisfy { $0 > 0 } && disjoint
+          && FlyGymSensoryMap.sugarTaste(body: odorOnly) == 0,
+          String(format: "sugar-GRN ext max %.3f with ORN ext %.3f; groups disjoint; sugar GRN %.2f Hz under odor only",
+                 sugarExt.max() ?? -1, odorExt.first ?? -1, odorRun.sugarHz))
+    sim.reset(seed: SIM_SEED)
+    return ok
 }
 
 // MARK: - Behavior test (headless sim -> 3D body end-to-end)

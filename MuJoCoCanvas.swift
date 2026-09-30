@@ -8,6 +8,7 @@
 // observation camera, backend ray picks and Participate input; the backend is
 // told that camera, so the picture and the picks share one viewpoint.
 
+import Accelerate
 import Cocoa
 
 /// Background-thread client for view_stream.py. Frames arrive on the main queue.
@@ -155,10 +156,12 @@ final class MuJoCoFrameStream {
             guard width > 0, height > 0, length == width * height * 3,
                   length <= 16 << 20,
                   let payload = readExactly(socket, length),
-                  let provider = CGDataProvider(data: payload as CFData),
+                  let provider = CGDataProvider(data: Self.bgrx(fromRGB: payload, width: width, height: height) as CFData),
                   let image = CGImage(width: width, height: height,
-                                      bitsPerComponent: 8, bitsPerPixel: 24, bytesPerRow: width * 3,
-                                      space: space, bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+                                      bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                                      space: space,
+                                      bitmapInfo: CGBitmapInfo(rawValue: CGBitmapInfo.byteOrder32Little.rawValue
+                                                                | CGImageAlphaInfo.noneSkipFirst.rawValue),
                                       provider: provider, decode: nil, shouldInterpolate: true,
                                       intent: .defaultIntent) else { return }
             deliver(image)
@@ -167,6 +170,26 @@ final class MuJoCoFrameStream {
 }
 
 extension MuJoCoFrameStream {
+    /// Widens the wire's packed RGB rows to BGRX on this reader thread. Core
+    /// Animation cannot upload 24-bit pixels, so it redrew every such frame on
+    /// the main thread during the layer commit (~3 ms per frame at 1200x800,
+    /// 2026-09-29 profile); 32-bit little-endian BGRX is its native format.
+    static func bgrx(fromRGB rgb: Data, width: Int, height: Int) -> Data {
+        var out = Data(count: width * height * 4)
+        rgb.withUnsafeBytes { src in
+            out.withUnsafeMutableBytes { dst in
+                var s = vImage_Buffer(data: UnsafeMutableRawPointer(mutating: src.baseAddress!),
+                                      height: vImagePixelCount(height), width: vImagePixelCount(width),
+                                      rowBytes: width * 3)
+                var d = vImage_Buffer(data: dst.baseAddress!,
+                                      height: vImagePixelCount(height), width: vImagePixelCount(width),
+                                      rowBytes: width * 4)
+                _ = vImageConvert_RGB888toBGRA8888(&s, nil, 255, &d, false, vImage_Flags(kvImageNoFlags))
+            }
+        }
+        return out
+    }
+
     /// Keeps only the newest frame; at most one main-thread delivery is pending.
     func deliver(_ image: CGImage, on queue: DispatchQueue = .main) {
         lock.lock()

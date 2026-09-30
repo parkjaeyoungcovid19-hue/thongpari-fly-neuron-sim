@@ -2,6 +2,7 @@
 from __future__ import annotations
 import math
 from protocol import BodyPacket
+from sandbox_models import style_arena
 from lab_world import LabWorld
 from vision_decoder import VisionLoomDetector
 
@@ -59,6 +60,7 @@ class MockBody:
         self.controller_left = 0.0
         self.controller_right = 0.0
         self.lab_world = LabWorld()
+        self.taste = {"taste_sugar": 0.0, "eating_food_id": None}
 
     def _step_duration(self, cmd, sim_dt, wall_dt, tempo=1.0):
         sim_dt = max(self.physics_timestep_s, min(0.1, float(sim_dt)))
@@ -71,6 +73,7 @@ class MockBody:
         self.controller_left, self.controller_right = brain_to_descending(cmd)
         self.advance_player_input(sim_dt)
         self.lab_world._interaction_tick_ms = int(round((self.t + sim_dt) * 1000.0))
+        self.lab_world.fly_position_mm = [self.x * 1000.0, self.y * 1000.0, 0.7]
         self.lab_world.pre_step(sim_dt)
         target_v = 0.03 * cmd.forward  # 0.03 m/s ~= brisk FlyGym walk
         if cmd.reverse:
@@ -87,6 +90,10 @@ class MockBody:
         self.heading += self.yaw_rate * sim_dt
         self.x += math.cos(self.heading) * self.vx * sim_dt
         self.y += math.sin(self.heading) * self.vx * sim_dt
+        # Mock mouth: 1.2 mm ahead of the body centre, just above the floor.
+        self.taste = self.lab_world.feeding_update(sim_dt, mouth_position_mm=(
+            self.x * 1000.0 + math.cos(self.heading) * 1.2,
+            self.y * 1000.0 + math.sin(self.heading) * 1.2, 0.4))
         stride = 8.0  # Hz tripod-ish alternation
         self.phase = (self.phase + sim_dt * stride) % 2.0
         self.t += sim_dt
@@ -138,6 +145,8 @@ class MockBody:
                           gait_phase=(self.phase / 2.0),
                           odor_left=odor["odor_left"], odor_right=odor["odor_right"],
                           nearest_food_distance_mm=odor["nearest_food_distance_mm"],
+                          taste_sugar=self.taste["taste_sugar"],
+                          eating_food_id=self.taste["eating_food_id"],
                           position_x_mm=self.x * 1000.0, position_y_mm=self.y * 1000.0,
                           heading_rad=math.atan2(math.sin(self.heading), math.cos(self.heading)))
 
@@ -165,6 +174,8 @@ class MockBody:
 
     def reset_body(self):
         self.lab_world.release_interaction("body_reset")
+        self.lab_world.reset_runtime_tools()
+        self.taste = {"taste_sugar": 0.0, "eating_food_id": None}
         self.x = 0.0
         self.y = 0.0
         self.heading = 0.0
@@ -203,6 +214,8 @@ class MockBody:
                 "orientation_quat_xyzw": [0.0, 0.0, math.sin(half), math.cos(half)],
             },
             "objects": self.lab_world.render_objects(),
+            "projectiles": (self.lab_world.projectile_state()
+                            if hasattr(self.lab_world, "projectile_state") else []),
             "player": None if render_player is None else render_player(),
         }
 
@@ -269,6 +282,73 @@ def brain_to_descending(cmd) -> tuple:
     return (left, right)
 
 
+class ControllerObservationReader:
+    """`HybridControllerObservation.from_sim` with its name lookups done once.
+
+    The upstream classmethod rebuilds BodySegment keys, `list.index` lookups and
+    `np.isin` filters on every 2 ms controller tick (~90 us of the M2's budget).
+    This reads the same MjData fields with the same arithmetic in the same
+    contact order, so every observation is bit-identical to upstream
+    (FlyGym 2.1.0, checked against it by test_v5_6_2.py).
+    """
+    def __init__(self, sim, fly_name, obs_cls, stumbling_links=None):
+        import numpy as np
+        from flygym.anatomy import LEGS
+        from flygym_demo.complex_terrain.hybrid_controller import _DETECTED_STUMBLING_LINKS
+        links = tuple(stumbling_links or _DETECTED_STUMBLING_LINKS)
+        self.np = np
+        self.sim = sim
+        self.obs_cls = obs_cls
+        fly = sim.world.fly_lookup[fly_name]
+        seg = type(fly).BODY_SEGMENT_CLASS
+        order = fly.get_bodysegs_order()
+        body_ids = sim._internal_bodyids_by_fly[fly_name]
+        legs = tuple(LEGS)
+        self.shape = (len(legs), len(links), 3)
+        self.thorax_body = int(body_ids[order.index(seg("c_thorax"))])
+        self.tarsus_bodies = [int(body_ids[order.index(seg(f"{leg}_tarsus5"))]) for leg in legs]
+        geom_by_seg = sim._internal_geomid_by_bodyseg_by_fly[fly_name]
+        segments = [seg(f"{leg}_{link}") for leg in legs for link in links]
+        self.n_segments = len(segments)
+        self.output_of_geom = {geom_by_seg[s]: i for i, s in enumerate(segments)}
+        ngeom = sim.mj_model.ngeom
+        self.requested = np.zeros(ngeom, dtype=bool)
+        self.requested[list(self.output_of_geom)] = True
+        self.ground = np.zeros(ngeom, dtype=bool)
+        self.ground[sim._internal_ground_geom_ids] = True
+        self.wrench = np.zeros(6, dtype=float)
+
+    def read(self):
+        np = self.np
+        model, data = self.sim.mj_model, self.sim.mj_data
+        xpos = data.xpos
+        forces = np.zeros((self.n_segments, 3), dtype=float)
+        ncon = data.ncon
+        if ncon:
+            import mujoco
+            contacts = data.contact
+            geom1 = contacts.geom1[:ncon]
+            geom2 = contacts.geom2[:ncon]
+            req1, req2 = self.requested[geom1], self.requested[geom2]
+            active = ((req1 & self.ground[geom2]) | (req2 & self.ground[geom1])) & \
+                ~contacts.exclude[:ncon].astype(bool)
+            wrench = self.wrench
+            for contact_id in np.where(active)[0]:
+                mujoco.mj_contactForce(model, data, int(contact_id), wrench)
+                world_force = contacts.frame[contact_id].reshape(3, 3).T @ wrench[:3]
+                g1, g2 = int(geom1[contact_id]), int(geom2[contact_id])
+                if g1 in self.output_of_geom:
+                    forces[self.output_of_geom[g1]] -= world_force
+                if g2 in self.output_of_geom:
+                    forces[self.output_of_geom[g2]] += world_force
+        return self.obs_cls(
+            thorax_z=float(xpos[self.thorax_body, 2]),
+            tarsus5_z=np.array([xpos[b, 2] for b in self.tarsus_bodies], dtype=float),
+            stumbling_contact_forces=forces.reshape(self.shape),
+            fly_heading=data.xmat[self.thorax_body].reshape(3, 3)[:, 0].copy(),
+        )
+
+
 class RealFlyBody:
     """Actual FlyGym 2.x NeuroMechFly + HybridTurningController + MuJoCo.
 
@@ -292,14 +372,20 @@ class RealFlyBody:
         self.apply_locomotion_action = apply_locomotion_action
         self.LocomotionAction = LocomotionAction
         cfg = config or {}
-        self.fly = make_locomotion_fly(name='fly', add_adhesion=True, colorize=False)
+        # colorize applies FlyGym's bundled NeuroMechFly materials (V5.6.2).
+        self.fly = make_locomotion_fly(name='fly', add_adhesion=True, colorize=True)
         # Real stereo eye cameras. Vision is read from rendered eye frames below;
         # obstacle coordinates are never used to generate looming.
         self.fly.add_vision()
         self.world = FlatGroundWorld()
+        # Square lawn instead of the grey checker: drawing only, the plane
+        # still collides as an infinite plane.
+        style_arena(self.world)
         # Runtime lab topology is preallocated before Simulation compilation.
         # Spawn/delete later only toggles/moves fixed slots on the owner thread.
-        self.lab_world = LabWorld(self.world)
+        self.lab_world = LabWorld(
+            self.world, slot_counts=(cfg.get("slot_counts") if isinstance(cfg, dict) else None))
+        self.taste = {"taste_sugar": 0.0, "eating_food_id": None}
         # Optional initial box obstacle (ArenaConfig.box_obstacle), now occupying
         # one of the bounded lab slots instead of being a special-case MJCF geom.
         box = (cfg.get('box_obstacle') or None) if isinstance(cfg, dict) else getattr(cfg, 'box_obstacle', None)
@@ -312,6 +398,11 @@ class RealFlyBody:
         pair_segments = cfg.get("object_fly_pair_segments", ("thorax", "head", "abdomen")) if isinstance(cfg, dict) else ("thorax", "head", "abdomen")
         self.lab_world.install_fly_contact_pairs(self.world, self.fly, segments=pair_segments)
         self.sim = Simulation(self.world)
+        # FlyGym's mujoco_globals enable MuJoCo's energy bookkeeping. Nothing
+        # reads mjData.energy and it never feeds the dynamics; it cost ~1.5% of
+        # every step (2026-09-29 profile).
+        import mujoco
+        self.sim.mj_model.opt.enableflags &= ~int(mujoco.mjtEnableBit.mjENBL_ENERGY)
         self.physics_timestep_s = float(self.sim.timestep)
         self.lab_world.bind(self.sim, self._lab_force_body_ids())
         if box is not None:
@@ -332,6 +423,8 @@ class RealFlyBody:
         # the target M2 Air. `get_raw_vision` consumes this public Retina object.
         from flygym.vision.retina import Retina
         self.sim.retina = Retina(nrows=96, ncols=84)
+        self.controller_obs = ControllerObservationReader(
+            self.sim, 'fly', HybridControllerObservation)
         self.viewer = None
         self.viewer_tick = 0
         self.order = self.fly.get_actuated_jointdofs_order('position')
@@ -372,7 +465,7 @@ class RealFlyBody:
                 adhesion_onoff=self.default_adhesion))
         # warm the controller so legs hold a pose before brain drives arrive
         for _ in range(200):
-            obs = self.HybridControllerObservation.from_sim(self.sim, 'fly')
+            obs = self.controller_obs.read()
             act = self.ctl.step(np.array([0.1, 0.1]), obs)
             self.apply_locomotion_action(self.sim, 'fly', act)
             self.sim.step()
@@ -473,7 +566,7 @@ class RealFlyBody:
             return
 
         interval_steps = max(1, self._controller_steps_since_action + 1)
-        obs = self.HybridControllerObservation.from_sim(self.sim, 'fly')
+        obs = self.controller_obs.read()
         original_timestep = self.ctl.timestep
         original_persistence = self.ctl.retraction_persistence_steps
         self.ctl.timestep = self.sim.timestep * interval_steps
@@ -557,6 +650,8 @@ class RealFlyBody:
                 "orientation_quat_xyzw": quat,
             },
             "objects": self.lab_world.render_objects(),
+            "projectiles": (self.lab_world.projectile_state()
+                            if hasattr(self.lab_world, "projectile_state") else []),
             "player": None if render_player is None else render_player(),
         }
 
@@ -638,6 +733,7 @@ class RealFlyBody:
         """
         self.lab_world._interaction_tick_ms = int(round(self.t * 1000.0))
         self.lab_world.release_interaction("body_reset")
+        self.taste = {"taste_sugar": 0.0, "eating_food_id": None}
         self.sim.reset()
         self.lab_world.resync_after_sim_reset()
         self.lab_world.reset_player_pose(preserve_active=True)
@@ -713,12 +809,14 @@ class RealFlyBody:
             for index in range(n):
                 self._controller_substep(sig)
                 self.lab_world._interaction_tick_ms = int(round((self.t + (index + 1) * self.sim.timestep) * 1000.0))
+                self.lab_world.fly_position_mm = self._thorax_position()
                 self.lab_world.pre_step(self.sim.timestep)
                 self.lab_world.player_substep()
                 self.sim.step()
                 self.lab_world.interaction_post_step()
         finally:
             self.lab_world.end_player_quantum(player_start)
+        self.taste = self.lab_world.feeding_update(sim_dt)
         # --- observe: velocity from thorax displacement (mm -> m/s) ---
         pos = self.sim.get_body_positions('fly')
         xy_mm = pos.mean(axis=0)[:2]
@@ -827,6 +925,8 @@ class RealFlyBody:
                           flash_right=self.vision_state.get('flash_right', 0.0),
                           odor_left=odor["odor_left"], odor_right=odor["odor_right"],
                           nearest_food_distance_mm=odor["nearest_food_distance_mm"],
+                          taste_sugar=self.taste["taste_sugar"],
+                          eating_food_id=self.taste["eating_food_id"],
                           position_x_mm=float(thorax_position_mm[0]),
                           position_y_mm=float(thorax_position_mm[1]),
                           heading_rad=yaw_now,

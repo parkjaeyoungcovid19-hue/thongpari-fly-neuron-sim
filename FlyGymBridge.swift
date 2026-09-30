@@ -675,20 +675,30 @@ final class FlyGymBridge {
                  rayOriginMM: [Double]? = nil, rayDirection: [Double]? = nil,
                  protocolVersion: Int? = nil, sessionID: String? = nil,
                  epoch: Int? = nil, requestedTick: Int? = nil) -> Int {
+        sendLabCommand(LabCommand(id: 0, action: action, target: target,
+                                  x: x, y: y, z: z, size: size, speed: speed,
+                                  strength: strength, durationMs: durationMs, value: value,
+                                  directionDeg: directionDeg, endDistance: endDistance,
+                                  physical: physical, sensory: sensory,
+                                  continuous: continuous, mode: mode,
+                                  toolID: toolID, actorID: actorID,
+                                  rayOriginMM: rayOriginMM, rayDirection: rayDirection,
+                                  protocolVersion: protocolVersion, sessionID: sessionID,
+                                  epoch: epoch, requestedTick: requestedTick))
+    }
+
+    /// Queue a prebuilt command (V5.6.2 toy constructors) on the same bounded
+    /// lab FIFO; the command's `id` is replaced by the next lab sequence number.
+    @discardableResult
+    func sendLabCommand(_ command: LabCommand) -> Int {
         lock.lock()
         let id = nextLabID
         nextLabID = nextLabID == Int.max ? 1 : nextLabID + 1
         lock.unlock()
-        let cmd = LabCommand(id: id, action: action, target: target,
-                             x: x, y: y, z: z, size: size, speed: speed,
-                             strength: strength, durationMs: durationMs, value: value,
-                             directionDeg: directionDeg, endDistance: endDistance,
-                             physical: physical, sensory: sensory,
-                             continuous: continuous, mode: mode,
-                             toolID: toolID, actorID: actorID,
-                             rayOriginMM: rayOriginMM, rayDirection: rayDirection,
-                             protocolVersion: protocolVersion, sessionID: sessionID,
-                             epoch: epoch, requestedTick: requestedTick)
+        var cmd = command
+        cmd.id = id
+        let action = cmd.action, protocolVersion = cmd.protocolVersion
+        let sessionID = cmd.sessionID, epoch = cmd.epoch, requestedTick = cmd.requestedTick
         guard let line = try? JSONEncoder().encode(cmd) else { return id }
         var data = line; data.append(0x0A)
         lock.lock()

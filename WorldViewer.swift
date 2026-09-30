@@ -186,6 +186,9 @@ final class WorldViewer: SCNView {
     var onPlayerLookDelta: ((Double, Double) -> Void)?
     var onPlayerFocusLost: (() -> Void)?
     var onPlayerCaptureRequested: (() -> Void)?
+    /// V5.6.2: a left click while Participate already owns input (fire or grab;
+    /// LabWindow decides from the gun state).
+    var onPlayerPrimaryClick: (() -> Void)?
     var onCameraChanged: (() -> Void)?
     /// Set while MuJoCo's rendering covers the mirror: it shows the real
     /// NeuroMechFly body (~3 mm), so a reset frames the fly, not the arena.
@@ -553,10 +556,15 @@ final class WorldViewer: SCNView {
         case "wall": material.diffuse.contents = NSColor.systemGray
         case "fly": material.diffuse.contents = NSColor.systemOrange
         case "player": material.diffuse.contents = NSColor.systemPurple
+        case "car": material.diffuse.contents = NSColor.systemRed
+        case "trap": material.diffuse.contents = NSColor.systemCyan
         default: material.diffuse.contents = NSColor.systemTeal
         }
         material.roughness.contents = 0.65
         if !collidable { material.transparency = 0.72 }
+        // Fallback for the glass cage when the MuJoCo stream is unavailable:
+        // see-through so a trapped fly stays visible.
+        if shape == "trap" { material.transparency = 0.45 }
         return material
     }
 
@@ -570,6 +578,7 @@ final class WorldViewer: SCNView {
             geometry = SCNSphere(radius: max(0.05, sx * 0.5))
         } else {
             // MuJoCo xyz extents -> SceneKit width/height/length = x/z/y.
+            // Car [L, 0.44L, 0.41L] and trap [S, S, 0.6S] use this box too.
             geometry = SCNBox(width: max(0.1, sx), height: max(0.1, sz),
                               length: max(0.1, sy), chamferRadius: 0)
         }
@@ -729,9 +738,7 @@ final class WorldViewer: SCNView {
         window?.makeFirstResponder(self)
         leftDragStart = nil
         if participateModeEnabled {
-            if !participateInputEnabled { onPlayerCaptureRequested?() }
-            // V5.6 owns world interaction. A Participate click is only an input
-            // capture gesture in V5.5, never an authoritative pick/grab command.
+            routeParticipateClick()
             return
         }
         // A press that turns into a drag moves the camera (the usual trackpad
@@ -833,6 +840,21 @@ final class WorldViewer: SCNView {
             return
         }
         super.keyUp(with: event)
+    }
+
+    enum ParticipateClick: Equatable { case capture, action, ignored }
+
+    /// A Participate click first only captures input; once captured, a click is
+    /// an action (fire/grab) and never an Observe pick. Shared with --labtest.
+    @discardableResult
+    func routeParticipateClick() -> ParticipateClick {
+        guard participateModeEnabled else { return .ignored }
+        if !participateInputEnabled {
+            onPlayerCaptureRequested?()
+            return .capture
+        }
+        onPlayerPrimaryClick?()
+        return .action
     }
 
     @discardableResult

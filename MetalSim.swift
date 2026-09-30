@@ -97,7 +97,43 @@ private enum Group {
     static let foodL: UInt8 = 9, foodR: UInt8 = 10
     static let thermoWarm: UInt8 = 11, thermoCool: UInt8 = 12
     static let windC: UInt8 = 13, windE: UInt8 = 14
-    static let slots = 16   // padded, one histogram per batch slot
+    // The one spare slot. Opt-in and time-multiplexed (see `MetalSim.tasteReadout`):
+    // --gpucheck's independent CPU reference expects it empty on a default sim.
+    static let taste: UInt8 = 15
+    static let slots = 16   // padded, one histogram per batch slot (LIF.metal hardcodes 16)
+}
+
+// MARK: - Identified gustatory neurons (root IDs, not cell-type labels)
+
+/// FlyWire v783 root IDs of identified labellar taste neurons. The shipped
+/// consolidated cell types have no sugar label (these cells are typed `LB3`, a
+/// 122-cell labellar class that is NOT sugar-specific), so membership is by root
+/// ID from a primary source, never by type string. Kept in code: no network at
+/// runtime. Every ID below was matched against `data/` (rootId array) with
+/// outgoing edges, 2026-09-27.
+enum IdentifiedTasteNeurons {
+    /// Labellar sugar-sensing gustatory receptor neurons (Gr5a/Gr64f class): the
+    /// 21-cell set stimulated in Shiu et al., Nature 2024, as ported to v783 by the
+    /// source of our connectivity parquet — github.com/eonsystemspbc/fly-brain @
+    /// a3db62f9436074e485c0278290c2164ed6150808 (2026-08-29), code/benchmark.py,
+    /// `EXPERIMENTS['sugar']`, run against data/2025_Completeness_783.csv +
+    /// 2025_Connectivity_783.parquet. It differs from the paper's v630 list
+    /// (philshiu/Drosophila_brain_model @ 91bdd1e, figures.ipynb `neu_sugar`) by one
+    /// ID: 720575940620900446 (absent from v783) -> 720575940639259967. Shiu calls
+    /// this set "right hemisphere"; FlyWire Codex `side` (our manifest) says left.
+    /// One side only: no v783-verified list exists for the other labellar half.
+    static let sugarGRNRootIds: [UInt64] = [
+        720575940624963786, 720575940630233916, 720575940637568838, 720575940638202345,
+        720575940617000768, 720575940630797113, 720575940632889389, 720575940621754367,
+        720575940621502051, 720575940640649691, 720575940639332736, 720575940616885538,
+        720575940639198653, 720575940639259967, 720575940617937543, 720575940632425919,
+        720575940633143833, 720575940612670570, 720575940628853239, 720575940629176663,
+        720575940611875570,
+    ]
+    /// MN9 proboscis-extension motor neurons (Codex type CB0701, 2 cells), read-only
+    /// readout: eonsystemspbc/fly-brain @ a3db62f9,
+    /// code/paper-phil-drosophila/example.ipynb (v783 config), `MN9_left`/`MN9_right`.
+    static let mn9RootIds: [UInt64] = [720575940660219265, 720575940618238523]
 }
 
 /// PCG-style 32-bit hash (Jarzynski & Olano 2020) — the exact function in
@@ -283,6 +319,7 @@ final class MetalSim {
         case windC, windE
         case touchGeneric
         case hygroDry, hygroMoist
+        case tasteSugar
     }
 
     // ---- topology (shared with the connectome, no copies) --------------------
@@ -314,6 +351,8 @@ final class MetalSim {
     private(set) var windE: [Int] = []          // outgoing JO-E* Johnston's-organ cells
     private(set) var hygroDry: [Int] = []       // HRN_VP4
     private(set) var hygroMoist: [Int] = []     // HRN_VP5
+    private(set) var sugarGRN: [Int] = []       // IdentifiedTasteNeurons.sugarGRNRootIds
+    private(set) var mn9: [Int] = []            // IdentifiedTasteNeurons.mn9RootIds (readout only)
 
     // ---- inputs (0..1), set each frame by the coordinator ---------------------
     var loomL: Float = 0
@@ -338,6 +377,14 @@ final class MetalSim {
     private(set) var rateThermoCool: Float = 0
     private(set) var rateWindC: Float = 0
     private(set) var rateWindE: Float = 0
+    // Taste telemetry, Hz per neuron; stays 0 unless `tasteReadout` is on. Each is
+    // an EMA over the steps its multiplex window was counted (half of sim time).
+    private(set) var rateSugarGRN: Float = 0
+    private(set) var rateMN9: Float = 0
+    /// Exact cumulative readout since the last reset: spikes counted and steps
+    /// sampled, index 0 sugar GRNs, 1 MN9 (mean Hz/neuron = spikes·1000/steps/n).
+    private(set) var tasteSpikes = [0, 0]
+    private(set) var tasteSampledMs = [0, 0]
     private(set) var ratePop: Float = 0    // whole-population Hz per neuron
     private var gfLatch = false
     private(set) var simMs: Int = 0
@@ -388,6 +435,19 @@ final class MetalSim {
     // EMA denominators
     private let nLoom, nDNaL, nDNaR, nMDN, nFwd, nGroom, nEscW: Float
     private let nFoodOdorL, nFoodOdorR, nThermoWarm, nThermoCool, nWindC, nWindE, nPop: Float
+    private let nSugarGRN, nMN9: Float
+
+    /// Opt-in taste telemetry on the kernel histogram's single spare slot (15). Off
+    /// by default so every sim --gpucheck builds keeps the 15-group ABI its CPU
+    /// reference checks. When on, slot 15 is time-multiplexed on sim time: even
+    /// `tasteWindowMs` windows count the sugar GRNs, odd windows MN9, and batches are
+    /// cut at window edges so the phase is a pure function of `simMs`. It only
+    /// relabels the histogram — membrane/spike dynamics are bit-identical either way.
+    var tasteReadout = false
+    private let tasteWindowMs = 32
+    private var tastePhase = -1                   // what groupOf currently tags: -1 none, 0 sugar, 1 MN9
+    private let tasteTagSugar, tasteTagMN9: [Int] // members not already in another histogram group
+    private let groupOfPtr: UnsafeMutablePointer<UInt8>
 
     // "optogenetic" stimulation from brain-window clicks (any thread)
     private struct Stim { let idx: [Int]; let strength: Float; let durationMs: Int; var untilMs = 0 }
@@ -431,6 +491,8 @@ final class MetalSim {
         var groupOf = [UInt8](repeating: 0, count: n)
         classRange = c.superClassNames.map { params.baselineByClass[$0] ?? params.baselineFallback }
         classOf = c.superClass
+        let sugarIds = Set(IdentifiedTasteNeurons.sugarGRNRootIds)
+        let mn9Ids = Set(IdentifiedTasteNeurons.mn9RootIds)
         for i in 0..<n {
             let left = c.side[i] == 1
             let type = c.typeName[i]
@@ -451,6 +513,10 @@ final class MetalSim {
             if type.hasPrefix("JO-E") && c.rowStart[i + 1] > c.rowStart[i] { windE.append(i) }
             if type == "HRN_VP4" { hygroDry.append(i) }
             if type == "HRN_VP5" { hygroMoist.append(i) }
+            // Identified by root ID only (see IdentifiedTasteNeurons); an ID missing
+            // from this build of the data simply drops out of the group.
+            if sugarIds.contains(c.rootId[i]) && c.rowStart[i + 1] > c.rowStart[i] { sugarGRN.append(i) }
+            if mn9Ids.contains(c.rootId[i]) { mn9.append(i) }
             switch c.role[i] {
             case Role.lc4, Role.lplc2:
                 groupOf[i] = Group.loom
@@ -504,6 +570,9 @@ final class MetalSim {
               let gcB = dev.makeBuffer(length: maxBatch * Group.slots * 4, options: .storageModeShared),
               let smB = dev.makeBuffer(length: maxBatch * 32 * 4, options: .storageModeShared)
         else { fputs("metal-sim: could not allocate the per-neuron buffers\n", stderr); return nil }
+        tasteTagSugar = sugarGRN.filter { groupOf[$0] == 0 }
+        tasteTagMN9 = mn9.filter { groupOf[$0] == 0 }
+        groupOfPtr = gB.contents().bindMemory(to: UInt8.self, capacity: n)
         vBuf = vB; refrBuf = rB; baselineBuf = bB; inputKindBuf = kB; phaseBuf = phB
         groupOfBuf = gB; extInputBuf = eiB; excBuf = exB; inhBuf = inB; spikeListBuf = slB
         spikeCountBuf = scB; groupCountBuf = gcB; sampleBuf = smB
@@ -527,6 +596,7 @@ final class MetalSim {
         nFoodOdorL = Float(max(1, foodOdorLeft.count)); nFoodOdorR = Float(max(1, foodOdorRight.count))
         nThermoWarm = Float(max(1, thermoWarm.count)); nThermoCool = Float(max(1, thermoCool.count))
         nWindC = Float(max(1, windC.count)); nWindE = Float(max(1, windE.count))
+        nSugarGRN = Float(max(1, tasteTagSugar.count)); nMN9 = Float(max(1, tasteTagMN9.count))
         nPop = Float(max(1, n))
         logNextMs = perfLogIntervalMs
         applySeed(seed)
@@ -643,7 +713,9 @@ final class MetalSim {
         while remaining > 0 {
             // a sub-batch never crosses a stim expiry, so extInput is exact per step
             let room = activeStims.map(\.untilMs).min().map { $0 - simMs - 1 } ?? Int.max
-            let k = min(remaining, maxBatch, max(1, room))
+            // ... nor a taste-readout window edge, so one batch counts one population
+            let window = tasteReadout ? tasteWindowMs - simMs % tasteWindowMs : Int.max
+            let k = min(remaining, maxBatch, max(1, room), window)
             runBatch(k)
             remaining -= k
             dropFinishedStims()
@@ -658,8 +730,19 @@ final class MetalSim {
         }
     }
 
+    /// Retags the spare histogram slot for the batch about to run. Steps
+    /// simMs+1...simMs+k all share window `simMs / tasteWindowMs` (step() cuts there).
+    private func applyTastePhase() {
+        let phase = tasteReadout ? (simMs / tasteWindowMs) & 1 : -1
+        guard phase != tastePhase else { return }
+        tastePhase = phase
+        for i in tasteTagSugar { groupOfPtr[i] = phase == 0 ? Group.taste : 0 }
+        for i in tasteTagMN9 { groupOfPtr[i] = phase == 1 ? Group.taste : 0 }
+    }
+
     private func runBatch(_ k: Int) {
         let t0 = DispatchTime.now()
+        applyTastePhase()
 
         // Per-step parameters. Everything here is CPU state (input levels are held
         // constant across a step() call, the arousal-burst schedule is seeded), so
@@ -739,6 +822,15 @@ final class MetalSim {
             rateThermoCool += (Float(g[Int(Group.thermoCool)]) * 1000 / nThermoCool - rateThermoCool) * a
             rateWindC += (Float(g[Int(Group.windC)]) * 1000 / nWindC - rateWindC) * a
             rateWindE += (Float(g[Int(Group.windE)]) * 1000 / nWindE - rateWindE) * a
+            if tastePhase >= 0 {
+                tasteSpikes[tastePhase] += Int(g[Int(Group.taste)])
+                tasteSampledMs[tastePhase] += 1
+            }
+            if tastePhase == 0 {
+                rateSugarGRN += (Float(g[Int(Group.taste)]) * 1000 / nSugarGRN - rateSugarGRN) * a
+            } else if tastePhase == 1 {
+                rateMN9 += (Float(g[Int(Group.taste)]) * 1000 / nMN9 - rateMN9) * a
+            }
             ratePop  += (Float(total) * 1000 / nPop - ratePop) * a
 
             if spikeBus != nil {
@@ -787,7 +879,8 @@ final class MetalSim {
     }
 
     /// The most recent step's spike histogram, indexed by the kernel's group ids
-    /// (1-8 core outputs; 9-14 lab receptor telemetry groups).
+    /// (1-8 core outputs; 9-14 lab receptor telemetry groups; 15 the opt-in taste
+    /// readout: sugar GRNs or MN9 by sim-time window, see `tasteReadout`).
     func lastStepGroupCounts() -> [UInt32] { lastGroupCounts }
 
     /// Test-only visibility into the shared external-current buffer. This reads
@@ -831,6 +924,8 @@ final class MetalSim {
         rateFoodOdorL = 0; rateFoodOdorR = 0
         rateThermoWarm = 0; rateThermoCool = 0
         rateWindC = 0; rateWindE = 0; ratePop = 0
+        rateSugarGRN = 0; rateMN9 = 0
+        tasteSpikes = [0, 0]; tasteSampledMs = [0, 0]
         gfLatch = false
         simMs = 0; totalSpikes = 0
         lastSpikeCount = 0

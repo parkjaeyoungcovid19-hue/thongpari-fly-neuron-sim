@@ -41,7 +41,27 @@ These checks confirm the committed V4 scheduling/session baseline before V5 work
 | V5.5.1 | 한 창 Lab 및 F-02 충돌 수정 | complete (GUI 1–3 Claude, 4–7 user) | `main.swift`, `FlyGymService.swift`, `LabWindow.swift`, `MuJoCoCanvas.swift`, `flygym_bridge/{player_body,lab_world,fly_body,test_player_collision_real}.py` | [2026-09-26 independent check](../../notes/validation/v5-5-1-independent-2026-09-26/README.md); [F-02 fix logs](../../notes/validation/f02-fix-2026-09-26/README.md): 18/18 collision PASS, HEAD negative control 8 FAIL; F-01 held-input reconcile in `LabWindow.swift` (GUI flow 4: user-confirmed), Python real/mock + fresh TCP PASS | [완료 보고서](V5_5_1_COMPLETION_REPORT.md); GUI 결함 A–D 수정 포함 |
 | V5.6 | 집기/놓기 | complete (GUI: 사용자 확인 2026-09-26) | `flygym_bridge/{interaction,lab_world,fly_body,protocol,bridge,test_v5_6,test_interaction_real}.py`, `LabProtocol.swift`, `FlyGymBridge.swift`, `LabViewState.swift`, `LabWindow.swift`, `PlayerController.swift`, `WorldViewer.swift`, `BridgeDiagnostics.swift`, `main.swift` | [계약](../plans/VIRTUAL_FLY_LAB_V5_6_GRAB_PLACE_SPEC.md); [Python real/mock](../../notes/validation/v5-6-2026-09-26/python-fix/README.md) 321 PASS; [Swift](../../notes/validation/v5-6-2026-09-26/swift-fix/README.md); [TCP mock+headless `--interactionloop`](../../notes/validation/v5-6-2026-09-26/tcp-loop-rerun/README.md) PASS; 전체 Swift 회귀 PASS | 사용자가 실제 화면에서 동작을 확인했다(캡처·수치 기록 없음). **후속 과제: 조작감이 나쁘다는 사용자 평가** — 원인 조사 전 |
 | V5.6.1 | 조작감·운반 수정 | complete (GUI: 사용자 확인 2026-09-27) | `flygym_bridge/{interaction,lab_world,bridge,test_interaction_real}.py`, `MuJoCoCanvas.swift`, `PlayerController.swift`, `WorldViewer.swift`, `LabWindow.swift`, `FlyGymBridge.swift`, `BridgeDiagnostics.swift`, `LabDiagnostics.swift`, `SimDiagnostics.swift` | [검증](../../notes/validation/v5-6-1-2026-09-27/README.md): 이동 전 제약 운반(경로 전체 참여체 이탈 0), 음성 대조, 성능 게이트 3.2–3.7%, 전체 Python/Swift/TCP 회귀 PASS; Codex 리뷰 2회 반영 | 1인칭 화면은 여전히 backend 렌더 왕복(약 24 fps) |
-| V5.7 | 기존 activity card 연결 | planned | 미정 | 미실행 | reuse existing telemetry only; no new state model |
+| V5.6.2 | 샌드박스 환경·모델·섭식 (사용자 요청, V5.7 전) | automated_real_verified (GUI 대기) | `flygym_bridge/{sandbox_models,lab_world,player_body,fly_body,protocol,view_stream,interaction}.py`, 새 시험 `test_v5_6_2.py`·`test_v5_6_2_tools.py`, Swift `MetalSim`·`SensoryModel`·`FlyGymPackets`·`main`·`LabProtocol`·`LabWindow`·`ActivityCards` | [계약](../plans/VIRTUAL_FLY_LAB_V5_6_2_SANDBOX_SPEC.md); Python 12종 exit 0 (2026-09-27, 오케스트레이터가 다시 실행); Swift labtest·bridgetest PASS; 당 GRN 프로브와 gpucheck bit-exact (에이전트 보고) | 쫄라맨, 잔디밭, 파리 색, 음식 6종, 섭식과 당 GRN, 자동차·함정·비비탄. 도구 UI와 GUI 캡처 남음 |
+| V5.7 | 기존 activity card 연결 | implemented (GUI 대기) | `ActivityCards.swift` (신규), `LabWindow.swift`, `LabDiagnostics.swift`, `build.sh` | `--labtest` V5.7 검사 9개 PASS (카드 클릭 시 신경 상태가 쌍둥이 sim과 동일, 명령 0개, 배고픔 미지원, 자료 없으면 "—"); 음성 대조 2종 FAIL 검출 | 카드 17장(당 GRN, MN9 추가). 발화율 카드는 일시 정지 중 직전 값을 보여 준다 |
+
+## 성능 개선 (M2 8 GB) — 2026-09-29, 미커밋
+
+물리 결과를 바꾸지 않는 변경만 넣었다. 비교 스크립트로 90개 20 ms 구간의 qpos/qvel 해시와 이벤트 로그가 변경 전과 비트 단위로 같음을 확인했다.
+
+| 변경 | 위치 | 측정 근거 |
+|---|---|---|
+| 숨긴 슬롯을 충돌 broadphase에서 제외. body_contype/conaffinity를 geom 마스크의 OR로 유지한다 | `sandbox_models.set_geom_collidable` (마스크 쓰기 5곳), `LabWorld.bind` | 숨긴 mocap 214개가 모두 FAR_POS에 있어 SAP가 모든 쌍을 만들었다. 대기 상태 mj_step이 188 µs에서 124 µs로 줄었다 |
+| 접촉 후처리를 numpy로 먼저 거른다 | `LabWorld.interaction_post_step` | substep당 21 µs에서 약 2 µs로 줄었다 |
+| MuJoCo 에너지 계산을 끈다(FlyGym 기본값이 켬, 읽는 곳 없음) | `RealFlyBody.__init__` | mj_step의 약 1.5% |
+| 제어기 관측의 이름 조회를 한 번만 한다 | `fly_body.ControllerObservationReader` | 호출당 106 µs에서 12.5 µs로 줄었다. FlyGym `from_sim`과 비트 단위로 같다(`test_v5_6_2.py`) |
+| 렌더 스트림 일정을 누적 방식으로 바꾼다 | `ViewStream.render_if_due` | 31 ms 물리 반복에 엄격한 41.7 ms 조건이 걸려 16 fps로 떨어지던 문제를 24 fps로 고쳤다 |
+| 뇌·몸 60 Hz 스텝을 전용 스레드(자체 run loop)로 옮긴다 | `AppDelegate.startIntegratedLab` | 메인 스레드가 Metal `waitUntilCompleted`에서 27% 막혀 있었다 |
+| 실행·기록 버튼은 값이 바뀔 때만 다시 쓴다 | `LabWindowController.show(_:title:symbol:tint:)` | 10 Hz로 버튼 크기를 다시 재는 비용이 메인 스레드의 약 13%였다 |
+| 프레임을 수신 스레드에서 BGRX로 변환한다 | `MuJoCoFrameStream.bgrx` | 24비트 RGB 프레임을 CA가 메인 스레드 커밋 중에 다시 그렸다(프레임당 약 3 ms) |
+
+앱과 같은 조건의 종단 측정(비공개 포트 headless 브리지, 1200×800 스트림, 60 Hz 뇌 패킷, 상자·자동차·음식 배치)에서 sim/wall은 0.42–0.46에서 0.68–0.71로, 몸 패킷은 21–23 Hz에서 34–35 Hz로, 화면은 17 fps에서 24 fps로, 최대 간격은 111–207 ms에서 48–56 ms로 개선됐다. 실제 백엔드 `--inputprobe` 결과는 이전 기록과 비교해 sim/wall이 0.40–0.48에서 0.72로 올랐고, 키 입력부터 첫 움직임까지의 지연이 110–151 ms에서 75 ms로 줄었다. 앱 상태줄에는 “몸 데이터 초당 40회 · 실시간 대비 0.75배”가 표시됐다.
+
+회귀 검사: Python 11종이 통과했다. `test_lab_real`의 `expanded runtime object capacity` 1건은 이미 알려진 음식 슬롯 8 문제로 이번 변경과 무관하다(`notes/validation/v5-independent-2026-09-29/`). Swift `--behaviortest`, `--labtest`, `--bridgetest`, `--v4test`, `--v4timingtest`와 새 백엔드에서 실행한 `--labloop`, `--interactionloop`, `--inputprobe`, `--v4loop`, `--bridgeloop`도 모두 PASS다. 남은 병목은 MuJoCo 자체(0.1 ms 스텝의 약 74%, Newton solver와 접촉)와 FlyGym 보행 제어기다. 이 부분을 더 줄이려면 timestep이나 solver를 바꿔야 해서 물리 결과가 달라진다.
 
 ## V5.6 착수 준비 — 2026-09-26
 

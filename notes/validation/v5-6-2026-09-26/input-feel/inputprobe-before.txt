@@ -1,0 +1,5 @@
+inputprobe W only: sim/wall=0.48 snapshots=73 (24.3/s)
+inputprobe W only: press->first motion 110 ms wall; moved 13.17 mm before release; drift after release 1.23 mm; last motion 98 ms after release
+inputprobe W + mouse: sim/wall=0.47 snapshots=67 (22.2/s)
+inputprobe W + mouse: press->first motion 111 ms wall; moved 12.66 mm before release; drift after release 1.23 mm; last motion 98 ms after release
+inputprobe look: sent 1.060 rad over 1 s; applied 1.120 rad; 25 visible yaw updates (24.2/s); first update 58 ms after start; last update 77 ms after mouse stopped; max step 3.4 deg

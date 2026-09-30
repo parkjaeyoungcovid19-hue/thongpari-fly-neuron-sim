@@ -93,8 +93,10 @@ check("all V1 shapes spawn", {o["shape"] for o in world.state()["objects"]} == {
 check("food odor source is honest sensory model",
       food["odor_source_modeled"] and food["odor_classification"] == "SENSORY-MODEL" and
       not food["backend_direct_neural"] and food["integrated_neural_target"] == "ORN_DM1/VA2 via Swift" and
-      not food["taste_modeled"] and
-      not food["reward_modeled"] and not food["feeding_modeled"] and
+      food["taste_modeled"] and food["taste_classification"] == "SENSORY-MODEL" and
+      food["feeding_modeled"] and food["food_variant"] in ("apple", "banana", "cheese",
+                                                           "grapes", "cookie", "sugar_cube") and
+      not food["reward_modeled"] and
       not food["behavior_scripted"] and not food["visual_marker_only"], repr(food))
 try:
     world.spawn_object(shape="box", object_id="overflow")

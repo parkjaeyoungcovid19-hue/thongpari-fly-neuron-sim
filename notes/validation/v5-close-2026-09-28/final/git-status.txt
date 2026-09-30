@@ -1,0 +1,41 @@
+ M BridgeDiagnostics.swift
+ M FlyGymBridge.swift
+ M FlyGymPackets.swift
+ M LabDiagnostics.swift
+ M LabProtocol.swift
+ M LabWindow.swift
+ M MetalSim.swift
+ M PlayerController.swift
+ M SensoryModel.swift
+ M SimDiagnostics.swift
+ M WorldViewer.swift
+ M build.sh
+ M docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md
+ M docs/reports/V5_PROGRESS.md
+ M flygym_bridge/fly_body.py
+ M flygym_bridge/interaction.py
+ M flygym_bridge/lab_world.py
+ M flygym_bridge/player_body.py
+ M flygym_bridge/protocol.py
+ M flygym_bridge/test_lab.py
+ M flygym_bridge/test_lab_real.py
+ M flygym_bridge/test_player_collision_real.py
+ M flygym_bridge/test_v5.py
+ M flygym_bridge/test_v5_6.py
+ M flygym_bridge/view_stream.py
+ M main.swift
+?? ActivityCards.swift
+?? docs/plans/VIRTUAL_FLY_LAB_V5_6_2_SANDBOX_SPEC.md
+?? docs/reports/V6_START_READINESS_2026-09-28.md
+?? flygym_bridge/sandbox_models.py
+?? flygym_bridge/test_v5_6_2.py
+?? flygym_bridge/test_v5_6_2_tools.py
+?? notes/validation/refactor-2026-09-22/decode-benchmark/benchmark
+?? notes/validation/v5-6-2026-09-26/input-feel/inputprobe-before.txt
+?? notes/validation/v5-6-2026-09-26/input-feel/probe_carry_push.py
+?? notes/validation/v5-6-2026-09-26/input-feel/probe_push.py
+?? notes/validation/v5-6-2026-09-26/tcp-loop/headless-backend.pid
+?? notes/validation/v5-6-2026-09-26/tcp-loop/mock-backend.pid
+?? notes/validation/v5-6-2026-09-26/tcp-loop/mock-labloop-backend.pid
+?? notes/validation/v5-7-swift-independent-2026-09-28/
+?? notes/validation/v5-close-2026-09-28/

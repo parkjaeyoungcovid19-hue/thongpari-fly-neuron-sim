@@ -217,6 +217,10 @@ struct FlyGymBodyPacket: Decodable {
     var flashRight: Double = 0
     var odorLeft: Double = 0
     var odorRight: Double = 0
+    /// Optional labellar sugar contact 0...1 from the body model. Absent/null -> 0;
+    /// unlike the tolerant fields above, a present non-number, non-finite or
+    /// out-of-range value rejects the whole packet (it would otherwise be neural input).
+    var tasteSugar: Double = 0
     var nearestFoodDistanceMm: Double?
     var positionXmm: Double = 0
     var positionYmm: Double = 0
@@ -238,6 +242,7 @@ struct FlyGymBodyPacket: Decodable {
         case eyeSampleSimTick = "eye_sample_sim_tick"
         case flashLeft = "flash_left", flashRight = "flash_right"
         case odorLeft = "odor_left", odorRight = "odor_right"
+        case tasteSugar = "taste_sugar"
         case nearestFoodDistanceMm = "nearest_food_distance_mm"
         case positionXmm = "position_x_mm", positionYmm = "position_y_mm"
         case headingRad = "heading_rad"
@@ -298,6 +303,13 @@ struct FlyGymBodyPacket: Decodable {
         flashRight = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .flashRight)) ?? 0))
         odorLeft = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .odorLeft)) ?? 0))
         odorRight = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .odorRight)) ?? 0))
+        if let sugar = try c.decodeIfPresent(Double.self, forKey: .tasteSugar) {
+            guard sugar.isFinite, sugar >= 0, sugar <= 1 else {
+                throw DecodingError.dataCorruptedError(forKey: .tasteSugar, in: c,
+                                                      debugDescription: "taste_sugar must be a finite number in 0...1")
+            }
+            tasteSugar = sugar
+        }
         if let d = (try? c.decodeIfPresent(Double.self, forKey: .nearestFoodDistanceMm)) ?? nil,
            d.isFinite {
             nearestFoodDistanceMm = min(1_000_000.0, max(0.0, d))
@@ -490,6 +502,7 @@ struct FlyGymBodyFeedback: FlyGymStampedPacket {
     var flashRight: Double = 0
     var odorLeft: Double = 0
     var odorRight: Double = 0
+    var tasteSugar: Double = 0
     var nearestFoodDistanceMm: Double?
     var positionXmm: Double = 0
     var positionYmm: Double = 0
@@ -515,6 +528,7 @@ struct FlyGymBodyFeedback: FlyGymStampedPacket {
         eyeSampleSimTick = p.eyeSampleSimTick
         flashLeft = p.flashLeft; flashRight = p.flashRight
         odorLeft = p.odorLeft; odorRight = p.odorRight
+        tasteSugar = p.tasteSugar
         nearestFoodDistanceMm = p.nearestFoodDistanceMm
         positionXmm = p.positionXmm; positionYmm = p.positionYmm
         headingRad = p.headingRad; bearing = p.bearing
@@ -564,6 +578,14 @@ enum FlyGymSensoryMap {
     static func foodOdor(body: FlyGymBodyFeedback?, maxAge: TimeInterval = 0.5) -> (l: Float, r: Float) {
         guard let b = body, Date().timeIntervalSince(b.receivedAt) < maxAge else { return (0, 0) }
         return (Float(b.odorLeft), Float(b.odorRight))
+    }
+
+    /// Modeled labellar sugar contact from the body model -> the identified sugar
+    /// GRNs only. Deliberately independent of `foodOdor`: odor never creates taste
+    /// drive. Stale packets clear it, like odor.
+    static func sugarTaste(body: FlyGymBodyFeedback?, maxAge: TimeInterval = 0.5) -> Float {
+        guard let b = body, Date().timeIntervalSince(b.receivedAt) < maxAge else { return 0 }
+        return Float(b.tasteSugar)
     }
 
     /// Body heading is world-frame yaw from the real MuJoCo thorax. It is kept

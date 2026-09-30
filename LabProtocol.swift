@@ -61,6 +61,14 @@ struct LabCommand: Codable {
     var sessionID: String? = nil
     var epoch: Int? = nil
     var requestedTick: Int? = nil
+    // V5.6.2 sandbox toys. Python merges these flat keys into `args` unchanged,
+    // so each wire name is exactly the backend argument name.
+    var shape: String? = nil
+    var sizeMM: Double? = nil
+    var speedMMs: Double? = nil
+    var distanceMM: Double? = nil
+    var equipped: Bool? = nil
+    var direction: [Double]? = nil
 
     enum CodingKeys: String, CodingKey {
         case type, id, action, target, x, y, z, size, speed, strength, value
@@ -76,6 +84,10 @@ struct LabCommand: Codable {
         case sessionID = "session_id"
         case epoch
         case requestedTick = "requested_tick"
+        case shape, equipped, direction
+        case sizeMM = "size_mm"
+        case speedMMs = "speed_mm_s"
+        case distanceMM = "distance_mm"
     }
 }
 
@@ -99,6 +111,169 @@ extension LabCommand {
                           rayOriginMM: rayOriginMM, rayDirection: rayDirection,
                           protocolVersion: protocolVersion, sessionID: sessionID,
                           epoch: epoch, requestedTick: requestedTick)
+    }
+
+    // V5.6.2 toy commands. Bounds mirror flygym_bridge/protocol.py
+    // LabCommand.from_dict so an out-of-range request never leaves Swift.
+    // `id` is the wire sequence; FlyGymBridge.sendLabCommand assigns the real one.
+
+    /// `spawn_object {shape, id, position_mm, size_mm}` with a scalar length (car)
+    /// or side (trap). `target` becomes the backend object id.
+    static func spawnToy(id: Int = 0, shape: String, target: String,
+                         positionMM: [Double], sizeMM: Double) -> LabCommand? {
+        guard let range = LabToy.sizeRangeMM(shape: shape), range.contains(sizeMM),
+              !target.isEmpty, positionMM.count == 3,
+              positionMM.allSatisfy({ $0.isFinite && abs($0) <= 1000 }) else { return nil }
+        return LabCommand(id: id, action: "spawn_object", target: target,
+                          x: positionMM[0], y: positionMM[1], z: positionMM[2],
+                          shape: shape, sizeMM: sizeMM)
+    }
+
+    /// `drive_object {id, speed_mm_s, distance_mm}`; 0 < speed ≤ 60, 0 < distance ≤ 300.
+    static func driveObject(id: Int = 0, target: String,
+                            speedMMs: Double = LabToy.driveSpeedMMs,
+                            distanceMM: Double = LabToy.driveDistanceMM) -> LabCommand? {
+        guard !target.isEmpty, speedMMs > 0, speedMMs <= 60,
+              distanceMM > 0, distanceMM <= 300 else { return nil }
+        return LabCommand(id: id, action: "drive_object", target: target,
+                          speedMMs: speedMMs, distanceMM: distanceMM)
+    }
+
+    /// `arm_trap {id}`.
+    static func armTrap(id: Int = 0, target: String) -> LabCommand? {
+        guard !target.isEmpty else { return nil }
+        return LabCommand(id: id, action: "arm_trap", target: target)
+    }
+
+    /// `equip_gun {actor_id, equipped}`.
+    static func equipGun(id: Int = 0, actorID: String, equipped: Bool) -> LabCommand? {
+        guard !actorID.isEmpty else { return nil }
+        return LabCommand(id: id, action: "equip_gun", actorID: actorID, equipped: equipped)
+    }
+
+    /// `fire_bb {actor_id, direction}`; the direction is renormalized to a unit
+    /// vector (the backend rejects |d| off 1 by more than 1e-3).
+    static func fireBB(id: Int = 0, actorID: String, direction: [Double]) -> LabCommand? {
+        guard !actorID.isEmpty, direction.count == 3, direction.allSatisfy(\.isFinite) else { return nil }
+        let norm = sqrt(direction.reduce(0) { $0 + $1 * $1 })
+        guard norm.isFinite, norm > 1e-9 else { return nil }
+        return LabCommand(id: id, action: "fire_bb", actorID: actorID,
+                          direction: direction.map { $0 / norm })
+    }
+}
+
+/// V5.6.2 toy presentation constants and names. Geometry ratios are the ones
+/// in flygym_bridge/sandbox_models.py; the backend stays authoritative.
+enum LabToy {
+    static let carDefaultLengthMM = 14.0
+    static let trapDefaultSideMM = 20.0
+    static let driveSpeedMMs = 20.0
+    static let driveDistanceMM = 80.0
+    private static let carHeightRatio = 0.41   // CAR_HEIGHT_RATIO
+    private static let trapHeightRatio = 0.6   // TRAP_HEIGHT_RATIO
+    private static let trapLiftMM = 4.0        // lab_world.TRAP_LIFT_MM (armed height)
+
+    static func isToy(_ shape: String) -> Bool { shape == "car" || shape == "trap" }
+
+    static func sizeRangeMM(shape: String) -> ClosedRange<Double>? {
+        switch shape {
+        case "car": return 4...60
+        case "trap": return 8...60
+        default: return nil
+        }
+    }
+
+    /// Centre height the backend itself uses when no position is given: a car
+    /// resting on the lawn, a trap hanging armed above it.
+    static func spawnCenterZ(shape: String, sizeMM: Double) -> Double {
+        shape == "car" ? 0.5 * carHeightRatio * sizeMM : 0.5 * trapHeightRatio * sizeMM + trapLiftMM
+    }
+
+    /// Which selected-object actions apply to a shape.
+    static func actions(forShape shape: String?) -> (drive: Bool, rearm: Bool) {
+        (shape == "car", shape == "trap")
+    }
+
+    static func shapeName(_ shape: String) -> String {
+        switch shape {
+        case "car": return L("toy car", "장난감 자동차")
+        case "trap": return L("cage trap", "유리 함정")
+        case "food": return L("food", "먹이")
+        case "box": return L("box", "상자")
+        case "sphere": return L("sphere", "공")
+        case "wall": return L("wall", "벽")
+        default: return shape
+        }
+    }
+
+    static func foodName(_ variant: String) -> String {
+        switch variant {
+        case "apple": return L("apple", "사과")
+        case "banana": return L("banana", "바나나")
+        case "cheese": return L("cheese", "치즈")
+        case "grapes": return L("grapes", "포도")
+        case "cookie": return L("cookie", "쿠키")
+        case "sugar_cube": return L("sugar cube", "각설탕")
+        default: return variant
+        }
+    }
+
+    static func trapStateName(_ state: String) -> String {
+        switch state {
+        case "armed": return L("armed", "설치됨")
+        case "dropping": return L("dropping", "내려오는 중")
+        case "closed": return L("closed", "닫힘")
+        default: return state
+        }
+    }
+
+    /// One object-list row: id, kind, and the toy/food state when the backend sent it.
+    static func objectLine(_ object: LabWorldObjectRemote) -> String {
+        var parts = [object.id, shapeName(object.shape)]
+        if let variant = object.foodVariant { parts.append(foodName(variant)) }
+        if let state = object.trapState { parts.append(trapStateName(state)) }
+        if isToy(object.shape), let length = object.sizeMM.first, length.isFinite {
+            parts.append(String(format: "%.0f mm", length))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Timeline wording for toy events. These are physical contact/motion
+    /// events reported by MuJoCo; nothing here describes what the fly feels.
+    static func eventLine(_ event: String, _ d: LabEventDetail?) -> String? {
+        let id = d?.id ?? "?"
+        let units = d?.forceUnits == "mujoco_model" ? L(" (model units)", " (모델 단위)") : ""
+        let force = d?.peakNormalForce.flatMap { $0.isFinite ? $0 : nil }
+            .map { L(" · peak normal force ", " · 최대 수직 접촉력 ") + String(format: "%.4g", $0) + units } ?? ""
+        let segment = d?.flySegment.map { L(" on fly \($0)", " (파리 \($0))") } ?? ""
+        switch event {
+        case "car_hit_fly": return L("Car \(id) contacted the fly\(force); car stopped", "자동차 \(id)가 파리에 부딪힘\(force) · 자동차 멈춤")
+        case "car_blocked":
+            let by = d?.blockingGeomKind == "lawn_edge" ? L("the lawn edge", "잔디밭 가장자리")
+                : L("an object or the participant", "물체나 참여체")
+            return L("Car \(id) stopped: blocked by \(by)", "자동차 \(id) 멈춤: \(by)에 막힘")
+        case "drive_complete": return L("Car \(id) finished its drive distance", "자동차 \(id) 주행 거리 완료")
+        case "trap_triggered": return L("Trap \(id) released: fly is under the cage", "함정 \(id) 작동: 파리가 상자 아래에 들어옴")
+        case "trap_closed": return L("Trap \(id) closed on the floor", "함정 \(id)이 바닥까지 내려와 닫힘")
+        case "trap_armed": return L("Trap \(id) re-armed (lifted)", "함정 \(id) 다시 설치됨 (들어 올림)")
+        case "trap_blocked": return L("Trap \(id) blocked: something is in its path", "함정 \(id) 막힘: 경로에 무언가 있음")
+        case "bb_fired": return L("BB \(id) fired", "비비탄 \(id) 발사")
+        case "bb_hit_fly": return L("BB \(id) hit the fly\(segment)\(force)", "비비탄 \(id)이 파리에 맞음\(segment)\(force)")
+        case "bb_hit_object": return L("BB \(id) hit object \(d?.objectID ?? "?")", "비비탄 \(id)이 물체 \(d?.objectID ?? "?")에 맞음")
+        case "bb_expired": return L("BB \(id) removed (time or range limit)", "비비탄 \(id) 사라짐 (시간·범위 제한)")
+        case "feeding_begin", "feeding_end", "food_eaten":
+            // Mouth-contact events: the proboscis touches the food model. Not a
+            // statement that the fly is hungry or enjoys it.
+            let food = d?.foodVariant.map { foodName($0) + " " } ?? ""
+            let contact = d?.contactS.flatMap { $0.isFinite ? $0 : nil }
+                .map { String(format: L(" · mouth contact %.2f s", " · 입 접촉 %.2f초"), $0) } ?? ""
+            switch event {
+            case "feeding_begin": return L("Fly's mouth touched \(food)\(id)", "파리 입이 \(food)\(id)에 닿음")
+            case "feeding_end": return L("Fly's mouth left \(food)\(id)\(contact)", "파리 입이 \(food)\(id)에서 떨어짐\(contact)")
+            default: return L("\(food.isEmpty ? "Food " : food)\(id) eaten up\(contact)", "\(food.isEmpty ? "음식 " : food)\(id)을 다 먹음\(contact)")
+            }
+        default: return nil
+        }
     }
 }
 
@@ -281,9 +456,15 @@ struct LabEventDetail: Decodable, Equatable {
     var durationMS: Int?
     var blockingGeomKind: String?
     var forceUnits: String?
+    /// V5.6.2 `bb_hit_object` names the struck lab object here.
+    var objectID: String?
+    /// V5.6.2 feeding events: which food model, and accumulated mouth contact.
+    var foodVariant: String?
+    var contactS: Double?
 
     enum CodingKeys: String, CodingKey {
         case id, reason
+        case objectID = "object_id"
         case simTickMS = "sim_tick_ms"
         case flySegment = "fly_segment"
         case normalForce = "normal_force"
@@ -291,6 +472,8 @@ struct LabEventDetail: Decodable, Equatable {
         case durationMS = "duration_ms"
         case blockingGeomKind = "blocking_geom_kind"
         case forceUnits = "force_units"
+        case foodVariant = "food_variant"
+        case contactS = "contact_s"
     }
 
     /// One timeline line; force stays in backend model units, never converted.
@@ -298,6 +481,7 @@ struct LabEventDetail: Decodable, Equatable {
         var parts: [String] = []
         if let id { parts.append(id) }
         if let flySegment { parts.append(L("fly \(flySegment)", "파리 \(flySegment)")) }
+        if let objectID { parts.append(L("object \(objectID)", "물체 \(objectID)")) }
         if let reason { parts.append(reason) }
         if let blockingGeomKind { parts.append(L("by \(blockingGeomKind)", "\(blockingGeomKind)에 막힘")) }
         let units = forceUnits == "mujoco_model" ? L(" (model units)", " (모델 단위)") : ""
@@ -347,12 +531,44 @@ struct LabWorldObjectRemote: Decodable {
     var positionMM: [Double]
     var sizeMM: [Double]
     var yawDeg: Double
+    /// V5.6.2 optional fields: "armed" | "dropping" | "closed" for a trap, the
+    /// food model name for food. Older backends omit both.
+    var trapState: String? = nil
+    var foodVariant: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, shape
         case positionMM = "position_mm"
         case sizeMM = "size_mm"
         case yawDeg = "yaw_deg"
+        case trapState = "trap_state"
+        case foodVariant = "food_variant"
+    }
+}
+
+extension LabWorldObjectRemote {
+    /// In an extension so the memberwise initializer survives. A malformed
+    /// optional V5.6.2 field is dropped, never the object or the lab_state.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        shape = try c.decode(String.self, forKey: .shape)
+        positionMM = try c.decode([Double].self, forKey: .positionMM)
+        sizeMM = try c.decode([Double].self, forKey: .sizeMM)
+        yawDeg = try c.decode(Double.self, forKey: .yawDeg)
+        trapState = (try? c.decodeIfPresent(String.self, forKey: .trapState)) ?? nil
+        foodVariant = (try? c.decodeIfPresent(String.self, forKey: .foodVariant)) ?? nil
+    }
+}
+
+/// V5.6.2 BB pellet in flight (`state.projectiles`).
+struct LabProjectileRemote: Decodable {
+    var id: String
+    var positionMM: [Double]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case positionMM = "position_mm"
     }
 }
 
@@ -360,11 +576,21 @@ struct LabRemoteWorldState: Decodable {
     var objects: [LabWorldObjectRemote]?
     var slotCapacity: [String: Int]?
     var slotFree: [String: Int]?
+    var projectiles: [LabProjectileRemote]?
 
     enum CodingKeys: String, CodingKey {
-        case objects
+        case objects, projectiles
         case slotCapacity = "slot_capacity"
         case slotFree = "slot_free"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        objects = try c.decodeIfPresent([LabWorldObjectRemote].self, forKey: .objects)
+        slotCapacity = try c.decodeIfPresent([String: Int].self, forKey: .slotCapacity)
+        slotFree = try c.decodeIfPresent([String: Int].self, forKey: .slotFree)
+        // Optional V5.6.2 field; older backends omit it and a bad one is dropped.
+        projectiles = (try? c.decodeIfPresent([LabProjectileRemote].self, forKey: .projectiles)) ?? nil
     }
 }
 
@@ -574,9 +800,12 @@ struct WorldRenderObject: Decodable {
     var revision: Int
     var collidable: Bool
     var classification: String?
+    /// V5.6.2 optional trap state; older backends omit it.
+    var trapState: String?
 
     enum CodingKeys: String, CodingKey {
         case id, shape, revision, collidable, classification
+        case trapState = "trap_state"
         case positionMM = "position_mm"
         case orientationQuatXYZW = "orientation_quat_xyzw"
         case sizeMM = "size_mm"
@@ -609,6 +838,7 @@ struct WorldRenderObject: Decodable {
         }
         collidable = try c.decodeIfPresent(Bool.self, forKey: .collidable) ?? true
         classification = try c.decodeIfPresent(String.self, forKey: .classification)
+        trapState = (try? c.decodeIfPresent(String.self, forKey: .trapState)) ?? nil
     }
 }
 
@@ -842,6 +1072,10 @@ struct LabTelemetry {
     var rateThermoCool: Double = 0
     var rateWindC: Double = 0
     var rateWindE: Double = 0
+    // V5.6.2 identified sugar GRNs (input) and MN9 (read-only), root-ID groups.
+    var rateSugarGRN: Double = 0
+    var rateMN9: Double = 0
+    var tasteSugarDrive: Double = 0
     var loomL: Double = 0
     var loomR: Double = 0
     var airPuff: Double = 0
@@ -874,6 +1108,7 @@ struct LabTelemetry {
     var bodyOdorR: Double = 0
     /// -1 means no active food source / no fresh distance telemetry.
     var bodyNearestFoodDistanceMm: Double = -1
+    var bodyTasteSugar: Double = 0
     /// MuJoCo/FlyGym simulation time carried by the exact body packet used for
     /// this telemetry sample. -1 means no fresh body packet was available.
     var bodySimTime: Double = -1
@@ -913,6 +1148,8 @@ extension LabTelemetry {
         rateThermoCool = Double(sim.rateThermoCool)
         rateWindC = Double(sim.rateWindC)
         rateWindE = Double(sim.rateWindE)
+        rateSugarGRN = Double(sim.rateSugarGRN)
+        rateMN9 = Double(sim.rateMN9)
     }
 
     mutating func applyBrainSignals(_ signals: BrainSignals?) {
@@ -950,6 +1187,7 @@ extension LabTelemetry {
             bodyFlashL = 0; bodyFlashR = 0
             bodyOdorL = 0; bodyOdorR = 0
             bodyNearestFoodDistanceMm = -1
+            bodyTasteSugar = 0
             bodySimTime = -1; bodySimDt = 0; bodyWallDt = 0; bodySimWallRatio = 0
             bodyControllerLeft = 0; bodyControllerRight = 0
             bodyWindStrength = 0; bodyWindDirectionDeg = 0; bodyWindSensory = false
@@ -966,6 +1204,7 @@ extension LabTelemetry {
         bodyFlashL = fb.flashLeft; bodyFlashR = fb.flashRight
         bodyOdorL = fb.odorLeft; bodyOdorR = fb.odorRight
         bodyNearestFoodDistanceMm = fb.nearestFoodDistanceMm ?? -1
+        bodyTasteSugar = fb.tasteSugar
         bodySimTime = fb.simTime
         bodySimDt = fb.simDt
         bodyWallDt = fb.wallDt

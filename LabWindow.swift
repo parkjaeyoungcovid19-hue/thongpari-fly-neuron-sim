@@ -97,6 +97,8 @@ private final class LabArenaPlacementView: NSView {
             case "food": color = .systemGreen
             case "wall": color = .systemPurple
             case "sphere": color = .systemPink
+            case "car": color = .systemRed
+            case "trap": color = .systemCyan
             default: color = .systemIndigo
             }
             color.withAlphaComponent(0.22).setFill()
@@ -107,7 +109,7 @@ private final class LabArenaPlacementView: NSView {
             let x = obj.positionMM.indices.contains(0) ? obj.positionMM[0] : 0
             let y = obj.positionMM.indices.contains(1) ? obj.positionMM[1] : 0
             let c = point(x: x, y: y, geometry: g)
-            let label = "\(obj.id) · \(obj.shape)"
+            let label = LabToy.objectLine(obj)
             (label as NSString).draw(at: CGPoint(x: min(bounds.maxX - 140, c.x + 5),
                                                  y: min(bounds.maxY - 15, c.y + 4)),
                                      withAttributes: labelAttrs)
@@ -259,6 +261,24 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private let playerLeftKey = NSPopUpButton(frame: .zero, pullsDown: false)
     private let playerRightKey = NSPopUpButton(frame: .zero, pullsDown: false)
     private let playerInteractKey = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let playerGunKey = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let playerFireKey = NSPopUpButton(frame: .zero, pullsDown: false)
+    /// V5.6.2 toys: selected-object actions, object list and BB-gun status.
+    private let driveSpeed = NSTextField(string: String(format: "%.0f", LabToy.driveSpeedMMs))
+    private let driveDistance = NSTextField(string: String(format: "%.0f", LabToy.driveDistanceMM))
+    /// Rebuilt with the page on a language change.
+    private var driveButton: NSButton?
+    private var rearmButton: NSButton?
+    private let toyTargetLabel = NSTextField(wrappingLabelWithString: L("Selected — none", "선택한 물체 — 없음"))
+    private let objectListLabel = NSTextField(wrappingLabelWithString: L("Objects — none", "물체 목록 — 없음"))
+    private let gunStatusLabel = NSTextField(labelWithString: "")
+    private let gunHUDLabel = NSTextField(labelWithString: "")
+    private var gunHUD: NSVisualEffectView?
+    private var gunCommandPending: (id: Int, equipped: Bool, sentAt: Date)?
+    private var lastFireCommandID: Int?
+    private var lastGunConnectionGeneration: UInt64?
+    /// A rejection/"not sent" note stays readable across the 10 Hz refresh.
+    private var gunNote: (text: String, color: NSColor, until: Date)?
     private let lookSensitivitySlider = NSSlider(value: PlayerController.defaultLookRadiansPerPoint,
                                                  minValue: PlayerController.lookSensitivityRange.lowerBound,
                                                  maxValue: PlayerController.lookSensitivityRange.upperBound,
@@ -362,6 +382,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private let moodTitle = NSTextField(labelWithString: "")
     private let moodReason = NSTextField(labelWithString: "")
     private let moodNote = NSTextField(labelWithString: "")
+    /// V5.7 read-only activity cards (Data page). Rebuilt with the page on a
+    /// language change; fed from the existing 10 Hz refresh, never a new timer.
+    private var activityCards = ActivityCardPanel()
     /// Edge detector for the participant body touching the fly.
     private var participantTouchingFly = false
     private var cameraBeforeParticipate: WorldViewerCameraMode?
@@ -451,6 +474,16 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                     self.playerInputStatusLabel.stringValue = L("Participant controls — capture released by Esc · click the 3D view to recapture", "참여 조작 — Esc로 해제됨 · 3D 화면을 클릭하면 다시 조작합니다")
                 }
             }
+            if let tool = self.playerController.takeToolAction(
+                focusAllowsCapture: self.playerInputFocusAllowsCapture()) {
+                self.performParticipantTool(tool)
+            }
+        }
+        worldViewer.onPlayerPrimaryClick = { [weak self] in
+            guard let self,
+                  let tool = self.playerController.primaryClickAction(
+                    focusAllowsCapture: self.playerInputFocusAllowsCapture()) else { return }
+            self.performParticipantTool(tool)
         }
         worldViewer.onPlayerKeyUp = { [weak self] keyCode in
             guard let self else { return }
@@ -733,6 +766,11 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         canvasStatusHUD = hud([canvasBadge, restartBackendButton])
         canvasStatusHUD?.isHidden = true
 
+        gunHUDLabel.font = .systemFont(ofSize: 12, weight: .semibold)
+        let gunHUD = hud([gunHUDLabel])
+        gunHUD.isHidden = true
+        self.gunHUD = gunHUD
+
         worldViewerStatusLabel.font = .systemFont(ofSize: 11)
         worldViewerStatusLabel.maximumNumberOfLines = 1
         worldViewerStatusLabel.lineBreakMode = .byTruncatingTail
@@ -766,6 +804,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         NSLayoutConstraint.activate([
             cameraHUD.trailingAnchor.constraint(equalTo: worldViewer.trailingAnchor, constant: -12),
             cameraHUD.topAnchor.constraint(equalTo: worldViewer.topAnchor, constant: 12),
+            gunHUD.centerXAnchor.constraint(equalTo: worldViewer.centerXAnchor),
+            gunHUD.bottomAnchor.constraint(equalTo: captionHUD.topAnchor, constant: -8),
             captionHUD.leadingAnchor.constraint(equalTo: worldViewer.leadingAnchor, constant: 12),
             captionHUD.bottomAnchor.constraint(equalTo: worldViewer.bottomAnchor, constant: -12),
             captionHUD.trailingAnchor.constraint(lessThanOrEqualTo: moodHUD.leadingAnchor, constant: -8),
@@ -922,6 +962,12 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             interactionPresentation.reset()
         }
         lastPlayerInputConnectionGeneration = generation
+        // Leaving Participate or reconnecting deactivates the backend
+        // participant, which holsters the gun there.
+        if viewState.mode != .participate || lastGunConnectionGeneration != generation {
+            if playerController.gunEquipped || gunCommandPending != nil { dropGunState() }
+        }
+        lastGunConnectionGeneration = generation
         if participantCommandPending.clearIfViewerLifecycleInvalid(
             playerAvailable: playerAvailable,
             connectionGeneration: generation) {
@@ -995,21 +1041,31 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         sessionStatusLabel.stringValue = viewState.sessionStatusLine
         sessionStatusLabel.textColor = viewState.sessionPhase == .failed ? .systemRed : .labelColor
         let paused = viewState.sessionPhase == .paused
-        runButton.title = paused ? L("Resume", "재개") : L("Pause", "일시 정지")
-        runButton.image = NSImage(systemSymbolName: paused ? "play.fill" : "pause.fill",
-                                  accessibilityDescription: nil)
+        show(runButton, title: paused ? L("Resume", "재개") : L("Pause", "일시 정지"),
+             symbol: paused ? "play.fill" : "pause.fill")
         runButton.isEnabled = viewState.sessionPhase == .running || paused
         if case .recording(_, let elapsed)? = workspace?.recording {
-            recordButton.title = L("Stop · ", "멈춤 · ") + WorkspaceSnapshot.clock(elapsed)
-            recordButton.contentTintColor = .systemRed
-            recordButton.image = NSImage(systemSymbolName: "stop.circle.fill", accessibilityDescription: nil)
+            show(recordButton, title: L("Stop · ", "멈춤 · ") + WorkspaceSnapshot.clock(elapsed),
+                 symbol: "stop.circle.fill", tint: .systemRed)
         } else {
-            recordButton.title = recorder.isStopping ? L("Saving…", "저장 중…") : L("Record", "기록")
-            recordButton.contentTintColor = nil
-            recordButton.image = NSImage(systemSymbolName: "record.circle", accessibilityDescription: nil)
+            show(recordButton, title: recorder.isStopping ? L("Saving…", "저장 중…") : L("Record", "기록"),
+                 symbol: "record.circle")
         }
         recordButton.isEnabled = !recorder.isStopping
         recordButton.setAccessibilityLabel(recorder.isRecording ? L("Stop recording and save", "기록을 멈추고 저장") : L("Start recording", "기록 시작"))
+    }
+
+    /// The status refresh runs at 10 Hz, and on macOS 26 every title or image
+    /// write re-measures the button (SwiftUI sizing plus an SF Symbol lookup):
+    /// rewriting unchanged values cost ~13% of the main thread (2026-09-29).
+    private var shownButtonSymbols: [ObjectIdentifier: String] = [:]
+    private func show(_ button: NSButton, title: String, symbol: String, tint: NSColor? = nil) {
+        if button.title != title { button.title = title }
+        if shownButtonSymbols[ObjectIdentifier(button)] != symbol {
+            shownButtonSymbols[ObjectIdentifier(button)] = symbol
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        }
+        if button.contentTintColor != tint { button.contentTintColor = tint }
     }
 
     /// Participate looks through the participant's eyes by default; leaving it
@@ -1109,6 +1165,97 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         }
         interactionPresentation.begin(id: id, generation: bridge.connectionGeneration)
         refreshInteractionStatus(state: interaction)
+    }
+
+    private func performParticipantTool(_ action: PlayerToolAction) {
+        switch action {
+        case .grab: sendParticipantInteraction()
+        case .equipGun(let equipped): sendGunEquip(equipped)
+        case .fire: fireBB()
+        }
+    }
+
+    /// The authoritative participant pose and V4 envelope the gun commands use,
+    /// matched to the current session exactly like a grab.
+    private func participantToolContext() -> (player: WorldRenderPose, schedule: LabCommandSchedule)? {
+        guard viewState.mode == .participate, viewState.pendingMode == nil,
+              viewState.sessionPhase == .running, let bridge,
+              let envelope = playerInputEnvelope(),
+              let snapshot = bridge.latestWorldRenderSnapshot(maxAge: 1.0),
+              snapshot.ok, let player = snapshot.player,
+              snapshot.sessionID == envelope.sessionID,
+              snapshot.epoch == envelope.epoch else { return nil }
+        return (player, LabCommandSchedule(sessionID: envelope.sessionID, epoch: envelope.epoch,
+                                           requestedTick: envelope.requestedTick))
+    }
+
+    private func sendGunEquip(_ equipped: Bool) {
+        if let pending = gunCommandPending, Date().timeIntervalSince(pending.sentAt) < 3 { return }
+        guard let context = participantToolContext(),
+              let command = LabCommand.equipGun(actorID: context.player.id, equipped: equipped),
+              let id = sendCommand(command, scheduleOverride: context.schedule) else {
+            showGunNote(L("not sent — waiting for the participant snapshot",
+                          "보내지 못함 — 참여자 화면을 기다리는 중"), color: .systemOrange)
+            return
+        }
+        gunCommandPending = (id, equipped, Date())
+        refreshGunStatus()
+    }
+
+    /// Direction = the participant's current look forward, the same ray a grab uses.
+    private func fireBB() {
+        guard playerController.gunEquipped,
+              let context = participantToolContext(),
+              let ray = WorldViewer.participantAimRay(player: context.player),
+              let command = LabCommand.fireBB(actorID: context.player.id, direction: ray.direction),
+              let id = sendCommand(command, scheduleOverride: context.schedule) else {
+            showGunNote(L("shot not sent — waiting for the participant snapshot",
+                          "발사를 보내지 못함 — 참여자 화면을 기다리는 중"), color: .systemOrange)
+            return
+        }
+        lastFireCommandID = id
+    }
+
+    /// Gun state lives in the backend; the local mirror is dropped whenever the
+    /// backend drops it (Observe mode, world reset, reconnect).
+    private func dropGunState() {
+        playerController.setGunEquipped(false)
+        gunCommandPending = nil
+        lastFireCommandID = nil
+        gunNote = nil
+    }
+
+    private func showGunNote(_ text: String, color: NSColor) {
+        gunNote = (text, color, Date().addingTimeInterval(4))
+        refreshGunStatus()
+    }
+
+    private func refreshGunStatus() {
+        let now = Date()
+        if let pending = gunCommandPending, now.timeIntervalSince(pending.sentAt) > 3 {
+            gunCommandPending = nil
+        }
+        if let note = gunNote, now > note.until { gunNote = nil }
+        let gunKey = PlayerKeyChoice.title(for: playerController.bindings.keyCode(for: .gun))
+        let fireKey = PlayerKeyChoice.title(for: playerController.bindings.keyCode(for: .fire))
+        let participating = viewState.mode == .participate
+        var line: String
+        if !participating {
+            line = L("BB gun — available in Participate", "비비탄총 — 참여 모드에서 사용")
+        } else if gunCommandPending != nil {
+            line = L("BB gun — waiting for backend…", "비비탄총 — 시뮬레이터 확인 중…")
+        } else if playerController.gunEquipped {
+            line = L("Gun equipped · \(fireKey)/click fires · \(gunKey) holsters", "총 장착 · \(fireKey)/클릭 발사 · \(gunKey) 내려놓기")
+        } else {
+            line = L("BB gun — holstered · \(gunKey) equips", "비비탄총 — 내려놓음 · \(gunKey)로 들기")
+        }
+        if let note = gunNote { line += " · " + note.text }
+        gunStatusLabel.stringValue = line
+        gunStatusLabel.textColor = gunNote?.color
+            ?? (playerController.gunEquipped ? .labelColor : .secondaryLabelColor)
+        let showHUD = participating && playerController.gunEquipped
+        gunHUDLabel.stringValue = L("Gun equipped · \(fireKey)/click fires", "총 장착 · \(fireKey)/클릭 발사")
+        gunHUD?.isHidden = !showHUD
     }
 
     private func playerInputEnvelope(allowStaleSnapshotForRelease: Bool = false)
@@ -1216,6 +1363,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         case .left: return playerLeftKey
         case .right: return playerRightKey
         case .interact: return playerInteractKey
+        case .gun: return playerGunKey
+        case .fire: return playerFireKey
         }
     }
 
@@ -1271,6 +1420,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                             discardPendingLook: true)
         }
         syncPlayerKeyPopups()
+        refreshGunStatus()
         playerInputStatusLabel.stringValue = L("Participant controls — key mapping saved · Esc remains fixed safety release", "참여 조작 — 키 설정 저장됨 · Esc는 항상 해제 키입니다")
         playerInputStatusLabel.textColor = .secondaryLabelColor
     }
@@ -1312,9 +1462,19 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         _ = LabForm.status(playerInputStatusLabel)
         configurePlayerKeyPopups()
         configureLookSensitivitySlider()
-        [objectX, objectY, objectZ, objectSize, objectSpeed, objectEndDistance].forEach { _ = LabForm.number($0) }
+        _ = LabForm.status(toyTargetLabel)
+        _ = LabForm.status(objectListLabel, mono: true)
+        _ = LabForm.status(gunStatusLabel)
+        [objectX, objectY, objectZ, objectSize, objectSpeed, objectEndDistance,
+         driveSpeed, driveDistance].forEach { _ = LabForm.number($0) }
+        driveButton = button(L("Drive", "주행"), #selector(driveSelectedCar))
+        rearmButton = button(L("Re-arm", "다시 설치"), #selector(rearmSelectedTrap))
+        driveButton?.isEnabled = false   // enabled per shape by refreshToyInspector
+        rearmButton?.isEnabled = false
         addPopupItems(objectShape, [(L("Box", "상자"), "box"), (L("Sphere", "공"), "sphere"), (L("Wall", "벽"), "wall"),
-                                    (L("Food / odor source", "먹이 (냄새가 나는 곳)"), "food")])
+                                    (L("Food / odor source", "먹이 (냄새가 나는 곳)"), "food"),
+                                    (L("Toy car", "장난감 자동차"), "car"),
+                                    (L("Cage trap", "유리 함정"), "trap")])
         objectShape.target = self
         objectShape.action = #selector(objectShapeChanged)
         createOnArenaClick.title = L("Create on map click", "지도를 클릭하면 바로 만들기")
@@ -1336,18 +1496,25 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                                       button(L("Move", "옮기기"), #selector(moveObject)),
                                       button(L("Resize", "크기 바꾸기"), #selector(resizeObject)),
                                       button(L("Remove", "지우기"), #selector(deleteObject))]),
-                     worldObjectStatusLabel, worldCapacityLabel]),
+                     worldObjectStatusLabel, worldCapacityLabel, objectListLabel]),
+            section(L("Toys", "장난감"), kind: .physical,
+                    help: L("Acts on the object named above. Drive moves a toy car straight ahead along its heading; it stops at the distance, at the lawn edge, or on contact. Re-arm lifts a cage trap again; an armed trap drops when the fly walks under it. These are physical MuJoCo events only.", "위 ‘이름’ 칸의 물체에 적용됩니다. ‘주행’은 장난감 자동차를 앞쪽으로 곧게 움직이며, 정한 거리·잔디밭 가장자리·부딪힘에서 멈춥니다. ‘다시 설치’는 유리 함정을 다시 들어 올립니다. 설치된 함정은 파리가 아래로 들어오면 떨어집니다. 모두 물리 시뮬레이터의 물리 사건일 뿐입니다."),
+                    [toyTargetLabel,
+                     LabForm.grid([(L("Speed (mm/s)", "속도 (mm/s)"), driveSpeed), (L("Distance (mm)", "거리 (mm)"), driveDistance)]),
+                     LabForm.buttons([driveButton, rearmButton].compactMap { $0 })]),
             section(L("Approach the fly", "물체를 파리에게 다가가게 하기"), kind: .physical,
                     help: L("Moves the named object toward the fly. The fly is never commanded; any response comes from the model.", "이름을 적은 물체를 파리 쪽으로 움직입니다. 파리에게 직접 명령하지 않습니다. 파리가 보이는 반응은 모두 뇌·몸 모델이 스스로 만든 것입니다."),
                     [LabForm.grid([(L("Speed (mm/s)", "속도 (mm/s)"), objectSpeed), (L("Stop at (mm)", "멈출 거리 (mm)"), objectEndDistance)]),
                      LabForm.buttons([button(L("Start approach", "다가가기 시작"), #selector(approachObject))], columns: 1)]),
             section(L("Participate", "참여"), kind: .physical,
-                    help: L("Choose Participate, then click the 3D view to capture. Aim with the center mark and press E once to grab an object; press E again to place it. WASD moves, the mouse looks, Esc releases capture. Text fields do not trigger interaction.", "‘참여’를 고르고 3D 화면을 클릭해 조작을 시작하세요. 중앙 조준점으로 물체를 겨누고 E를 한 번 누르면 집고, 다시 누르면 놓습니다. WASD로 이동하고 마우스로 둘러봅니다. Esc는 조작을 해제합니다. 입력 칸에서는 상호작용하지 않습니다."),
+                    help: L("Choose Participate, then click the 3D view to capture. Aim with the center mark and press E (or click) once to grab an object; press again to place it. G equips the toy BB gun; while it is equipped, F or a click fires along the view direction. WASD moves, the mouse looks, Esc releases capture. Text fields do not trigger interaction.", "‘참여’를 고르고 3D 화면을 클릭해 조작을 시작하세요. 중앙 조준점으로 물체를 겨누고 E(또는 클릭)를 한 번 누르면 집고, 다시 누르면 놓습니다. G는 장난감 비비탄총을 들고 내리며, 총을 든 동안 F나 클릭으로 보는 방향으로 발사합니다. WASD로 이동하고 마우스로 둘러봅니다. Esc는 조작을 해제합니다. 입력 칸에서는 상호작용하지 않습니다."),
                     [LabForm.grid([(L("Forward", "앞으로"), playerForwardKey), (L("Backward", "뒤로"), playerBackwardKey),
                                    (L("Left", "왼쪽"), playerLeftKey), (L("Right", "오른쪽"), playerRightKey),
-                                   (L("Interact", "상호작용"), playerInteractKey), (L("Release", "해제"), LabForm.note(L("Esc (fixed)", "Esc (고정)"))),
+                                   (L("Interact", "상호작용"), playerInteractKey),
+                                   (L("BB gun", "비비탄총"), playerGunKey), (L("Fire", "발사"), playerFireKey),
+                                   (L("Release", "해제"), LabForm.note(L("Esc (fixed)", "Esc (고정)"))),
                                    (L("Look sensitivity", "시점 감도"), lookSensitivitySlider)]),
-                     playerInputStatusLabel, interactionStatusLabel]),
+                     playerInputStatusLabel, interactionStatusLabel, gunStatusLabel]),
             section(L("Reset", "초기화"), help: L("Use the smallest reset you need. Everything clears world, body, brain state, modeled stimuli, eye covers and graphs.", "필요한 부분만 초기화하세요. ‘전부’는 세계, 몸, 뇌 상태, 자극, 눈 가리개, 그래프를 모두 처음으로 되돌립니다."),
                     [LabForm.buttons([button(L("World", "세계"), #selector(resetWorld)),
                                       button(L("Body", "몸"), #selector(resetBody)),
@@ -1505,7 +1672,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             g.translatesAutoresizingMaskIntoConstraints = false
             g.heightAnchor.constraint(equalToConstant: 120).isActive = true
         }
+        activityCards = ActivityCardPanel(selected: activityCards.selectedCard)
         return LabInspectorPage([
+            section(L("Activity cards (read-only)", "활동 카드 (읽기 전용)"),
+                    help: ActivityCardPanel.helpText, [activityCards]),
             section(L("Signal path", "신호 경로 — 감각에서 몸까지"),
                     help: L("Read top to bottom to find where a response stops. Each line uses only telemetry the runtime actually exposes.", "위에서 아래로 읽으면 자극이 어디까지 전달됐는지 알 수 있습니다: 1 바깥 자극 → 2 감각 신호 → 3 뉴런 반응 → 4 몸에 내린 명령 → 5 실제 움직임. 모두 실제로 측정된 값만 씁니다."),
                     [signalPathLabel]),
@@ -1606,6 +1776,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         case "sphere":
             objectSize.stringValue = "5"
             objectZ.stringValue = "3"
+        case "car", "trap":
+            let size = shape == "car" ? LabToy.carDefaultLengthMM : LabToy.trapDefaultSideMM
+            objectSize.stringValue = String(format: "%.0f", size)
+            objectZ.stringValue = String(format: "%.2f", LabToy.spawnCenterZ(shape: shape, sizeMM: size))
         default:
             objectSize.stringValue = "5"
             objectZ.stringValue = "5"
@@ -1708,6 +1882,33 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                                 sessionID: schedule?.sessionID, epoch: schedule?.epoch,
                                 requestedTick: schedule?.requestedTick)
         }
+        noteSent(id: id, action: action, target: target, schedule: schedule, bridge: bridge)
+        return id
+    }
+
+    /// Sends a prebuilt V5.6.2 toy command with the same V4 envelope,
+    /// timeline row and recorder mark as `send`.
+    @discardableResult
+    private func sendCommand(_ command: LabCommand,
+                             scheduleOverride: LabCommandSchedule? = nil) -> Int? {
+        guard let bridge else {
+            protocolLabel.stringValue = L("FlyGym bridge — disabled (launch with --flygym for physical-world controls)", "물리 시뮬레이터 꺼짐 — 물리 세계를 조작하려면 시뮬레이터와 함께 실행하세요")
+            return nil
+        }
+        let schedule = coordinator.labCommandSchedule() ?? scheduleOverride
+        var command = command
+        command.protocolVersion = schedule == nil ? nil : FlyGymProtocolV4.version
+        command.sessionID = schedule?.sessionID
+        command.epoch = schedule?.epoch
+        command.requestedTick = schedule?.requestedTick
+        let id = bridge.sendLabCommand(command)
+        noteSent(id: id, action: command.action, target: command.target ?? command.actorID,
+                 schedule: schedule, bridge: bridge)
+        return id
+    }
+
+    private func noteSent(id: Int, action: String, target: String?,
+                          schedule: LabCommandSchedule?, bridge: FlyGymBridge) {
         lastCommandID = id
         lastCommandAction = action
         if let schedule {
@@ -1730,7 +1931,6 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                       sessionID: schedule?.sessionID ?? session.sessionID,
                       epoch: schedule?.epoch ?? session.epoch,
                       simTick: session.simTick, requestedTick: schedule?.requestedTick)
-        return id
     }
 
     /// Timeline row for something that never waits on a backend ACK: direct
@@ -1753,10 +1953,26 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         case "sphere": action = "spawn_sphere"
         case "wall": action = "spawn_wall"
         case "food": action = "spawn_food"
+        case "car", "trap": action = "spawn_object"
         default: action = "spawn_box"
         }
-        if let id = send(action, target: objectTarget, x: d(objectX), y: d(objectY), z: d(objectZ),
-                         size: max(0.1, d(objectSize, fallback: 5))) {
+        let sent: Int?
+        if let range = LabToy.sizeRangeMM(shape: shape) {
+            // Scalar length/side; Z follows the size so a car rests on the lawn
+            // and a trap starts armed, whatever the Z field held.
+            let fallback = shape == "car" ? LabToy.carDefaultLengthMM : LabToy.trapDefaultSideMM
+            let size = min(range.upperBound, max(range.lowerBound, d(objectSize, fallback: fallback)))
+            let z = LabToy.spawnCenterZ(shape: shape, sizeMM: size)
+            objectSize.stringValue = String(format: "%g", size)
+            objectZ.stringValue = String(format: "%.2f", z)
+            sent = LabCommand.spawnToy(shape: shape, target: objectTarget,
+                                       positionMM: [d(objectX), d(objectY), z], sizeMM: size)
+                .flatMap { sendCommand($0) }
+        } else {
+            sent = send(action, target: objectTarget, x: d(objectX), y: d(objectY), z: d(objectZ),
+                        size: max(0.1, d(objectSize, fallback: 5)))
+        }
+        if let id = sent {
             lastObjectCommandID = id
             lastObjectCommandTarget = objectTarget
             lastObjectCommandDescription = L("create \(shape) ‘\(objectTarget)’", "‘\(objectTarget)’ 만들기")
@@ -1797,8 +2013,63 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             renderViewState()
         }
     }
+    /// Shape of the object named in the Name field, from the latest lab_state.
+    private func namedObject() -> LabWorldObjectRemote? {
+        let name = objectID.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return nil }
+        return bridge?.latestLabState()?.authoritativeObjects?.first { $0.id == name }
+    }
+
+    private func sendToyAction(_ command: LabCommand?, describe: String) {
+        guard let command, let id = sendCommand(command) else {
+            worldObjectStatusLabel.stringValue = L("Object status — \(describe) was not sent", "물체 상태 — \(describe) 요청을 보내지 못했습니다")
+            worldObjectStatusLabel.textColor = .systemOrange
+            return
+        }
+        lastObjectCommandID = id
+        lastObjectCommandTarget = command.target
+        lastObjectCommandDescription = describe
+        worldObjectStatusLabel.stringValue = L("Object status — sending \(describe)…", "물체 상태 — \(describe) 요청 보냄…")
+        worldObjectStatusLabel.textColor = .secondaryLabelColor
+        viewState.selectObject(command.target)
+        renderViewState()
+    }
+
+    @objc private func driveSelectedCar() {
+        guard let car = namedObject(), LabToy.actions(forShape: car.shape).drive else { return }
+        let speed = min(60, max(1, d(driveSpeed, fallback: LabToy.driveSpeedMMs)))
+        let distance = min(300, max(1, d(driveDistance, fallback: LabToy.driveDistanceMM)))
+        driveSpeed.stringValue = String(format: "%g", speed)
+        driveDistance.stringValue = String(format: "%g", distance)
+        sendToyAction(LabCommand.driveObject(target: car.id, speedMMs: speed, distanceMM: distance),
+                      describe: L("drive ‘\(car.id)’", "‘\(car.id)’ 주행"))
+    }
+
+    @objc private func rearmSelectedTrap() {
+        guard let trap = namedObject(), LabToy.actions(forShape: trap.shape).rearm else { return }
+        sendToyAction(LabCommand.armTrap(target: trap.id),
+                      describe: L("re-arm ‘\(trap.id)’", "‘\(trap.id)’ 다시 설치"))
+    }
+
+    /// Selected-object inspector, object list and toy button enablement (10 Hz).
+    private func refreshToyInspector(objects: [LabWorldObjectRemote]?) {
+        let named = namedObject()
+        let actions = LabToy.actions(forShape: named?.shape)
+        driveButton?.isEnabled = actions.drive
+        rearmButton?.isEnabled = actions.rearm
+        if let named {
+            toyTargetLabel.stringValue = L("Selected — ", "선택한 물체 — ") + LabToy.objectLine(named)
+        } else {
+            toyTargetLabel.stringValue = L("Selected — type or pick a car or trap name above", "선택한 물체 — 위 ‘이름’ 칸에 자동차나 함정 이름을 적거나 3D 화면에서 고르세요")
+        }
+        let rows = (objects ?? []).sorted { $0.id < $1.id }.map(LabToy.objectLine)
+        objectListLabel.stringValue = rows.isEmpty ? L("Objects — none", "물체 목록 — 없음")
+            : (rows.prefix(12) + (rows.count > 12 ? ["… +\(rows.count - 12)"] : [])).joined(separator: "\n")
+    }
+
     @objc private func resetWorld() {
         releasePlayerHeldInput(reason: "world reset")
+        dropGunState()   // the backend world reset holsters the gun
         clearEyePending()
         temperature.stringValue = "25"
         selectPopupValue(temperatureMode, "environment_only")
@@ -1820,6 +2091,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
     @objc private func resetAll() {
         releasePlayerHeldInput(reason: "full reset")
+        dropGunState()
         clearEyePending()
         temperature.stringValue = "25"
         selectPopupValue(temperatureMode, "environment_only")
@@ -2241,10 +2513,16 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func updateArenaFromAtomicSnapshot(_ snapshot: WorldRenderSnapshot) {
+        // The render snapshot carries poses; the food model name only comes
+        // with lab_state, so it is joined by id for the map label alone.
+        let labObjects = bridge?.latestLabState()?.authoritativeObjects ?? []
         arenaPlacement.worldObjects = snapshot.objects.map { object in
-            LabWorldObjectRemote(id: object.id, shape: object.shape,
-                                 positionMM: object.positionMM, sizeMM: object.sizeMM,
-                                 yawDeg: yawRadians(quaternion: object.orientationQuatXYZW) * 180 / .pi)
+            let lab = labObjects.first { $0.id == object.id }
+            return LabWorldObjectRemote(id: object.id, shape: object.shape,
+                                        positionMM: object.positionMM, sizeMM: object.sizeMM,
+                                        yawDeg: yawRadians(quaternion: object.orientationQuatXYZW) * 180 / .pi,
+                                        trapState: object.trapState ?? lab?.trapState,
+                                        foodVariant: lab?.foodVariant)
         }
         if let fly = snapshot.fly {
             arenaPlacement.flyPose = (fly.positionMM[0], fly.positionMM[1],
@@ -2301,6 +2579,24 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 let message = ack.message.isEmpty ? L("command rejected", "명령 거절됨") : ack.message
                 worldObjectStatusLabel.stringValue = L("Object status — ERROR · ", "물체 상태 — 오류 · ") + message
                 worldObjectStatusLabel.textColor = .systemRed
+            }
+        }
+        if let pending = gunCommandPending, ack.id == pending.id {
+            gunCommandPending = nil
+            if ack.ok {
+                playerController.setGunEquipped(pending.equipped)
+                refreshGunStatus()
+            } else {
+                showGunNote(L("rejected: ", "거절됨: ") + ack.message, color: .systemRed)
+            }
+        }
+        if ack.id == lastFireCommandID {
+            lastFireCommandID = nil
+            if !ack.ok {
+                // The backend is authoritative: a shot refused for a missing gun
+                // means our equipped mirror is stale.
+                if ack.message.contains("equipped gun required") { playerController.setGunEquipped(false) }
+                showGunNote(L("shot rejected: ", "발사 거절됨: ") + ack.message, color: .systemOrange)
             }
         }
         if participantCommandPending.consumeAck(commandID: ack.id) {
@@ -2484,7 +2780,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             }
             if let capacity = state?.authoritativeSlotCapacity {
                 let free = state?.authoritativeSlotFree ?? [:]
-                let order = ["box", "sphere", "wall", "food"]
+                let order = ["box", "sphere", "wall", "food", "car", "trap"]
                 let parts = order.compactMap { shape -> String? in
                     guard let total = capacity[shape] else { return nil }
                     let remain = free[shape] ?? max(0, total - (state?.authoritativeObjects?.filter { $0.shape == shape }.count ?? 0))
@@ -2492,6 +2788,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 }
                 worldCapacityLabel.stringValue = L("Object capacity — ", "물체 수 (사용/최대) — ") + parts.joined(separator: " · ")
             }
+            refreshToyInspector(objects: state?.authoritativeObjects)
             let (newAcks, cursor) = bridge.labAcks(after: ackCursor)
             ackCursor = cursor
             newAcks.forEach(handle(ack:))
@@ -2500,8 +2797,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             eventCursor = nextEventCursor
             for notice in newEvents where !notice.event.isEmpty {
                 let detail = notice.detail?.summary ?? ""
-                noteLocal("event", detail.isEmpty ? notice.event : "\(notice.event) — \(detail)",
-                          kind: .physical, status: .event, tick: notice.detail?.simTickMS)
+                let text = LabToy.eventLine(notice.event, notice.detail)
+                    ?? (detail.isEmpty ? notice.event : "\(notice.event) — \(detail)")
+                noteLocal("event", text, kind: .physical, status: .event, tick: notice.detail?.simTickMS)
             }
 
             if eyeCommandPendingID != nil {
@@ -2525,7 +2823,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
 
         refreshWorkspace()
         renderViewState()
+        refreshGunStatus()
         updateMood(t, now: now)
+        activityCards.update(ActivityCardInput(telemetry: t, brainSimLoaded: coordinator.sim != nil))
         let rows = timeline.recent(5).map(\.line)
         timelineLabel.stringValue = rows.isEmpty
             ? L("t\(session.simTick) · No commands yet — stimuli, markers and their ACKs appear here", "아직 명령이 없습니다 — 자극, 구간 표시와 그 결과가 여기에 나타납니다")
@@ -2563,9 +2863,13 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 : L("none", "없음")
             bodyTelemetryLabel.stringValue = String(format: L("Movement — speed %.4f m/s · turn %.2f rad/s · contact %.2f", "움직임 — 속도 %.4f m/s · 회전 %.2f rad/s · 발 닿음 %.2f"),
                                                      t.bodyVX, t.bodyYawRate, t.bodyContactMean)
-            foodTelemetryLabel.stringValue = String(format: L("Food odor — left %.3f · right %.3f · nearest source: %@ · ORN %.1f/%.1f Hz", "먹이 냄새 — 왼쪽 %.3f · 오른쪽 %.3f · 가장 가까운 먹이: %@ · 후각 뉴런 %.1f/%.1f Hz"),
+            let eating = t.bodyTasteSugar > 0
+                ? String(format: L("eating (sugar %.2f)", "먹는 중 (당 %.2f)"), t.bodyTasteSugar)
+                : L("not eating", "먹지 않음")
+            foodTelemetryLabel.stringValue = String(format: L("Food odor — left %.3f · right %.3f · nearest source: %@ · ORN %.1f/%.1f Hz\nTaste — %@ · sugar GRN %.1f Hz · MN9 %.1f Hz", "먹이 냄새 — 왼쪽 %.3f · 오른쪽 %.3f · 가장 가까운 먹이: %@ · 후각 뉴런 %.1f/%.1f Hz\n맛 — %@ · 당 미각 뉴런 %.1f Hz · MN9 %.1f Hz"),
                                                      t.bodyOdorL, t.bodyOdorR, nearest,
-                                                     t.rateFoodOdorL, t.rateFoodOdorR)
+                                                     t.rateFoodOdorL, t.rateFoodOdorR,
+                                                     eating, t.rateSugarGRN, t.rateMN9)
             visionGraph.append([t.bodyBrightnessL, t.bodyBrightnessR, t.bodyOccupancyL,
                                 t.bodyOccupancyR, t.bodyOpticExpansionL, t.bodyOpticExpansionR])
             let eyeSample: String

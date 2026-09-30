@@ -91,8 +91,11 @@ try:
           f"objects={len(stress_state['objects'])} free={stress_state['slot_free']}")
     last_stress = world.objects[stress_ids[-1]]
     _, stress_gid, stress_mocap = world._slot_ids[last_stress.slot]
+    # Food is drawn by its model palette (V5.6.2); other shapes by the slot geom.
+    visible_gids = (world._food_palettes[last_stress.slot].all_gids()
+                    if last_stress.shape == "food" else [stress_gid])
     check("expanded slot is physically active in MuJoCo",
-          float(body.sim.mj_model.geom_rgba[stress_gid, 3]) > 0.9 and
+          max(float(body.sim.mj_model.geom_rgba[g, 3]) for g in visible_gids) > 0.9 and
           np.allclose(body.sim.mj_data.mocap_pos[stress_mocap], last_stress.position_mm),
           f"slot={last_stress.slot}")
     for object_id in stress_ids:

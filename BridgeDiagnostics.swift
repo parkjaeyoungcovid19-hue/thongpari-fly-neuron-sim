@@ -906,11 +906,41 @@ func runBridgeTest() {
           && receivedLargeState?.authoritativeSlotFree?["box"] == 0,
           "bytes=\(largePayloadBytes) objects=\(receivedLargeState?.authoritativeObjects?.count ?? -1)")
 
+    // Shared Python-produced supported max-pool state: the additive V6 block
+    // pushed this previously fitting frame over 512 KiB. Exercise the actual
+    // fragmented recv guard, not only JSON decoding. Missing fixture fails.
+    let fixtureRoot = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+    let v6Frame = try? Data(contentsOf: fixtureRoot.appendingPathComponent("fixtures/bridge/v6-large-state.ndjson"))
+    check("V6.1 configured pool transport fixture exists", v6Frame != nil)
+    if let frame = v6Frame {
+        let bridge = FlyGymBridge(port: 17899)
+        _ = bridge.beginConnectionForTesting()
+        var buffer = Data()
+        for start in stride(from: 0, to: frame.count, by: 4096) {
+            bridge.receiveBytesForTesting(frame.subdata(in: start..<min(start + 4096, frame.count)),
+                                          buffer: &buffer, at: recvNow)
+        }
+        let state = bridge.latestLabState()
+        check("V6.1 >512 KiB supported scene retains state/manifest/ACK",
+              frame.count > 512 * 1024 && frame.count < 1024 * 1024
+              && buffer.isEmpty && bridge.malformedCount == 0
+              && state?.authoritativeObjects?.count == 1536
+              && state?.worldState?.environmentCapabilities?.descriptors.count == 39
+              && state?.sessionID == "v6-large-fixture" && state?.epoch == 1
+              && bridge.latestLabAck()?.id == 101, "bytes=\(frame.count)")
+        var oversized = Data(repeating: 0x78, count: 1024 * 1024 + 1)
+        oversized.append(0x0A)
+        bridge.receiveBytesForTesting(oversized, buffer: &buffer, at: recvNow)
+        check("V6.1 complete oversized line rejected without losing latest state",
+              buffer.isEmpty && bridge.malformedCount == 1
+              && bridge.latestLabState()?.authoritativeObjects?.count == 1536)
+    }
+
     // The larger legitimate limit must still be a real bound. An unterminated
-    // line over 512 KiB is discarded and counted instead of growing forever.
+    // line over 1 MiB is discarded and counted instead of growing forever.
     let malformedBeforeFlood = largeStateBridge.malformedCount
     var floodOffset = 0
-    let flood = Data(repeating: 0x78, count: 512 * 1024 + 1)
+    let flood = Data(repeating: 0x78, count: 1024 * 1024 + 1)
     while floodOffset < flood.count {
         let end = min(floodOffset + 4096, flood.count)
         largeStateBridge.receiveBytesForTesting(flood.subdata(in: floodOffset..<end),
@@ -1355,6 +1385,41 @@ func runLabLoopTest() {
     let stateOK = (fg.latestLabState()?.objectCount ?? 0) >= 1
     print("\(stateOK ? "PASS" : "FAIL")  labloop state object_count=\(fg.latestLabState()?.objectCount ?? -1)")
     if !stateOK { failures += 1 }
+
+    // V6.2 edit_property over the real socket: applied value/revision in the
+    // ACK, then stale and out-of-range edits rejected without changing state.
+    func remoteObject() -> LabWorldObjectRemote? {
+        fg.latestLabState()?.authoritativeObjects?.first { $0.id == objectID }
+    }
+    func editCheck(_ name: String, _ ok: Bool, _ detail: String) {
+        print("\(ok ? "PASS" : "FAIL")  labloop \(name) \(detail)")
+        if !ok { failures += 1 }
+    }
+    if let caps = fg.latestLabState()?.worldState?.environmentCapabilities,
+       let before = remoteObject(), let revision = before.revision,
+       let edit = try? EnvironmentEdit.make(propertyID: "object.sphere.position_mm", targetID: objectID,
+                                            expectedRevision: revision, value: .vector([22, -6, 3]),
+                                            capabilities: caps) {
+        let ack = waitAck(fg.sendLabCommand(.editProperty(edit)))
+        let moved = pollValue(1.0, every: 0.02) { remoteObject().flatMap { $0.positionMM == [22, -6, 3] ? $0 : nil } }
+        editCheck("edit applied", ack?.ok == true && ack?.edit?.actualValue == .vector([22, -6, 3])
+                  && ack?.edit?.revision == moved?.revision && (moved?.revision ?? 0) > revision,
+                  "ack=\(ack?.edit.map(String.init(describing:)) ?? ack?.message ?? "timeout")")
+        let stale = waitAck(fg.sendLabCommand(.editProperty(edit)))
+        editCheck("stale edit rejected", stale?.ok == false && stale?.edit?.status == "rejected_stale_revision"
+                  && stale?.edit?.currentRevision == moved?.revision && remoteObject()?.positionMM == [22, -6, 3],
+                  stale?.message ?? "timeout")
+        let celsius = fg.latestLabState()?.temperature
+        // Bypass Swift validation to prove the backend is authoritative.
+        let raw = EnvironmentEdit(schemaVersion: 1, propertyID: "temperature.celsius", targetID: nil,
+                                  expectedRevision: fg.latestLabState()?.worldState?.environmentRevision ?? -1,
+                                  unit: "degC", value: .number(80))
+        let invalid = waitAck(fg.sendLabCommand(.editProperty(raw)))
+        editCheck("out-of-range edit rejected", invalid?.ok == false && invalid?.edit?.path == "edit.value"
+                  && fg.latestLabState()?.temperature == celsius, invalid?.message ?? "timeout")
+    } else {
+        editCheck("edit setup", false, "no capabilities/object revision in lab_state")
+    }
 
     let wind = fg.sendLab(action: "wind", strength: 0.2, durationMs: 300,
                           directionDeg: 90, physical: true, sensory: true, continuous: false)

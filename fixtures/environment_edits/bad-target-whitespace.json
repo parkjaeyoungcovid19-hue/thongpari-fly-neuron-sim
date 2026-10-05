@@ -1,0 +1,18 @@
+{
+  "description": "Target id must not carry surrounding whitespace",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "property_id": "object.box.position_mm",
+    "target_id": " box_1",
+    "expected_revision": 0,
+    "unit": "mm",
+    "value": [
+      1,
+      2,
+      3
+    ]
+  },
+  "expect": "reject",
+  "path": "edit.target_id"
+}

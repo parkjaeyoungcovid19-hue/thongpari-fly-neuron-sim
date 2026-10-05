@@ -1,0 +1,56 @@
+PASS  mock car and trap sizes
+PASS  mock car drive completes
+PASS  mock trap triggers from fly XY
+PASS  mock trap re-arms
+PASS  mock BB appears in state and render
+PASS  mock BB moves ballistically without fly hit
+PASS  mock BB expires
+PASS  strict apply rejection drive_object {'speed_mm_s': 20}
+PASS  strict parser rejection drive_object {'speed_mm_s': 20}
+PASS  strict apply rejection drive_object {'id': 'car', 'speed_mm_s': nan}
+PASS  strict parser rejection drive_object {'id': 'car', 'speed_mm_s': nan}
+PASS  strict apply rejection drive_object {'id': 'car', 'distance_mm': 301}
+PASS  strict parser rejection drive_object {'id': 'car', 'distance_mm': 301}
+PASS  strict apply rejection arm_trap {'id': False}
+PASS  strict parser rejection arm_trap {'id': False}
+PASS  strict apply rejection equip_gun {'actor_id': 'player', 'equipped': 1}
+PASS  strict parser rejection equip_gun {'actor_id': 'player', 'equipped': 1}
+PASS  strict apply rejection fire_bb {'actor_id': 'player'}
+PASS  strict parser rejection fire_bb {'actor_id': 'player'}
+PASS  strict apply rejection fire_bb {'actor_id': 'player', 'direction': [1, 0, nan]}
+PASS  strict parser rejection fire_bb {'actor_id': 'player', 'direction': [1, 0, nan]}
+PASS  strict apply rejection fire_bb {'actor_id': 'player', 'direction': [2, 0, 0]}
+PASS  strict parser rejection fire_bb {'actor_id': 'player', 'direction': [2, 0, 0]}
+PASS  strict apply rejection spawn_object {'shape': 'car', 'size_mm': 61}
+PASS  strict parser rejection spawn_object {'shape': 'car', 'size_mm': 61}
+PASS  BB pool limits eight live pellets
+PASS  world reset restarts pellet ids like object ids: ['bb_1']
+PASS  mock wire queue applies toy ops and ACKs
+PASS  strict snapshot keeps food_variant and trap_state: {'id': 'snap_food', 'position_mm': [40.0, 0.0, 1.0], 'orientation_quat_xyzw': [0.0, 0.0, 0.0, 1.0], 'shape': 'food', 'size_mm': [1.0, 1.0, 1.0], 'revision': 4, 'collidable': False, 'classification': 'PHYSICAL', 'food_variant': 'grapes'}
+realbody: prewarming full body pipeline
+realbody: ready
+PASS  real car part semantic map
+PASS  real car drive distance and completion: x=34.0000
+PASS  real car stops at participant: x=30.000 clearance=-0.000 events=['car_blocked']
+PASS  negative control: disabled pre-move check breaks blocked-car gate: clearance=-0.763
+PASS  real car lawn edge stop: x=143.000
+PASS  real car stops on fly contact with force: x=-7.426 hits=[{'event': 'car_hit_fly', 'classification': 'PHYSICAL', 'sim_tick_ms': 1047, 'id': 'fly_car', 'peak_normal_force': 0.7071304408301431, 'force_units': 'mujoco_model'}]
+PASS  grab cancels car drive
+PASS  held car uses all solid parts in carry
+PASS  held car respects carry wall: gap=0.005 x=21.195
+PASS  real trap triggers and closes: z=6.020
+PASS  real trap re-arm
+PASS  trap near-wall margin prevents trigger: fly=[0.59381576 0.00092628] trap=[9.590504418071676, 0.002000425392852267]
+PASS  trap dropping blocked by participant: z=9.400
+PASS  blocked trap re-arms after participant leaves
+PASS  BB muzzle outside participant: minimum gap=1.321mm
+PASS  BB rate limit
+PASS  BB does not self-hit at spawn
+PASS  BB expires and parks: live=[] events=['bb_fired', 'bb_expired']
+PASS  real BB hits a lab object
+PASS  real BB aimed at thorax emits force hit: [{'event': 'bb_hit_fly', 'classification': 'PHYSICAL', 'sim_tick_ms': 1565, 'id': 'bb_1', 'fly_segment': 'thorax', 'peak_normal_force': 3.492791436951786, 'force_units': 'mujoco_model'}]
+realbody: prewarming full body pipeline
+realbody: ready
+TOY_PERF baseline_median_ms=24.255 idle_toys_median_ms=23.328 paired_ratio_median=0.9589 paired_ratios=[0.979, 0.879, 0.904, 0.96, 0.995, 1.004, 0.955, 0.983, 0.981, 0.966, 0.901, 0.93, 0.969, 0.963, 0.909, 0.937, 0.981, 0.958, 0.909, 0.946, 0.988, 0.957, 0.918, 0.952, 1.054, 0.962, 0.942, 0.929, 0.968, 0.977]
+PASS  idle toy overhead <= 5%
+V5.6.2 TOOLS: 0 FAIL

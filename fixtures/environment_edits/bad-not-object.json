@@ -1,0 +1,10 @@
+{
+  "description": "Edit must be an object",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": [
+    1,
+    2
+  ],
+  "expect": "reject",
+  "path": "edit"
+}

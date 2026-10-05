@@ -1,11 +1,11 @@
 # Virtual Fly Lab V5 — implementation progress
 
-Prepared: **2026-09-13** · updated **2026-09-26**
+Prepared: **2026-09-13** · updated **2026-10-05**
 V4 baseline: `e900b272e1df4131edba51476f0d213a8d166ca1` (`Complete Virtual Fly Lab V4 deterministic sessions`)
 V5 preparation commit: `3faf942` (`Prepare Virtual Fly Lab V5 implementation`)
-Status: **V5.5.1 COMPLETE (2026-09-26) — [완료 보고서](V5_5_1_COMPLETION_REPORT.md). V5.6 집기·놓기 완료(2026-09-26, GUI는 사용자 확인). V5.6.1 조작감·운반 수정 완료(2026-09-27, GUI는 사용자 확인, [검증](../../notes/validation/v5-6-1-2026-09-27/README.md)). 다음은 V5.7.**
+Status: **V5 전체 미완료.** V5.5.1은 [완료 보고서](V5_5_1_COMPLETION_REPORT.md)로 닫았고, V5.6·V5.6.1은 당시 사용자 GUI 확인으로 완료했다. V5.6.2·V5.7은 구현되어 있으나 이전 독립 검증에서 결함과 성능 실패가 확인됐다([2026-09-29 기록](../../notes/validation/v5-independent-2026-09-29/README.md)). 과거 개별 단계의 PASS는 현재 V5 마감 통과를 뜻하지 않는다.
 
-Current next step (2026-09-26): **V5.6 집기·놓기.** V5.5.1은 [완료 보고서](V5_5_1_COMPLETION_REPORT.md)로 닫았다. GUI 동선 1–3은 Claude가 화면 증거로, 동선 4–7과 성능은 사용자가 직접 확인했다(수치 기록 없음). V5.6은 아래 “V5.6 착수 준비”의 첫 결정부터 시작한다.
+Latest revalidation (2026-10-05): **A-1~A-4 수정·자동 재검증 완료.** 빌드, Swift 7종, Python 12종 및 fresh real-headless `--bridgeloop`가 통과했다(body **38.1 Hz**, max gap **34 ms**). 이는 렌더링을 포함한 통합 GUI 성능·수용 증거가 아니다. 현재 다음 단계는 V5.6.2 도구·섭식 / V5.7 카드 / 통합 GUI 동선과 live 성능 검증이다. 실행 호스트의 접근성·화면 녹화 권한이 없어 이번 GUI 검증은 미실행 상태이며, 당시 판정에서는 V6를 시작하지 않았다. **이후 사용자 요청(2026-10-05 17:31 KST)으로 GUI·live 성능 검증을 보류하고 V6.1부터 진행하는 예외를 기록했다. V5 전체 미완료 상태는 유지한다.** [V6 진행표](V6_PROGRESS.md). 근거는 [2026-10-05 기록](../../notes/validation/v5-next-2026-10-05/README.md)을 따른다.
 
 | Level | Current V5.5.1 judgment |
 |---|---|
@@ -63,7 +63,9 @@ These checks confirm the committed V4 scheduling/session baseline before V5 work
 
 회귀 검사: Python 11종이 통과했다. `test_lab_real`의 `expanded runtime object capacity` 1건은 이미 알려진 음식 슬롯 8 문제로 이번 변경과 무관하다(`notes/validation/v5-independent-2026-09-29/`). Swift `--behaviortest`, `--labtest`, `--bridgetest`, `--v4test`, `--v4timingtest`와 새 백엔드에서 실행한 `--labloop`, `--interactionloop`, `--inputprobe`, `--v4loop`, `--bridgeloop`도 모두 PASS다. 남은 병목은 MuJoCo 자체(0.1 ms 스텝의 약 74%, Newton solver와 접촉)와 FlyGym 보행 제어기다. 이 부분을 더 줄이려면 timestep이나 solver를 바꿔야 해서 물리 결과가 달라진다.
 
-## V5.6 착수 준비 — 2026-09-26
+## V5.6 착수 준비 — 2026-09-26 (과거 기록)
+
+아래의 “구현은 시작하지 않았다”와 첫 결정/순서 제안은 당시 기록이다. 현재 실행 순서는 문서 상단을 따른다.
 
 계획: [V5 §5.6](../plans/VIRTUAL_FLY_LAB_V5_PLAN.md#56-집기놓기-구현). **구현은 시작하지 않았다.** 아래는 현재 소스에서 확인한 사실과 첫 단계에서 정할 것이다.
 
@@ -89,7 +91,7 @@ These checks confirm the committed V4 scheduling/session baseline before V5 work
 
 No V6 terrain/environment editor, V7 neuron inspector, V8 module host, V9 checkpoint, or V11 desire/emotion model is pulled forward into this version.
 
-The implementation notes below record work from **2026-09-13 to 2026-09-22**. Their then-current wording and stage-specific next steps are historical; the 2026-09-26 status above controls the next work.
+The implementation notes below record work from **2026-09-13 to 2026-09-22**. Their then-current wording and stage-specific next steps are historical; the current dated status at the top controls the next work.
 
 ## V5.3 automated verification — observation camera + raw-eye provenance
 

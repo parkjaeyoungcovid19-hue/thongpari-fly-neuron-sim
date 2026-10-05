@@ -33,6 +33,8 @@ func runLabTest() {
           && state?.authoritativeSlotCapacity?["wall"] == 64
           && state?.authoritativeSlotFree?["wall"] == 63)
     check("lab_state type gate", parseLabStateLine(Data(#"{"type":"body","ack":7}"#.utf8)) == nil)
+    runEnvironmentCapabilityChecks(check)
+    runEnvironmentEditChecks(check)
     func wire(_ command: LabCommand) -> [String: Any] {
         let data = try! JSONEncoder().encode(command)
         return (try! JSONSerialization.jsonObject(with: data)) as! [String: Any]
@@ -997,6 +999,9 @@ func runLabTest() {
           && hungerPanel.card(.hunger)?.displayedValue == .unsupported
           && hungerPanel.card(.hunger)?.valueText == hungerWithOdor?.valueText)
 
+    check("V5.7 pause help distinguishes held spike rates from missing indices/events",
+          ActivityCardPanel.helpText.contains("model indices and spike events show “—”")
+          && ActivityCardPanel.helpText.contains("spike-rate cards keep the last sample, not a live measurement"))
     var absent = LabTelemetry()
     absent.applyBrainSignals(nil)
     let absentPanel = ActivityCardPanel()
@@ -1053,6 +1058,136 @@ func runLabTest() {
 
     print(failures == 0 ? "ALL LAB TESTS PASS" : "\(failures) LAB TEST FAILURES")
     exit(failures == 0 ? 0 : 1)
+}
+
+/// V6.1 shared fixtures: strict standalone decode; tolerant optional telemetry.
+private func runEnvironmentCapabilityChecks(_ check: (String, Bool, String) -> Void) {
+    let root = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+        .appendingPathComponent("fixtures/environment_capabilities", isDirectory: true)
+    let required = ["valid.json", "missing-field.json", "bad-range.json", "bad-unit.json", "bad-type.json",
+                    "duplicate-id.json", "wrong-vector.json", "bad-default.json", "unknown-version.json"]
+    check("V6.1 shared fixtures present", required.allSatisfy {
+        FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path)
+    }, root.path)
+    guard let urls = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return }
+    let fixtures = urls.filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    let decoder = JSONDecoder()
+    for url in fixtures {
+        let name = url.lastPathComponent
+        guard let data = try? Data(contentsOf: url) else { check("V6.1 fixture read " + name, false, "unreadable"); continue }
+        let expectedValid = name.hasPrefix("valid")
+        let decoded = try? decoder.decode(EnvironmentCapabilities.self, from: data)
+        check("V6.1 strict fixture " + name, (decoded != nil) == expectedValid, expectedValid ? "accept" : "reject")
+        guard let manifest = try? JSONSerialization.jsonObject(with: data) else {
+            check("V6.1 JSON fixture " + name, false, "fixture must be JSON"); continue
+        }
+        let object: [String: Any] = ["id": "box_1", "shape": "box", "position_mm": [1, 2, 3], "size_mm": [4, 5, 6], "yaw_deg": 0]
+        let packet: [String: Any] = ["type": "lab_state", "session_id": "v6-fixture", "epoch": 2, "sim_tick": 40,
+                                   "state": ["objects": [object], "slot_capacity": ["food": 8], "environment_capabilities": manifest]]
+        guard let wire = try? JSONSerialization.data(withJSONObject: packet), let state = parseLabStateLine(wire) else {
+            check("V6.1 optional manifest state " + name, false, "lost lab_state"); continue
+        }
+        check("V6.1 optional manifest state " + name,
+              (state.worldState?.environmentCapabilities != nil) == expectedValid
+              && state.authoritativeObjects?.first?.id == "box_1" && state.authoritativeSlotCapacity?["food"] == 8
+              && state.sessionID == "v6-fixture" && state.epoch == 2 && state.simTick == 40, "no partial salvage or telemetry loss")
+    }
+    if let data = try? Data(contentsOf: root.appendingPathComponent("valid.json")),
+       let manifest = try? decoder.decode(EnvironmentCapabilities.self, from: data) {
+        var decodeMS: [Double] = []
+        for _ in 0..<1000 {
+            let start = Date.timeIntervalSinceReferenceDate
+            _ = try? decoder.decode(EnvironmentCapabilities.self, from: data)
+            decodeMS.append((Date.timeIntervalSinceReferenceDate - start) * 1000)
+        }
+        decodeMS.sort()
+        print(String(format: "V6.1 DECODE BENCH: bytes=%d descriptors=%d n=1000 p50=%.3fms p95=%.3fms (standalone only; not live acceptance)",
+                     data.count, manifest.descriptors.count, decodeMS[500], decodeMS[950]))
+        let temperature = manifest.descriptors.first { $0.legacyField == "celsius" }
+        let mode = manifest.descriptors.first { $0.legacyField == "mode" && $0.legacyCommands.contains("temperature") }
+        let wind = manifest.descriptors.first { $0.legacyField == "strength" && $0.legacyCommands.contains("wind") }
+        check("V6.1 authoritative temperature modes/range and normalized wind",
+              temperature?.unit == "degC" && temperature?.minimum == .number(0) && temperature?.maximum == .number(50)
+              && mode?.choices == ["environment_only", "modeled_physiology", "flywire_sensory"]
+              && wind?.unit == "normalized" && wind?.minimum == .number(0) && wind?.maximum == .number(1), "backend0...50 vs UI10...40; wind not m/s")
+        check("V6.1 unsupported controls not fabricated",
+              !manifest.descriptors.contains { $0.propertyID.hasPrefix("lighting.") || $0.propertyID.hasPrefix("humidity.") || $0.propertyID.contains("advection") }
+              && manifest.descriptor("not.a.property") == nil, "read-only lookup, not edit authorization")
+    }
+    let legacy = parseLabStateLine(Data(#"{"type":"lab_state","state":{"objects":[],"slot_capacity":{"food":8}}}"#.utf8))
+    check("V6.1 older backend without manifest remains valid", legacy != nil
+          && legacy?.worldState?.environmentCapabilities == nil && legacy?.authoritativeSlotCapacity?["food"] == 8, "no fabricated defaults")
+}
+
+/// V6.2 shared edit fixtures: same accept/reject and first failing path as
+/// Python validate_edit; wire encoding and ACK detail decode.
+private func runEnvironmentEditChecks(_ check: (String, Bool, String) -> Void) {
+    let root = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
+        .appendingPathComponent("fixtures/environment_edits", isDirectory: true)
+    let urls = ((try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [])
+        .filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    check("V6.2 shared edit fixtures present", urls.count >= 30, "\(urls.count) in \(root.path)")
+    var capabilities: EnvironmentCapabilities?
+    var accepted = 0, rejected = 0
+    for url in urls {
+        let name = url.lastPathComponent
+        guard let data = try? Data(contentsOf: url),
+              let doc = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let manifestPath = doc["manifest"] as? String, let expect = doc["expect"] as? String,
+              let edit = doc["edit"],
+              let manifestData = try? Data(contentsOf: root.appendingPathComponent(manifestPath)),
+              let manifest = try? JSONDecoder().decode(EnvironmentCapabilities.self, from: manifestData) else {
+            check("V6.2 edit fixture read " + name, false, "unreadable"); continue
+        }
+        capabilities = manifest
+        do {
+            let validated = try EnvironmentEdit.validate(json: edit, capabilities: manifest)
+            accepted += 1
+            // Round trip: what Swift would send validates again to the same request.
+            let wire = try JSONSerialization.jsonObject(with: JSONEncoder().encode(validated))
+            let again = try? EnvironmentEdit.validate(json: wire, capabilities: manifest)
+            check("V6.2 edit fixture " + name, expect == "accept" && again == validated, "accept + encode round trip")
+        } catch let error as EnvironmentEditError {
+            rejected += 1
+            check("V6.2 edit fixture " + name, expect == "reject" && error.path == doc["path"] as? String,
+                  "\(error) (expected \(doc["path"] ?? "accept"))")
+        } catch {
+            check("V6.2 edit fixture " + name, false, "\(error)")
+        }
+    }
+    check("V6.2 edit fixtures cover accept and reject", accepted >= 5 && rejected >= 20, "accept=\(accepted) reject=\(rejected)")
+    guard let capabilities else { return }
+    func rejectsValue(_ value: EnvironmentPropertyValue, _ id: String, _ target: String? = nil) -> String? {
+        do { _ = try EnvironmentEdit.make(propertyID: id, targetID: target, expectedRevision: 0,
+                                          value: value, capabilities: capabilities); return nil }
+        catch let error as EnvironmentEditError { return error.path } catch { return "\(error)" }
+    }
+    check("V6.2 nonfinite values rejected before encoding",
+          rejectsValue(.number(.nan), "temperature.celsius") == "edit.value"
+          && rejectsValue(.number(.infinity), "temperature.celsius") == "edit.value"
+          && rejectsValue(.vector([1, .nan, 3]), "object.box.position_mm", "box_1") == "edit.value[1]"
+          && rejectsValue(.number(1), "eyes.left_enabled") == "edit.value", "NaN/inf/number-as-bool")
+    if let edit = try? EnvironmentEdit.make(propertyID: "eyes.left_enabled", targetID: nil, expectedRevision: 7,
+                                            value: .boolean(false), capabilities: capabilities),
+       let line = try? JSONEncoder().encode(LabCommand.editProperty(id: 12, edit)),
+       let wire = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+       let body = wire["edit"] as? [String: Any] {
+        check("V6.2 edit_property wire shape",
+              wire["action"] as? String == "edit_property" && wire["id"] as? Int == 12
+              && body["target_id"] is NSNull && body["unit"] as? String == "none"
+              && Set(body.keys) == Set(EnvironmentEdit.fields)
+              && (body["value"] as? NSNumber).map { CFGetTypeID($0) == CFBooleanGetTypeID() } == true,
+              String(decoding: line, as: UTF8.self))
+    } else {
+        check("V6.2 edit_property wire shape", false, "make/encode failed")
+    }
+    let applied = parseLabStateLine(Data(#"{"type":"lab_state","ack":12,"ok":true,"state":{},"edit":{"ok":true,"status":"applied","property_id":"object.box.position_mm","target_id":"box_1","actual_value":[1,2,3],"revision":9}}"#.utf8))
+    let stale = parseLabStateLine(Data(#"{"type":"lab_state","ack":13,"ok":false,"error":"edit.expected_revision: stale revision","state":{},"edit":{"ok":false,"status":"rejected_stale_revision","path":"edit.expected_revision","reason":"stale revision","current_revision":11}}"#.utf8))
+    let malformed = parseLabStateLine(Data(#"{"type":"lab_state","ack":14,"ok":true,"state":{},"edit":{"ok":"yes"}}"#.utf8))
+    check("V6.2 ACK edit detail decodes; malformed detail drops only itself",
+          applied?.edit?.actualValue == .vector([1, 2, 3]) && applied?.edit?.revision == 9
+          && stale?.edit?.path == "edit.expected_revision" && stale?.edit?.currentRevision == 11
+          && malformed?.ack == 14 && malformed?.edit == nil, "applied/stale/malformed")
 }
 
 /// V5.7: clicks every activity card the way AppKit delivers a click — hit-test

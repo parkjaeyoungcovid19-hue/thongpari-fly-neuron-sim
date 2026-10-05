@@ -1,0 +1,49 @@
+metal-sim: Apple M2 N=139255 E=15091983 load 64 ms compile 1 ms
+== gpucheck: independent CPU reference vs the Metal whole-brain sim ==
+connectome: 139255 neurons, 15091983 edges | fixed point Q16 | Apple M2 | seed 0x5eed1f1f
+rng: LIF.metal pcg() transcription vs MetalSim.pcgHash -> identical
+group oracle negative control: corrupt windE n49 -> detected
+weights: 15091983 quantized edges, 0 differ from the GPU buffer (max 0 Q18 units, independent factor order)
+arithmetic probe — 120 steps at rest, MetalSim.init's own baselines:
+  0 plain a*b+c  120 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 7.15e-07 (n69919 @step 55) | FAIL
+first divergence at step 2 (simMs 2/2)
+  max |Δv| 2.98023e-08 at n339 (role other): ref 0.311376184 gpu 0.311376154 — ≈ 0 fixed-point units: weight quantization / accumulation
+  1 fma leak  120 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 0 | ok
+  2 fma synaptic  120 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 7.15e-07 (n69919 @step 55) | FAIL
+first divergence at step 2 (simMs 2/2)
+  max |Δv| 2.98023e-08 at n339 (role other): ref 0.311376184 gpu 0.311376154 — ≈ 0 fixed-point units: weight quantization / accumulation
+  3 fma leak+syn  120 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 0 | ok
+reference arithmetic: 1 fma leak (max |Δv| 0.0)
+A rest  300 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 0 | ok
+B loom+puff  300 steps | spikes+gf = (gf 122) | refr = | groups = | rates = | max|Δv| 0 | ok
+C stim 200x0.5/7ms   16 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 0 | ok
+D scale .84 gate .6  150 steps | spikes+gf = (gf 12) | refr = | groups = | rates = | max|Δv| 0 | ok
+E 2 overlapping stims   20 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 5.96e-08 (n155 @step 1) | ok
+totals: ref 179688 spikes, gpu 179688 spikes over 786 steps
+E' same, GPU summing   20 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 0 | ok
+batch invariance 96 steps: 96x1 vs 6x16 -> bit-identical; 96x1 vs 50+46 -> bit-identical
+stim invariance (0.5/7 ms on 200 neurons): 16x1 vs 1x16 -> bit-identical
+delay probe (inhibitory pre n91297): durationMs 1 -> 0 stimulated steps (spiked false, states still identical true)
+  forced one spike after 2 attempt(s) | 0 excitatory / 9783 inhibitory targets
+  excitatory targets, first Δv at step offset: []
+  inhibitory targets, first Δv at step offset: [(offset: 0, targets: 11), (offset: 4, targets: 9771), (offset: 6, targets: 1)]
+  t+1: 0 checked (0 spiked/clamped), max |Δv - w*decay| = 0;  t+4: 9768 checked (3 spiked/clamped), max |Δv - w| = 0
+delay probe (excitatory pre n86289): durationMs 1 -> 0 stimulated steps (spiked false, states still identical true)
+  forced one spike after 5 attempt(s) | 8454 excitatory / 0 inhibitory targets
+  excitatory targets, first Δv at step offset: [(offset: 0, targets: 9), (offset: 1, targets: 8436), (offset: 2, targets: 1), (offset: 5, targets: 8)]
+  inhibitory targets, first Δv at step offset: []
+  t+1: 8431 checked (5 spiked/clamped), max |Δv - w*decay| = 1.48e-07;  t+4: 0 checked (0 spiked/clamped), max |Δv - w| = 0
+gait probe (gaitDrive 0.5, 8 Hz, 200 steps, 24 ascend neurons):
+  gaitFma 0  200 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 1.19e-07 (n103594 @step 47) | ok
+    ascend-only |Δv|: step 1 7.45e-09, worst over 200 steps 1.19e-07
+  gaitFma 1  200 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 1.19e-07 (n103594 @step 47) | ok
+    ascend-only |Δv|: step 1 7.45e-09, worst over 200 steps 1.19e-07
+  gaitFma 2  200 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 5.96e-08 (n113373 @step 21) | ok
+    ascend-only |Δv|: step 1 7.45e-09, worst over 200 steps 5.96e-08
+  gaitFma 3  200 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 5.96e-08 (n113373 @step 21) | ok
+    ascend-only |Δv|: step 1 7.45e-09, worst over 200 steps 5.96e-08
+gait: best ascend-only step-1 |Δv| = 7.450581e-09 with gaitFma 0
+H 12.2 s + burst  538 steps | spikes+gf = (gf 0) | refr = | groups = | rates = | max|Δv| 0 | ok
+  12200 simulated ms, 538 comparison points; population rate 1.71 -> 5.52 Hz across the burst; reference burst window [12000, 12400), next at 29150
+gpucheck ran in 14.4 s
+GPUCHECK PASS

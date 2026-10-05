@@ -20,6 +20,7 @@ from collections import deque
 from dataclasses import dataclass, field
 import sandbox_models as sm
 from player_body import PlayerBody
+from environment_properties import EDIT_DESCRIPTORS, MAX_REVISION, EditError, environment_capabilities, validate_edit
 from interaction import (InteractionState, InteractionError, parse_interaction_args,
                          participant_center,
                          INTERACTION_REACH_MM, INTERACTION_RAY_ORIGIN_TOL_FACTOR,
@@ -307,6 +308,9 @@ class LabWorld:
         # intentionally excluded so a just-rendered frame may still be used as
         # provenance for a current-owner ray while an approach is moving.
         self.structure_revision = 0
+        # Singleton environment settings (temperature, eyes, wind) have their own
+        # revision so unrelated object motion never makes an edit look stale.
+        self.environment_revision = 0
         self._bound = False
         self._mujoco = None
         self.model = None
@@ -742,7 +746,12 @@ class LabWorld:
         if self.interaction.held_object_id == obj.object_id:
             self.release_interaction("object_removed")
         self.approaches.pop(obj.object_id, None)
-        self.feeding.pop(obj.object_id, None)
+        contact_s = self.feeding.pop(obj.object_id, 0.0)
+        if self._eating_id == obj.object_id:
+            self._eating_id = None
+            self._append_event({"event": "feeding_end", "classification": PHYSICAL,
+                                "id": obj.object_id, "contact_s": contact_s,
+                                "reason": "object_removed"})
         self._deactivate_slot(obj.slot)
         self.interaction.previous_distances = None
         del self.objects[obj.object_id]
@@ -788,6 +797,7 @@ class LabWorld:
         self.temperature.update(celsius=25.0, mode="environment_only",
                                 neural_connected=False, neural_target=None,
                                 controller_tempo_via_brain_packet=False)
+        self.environment_revision += 1
         # Preserve the required object_placed event across the world reset.
         self._bump_revision(structural=True)
 
@@ -1153,12 +1163,14 @@ class LabWorld:
             physical_enabled=bool(physical),
             sensory_enabled=bool(sensory),
         )
+        self.environment_revision += 1
         if strength <= 0.0:
             self.stop_wind()
         return self._wind_state()
 
     def stop_wind(self):
         self.wind.update(strength=0.0, continuous=False, remaining_s=0.0)
+        self.environment_revision += 1
 
     def apply_touch(self, *, target="thorax", strength=0.5, duration_ms=20.0,
                     direction_world=None, sensory=True):
@@ -1193,6 +1205,7 @@ class LabWorld:
             self.eyes["left_mask"] = _clamp(left_mask, 0.0, 1.0, 0.0)
         if right_mask is not None:
             self.eyes["right_mask"] = _clamp(right_mask, 0.0, 1.0, 0.0)
+        self.environment_revision += 1
         return dict(self.eyes)
 
     def flash_eye(self, *, eye="both", intensity=1.0, duration_ms=100.0):
@@ -1228,12 +1241,110 @@ class LabWorld:
             neural_target=("TRN_VP2 / TRN_VP3a+VP3b" if mode == "flywire_sensory" else None),
             controller_tempo_via_brain_packet=(mode == "modeled_physiology"),
         )
+        self.environment_revision += 1
         return dict(self.temperature)
+
+    def apply_edit(self, edit):
+        """V6.2 strict single-property edit; any rejection leaves the world untouched.
+
+        Every check (schema, bounds, target, applier, revision) runs before the
+        first setter. Legacy setters then apply an already in-range value, so
+        their clamps are no-ops; yaw keeps its documented modulo-360 normalization.
+        Object properties use the object's revision, temperature/eyes use
+        environment_revision. Wind is not editable here: a single wind field has
+        no defined meaning yet against active puff timers (V6.5 panel).
+        """
+        d, value = validate_edit(edit, EDIT_DESCRIPTORS)
+        pid, target, field = d["property_id"], edit["target_id"], d["legacy_field"]
+        if pid.startswith("object."):
+            obj = self.objects.get(target)
+            if obj is None:
+                raise EditError("edit.target_id", "unknown object", status="rejected_target")
+            shape = pid.split(".")[1] if pid.count(".") == 2 else None
+            if shape is not None and shape != obj.shape:
+                raise EditError("edit.target_id", f"target is a {obj.shape}, not a {shape}",
+                                status="rejected_target")
+            if self.interaction.held_object_id == obj.object_id:
+                raise EditError("edit.target_id", "object is held", status="rejected_target")
+            current = obj.revision
+        elif pid.startswith(("temperature.", "eyes.")):
+            current = self.environment_revision
+        else:
+            raise EditError("edit.property_id", "no V6.2 edit applier for this property",
+                            status="rejected_unsupported")
+        if int(edit["expected_revision"]) != current:
+            raise EditError("edit.expected_revision", "stale revision",
+                            status="rejected_stale_revision", current_revision=current)
+        if field == "position_mm":
+            actual = self.move_object(target, position_mm=value)["position_mm"]
+        elif field == "yaw_deg":
+            actual = self.move_object(target, yaw_deg=value)["yaw_deg"]
+        elif field == "size_mm":
+            size = self.resize_object(target, size_mm=value)["size_mm"]
+            actual = size if d["value_type"] == "vector" else size[0]
+        elif pid.startswith("temperature."):
+            settings = {"celsius": self.temperature["celsius"], "mode": self.temperature["mode"]}
+            actual = self.set_temperature(**{**settings, field: value})[field]
+        else:
+            actual = self.set_eye_state(**{field: value})[field]
+        revision = obj.revision if pid.startswith("object.") else self.environment_revision
+        return {"ok": True, "status": "applied", "property_id": pid, "target_id": target,
+                "actual_value": actual, "revision": int(revision)}
+
+    def edit_object(self, edit):
+        """V6.3 discrete object mutation; validate completely before owner mutation."""
+        def reject(path, reason, status="rejected_invalid", **detail):
+            raise EditError(path, reason, status=status, **detail)
+        fields = ("schema_version", "operation", "target_id", "expected_revision")
+        if not isinstance(edit, dict):
+            reject("object_edit", "must be an object")
+        for key in sorted(set(edit) - set(fields)):
+            reject("object_edit." + key, "unknown field")
+        for key in fields:
+            if key not in edit:
+                reject("object_edit." + key, "required")
+        version = edit["schema_version"]
+        if isinstance(version, bool) or not isinstance(version, (int, float)) or version != 1:
+            reject("object_edit.schema_version", "unsupported schema_version")
+        operation = edit["operation"]
+        if not isinstance(operation, str) or operation not in ("duplicate", "delete"):
+            reject("object_edit.operation", "unsupported operation")
+        target = edit["target_id"]
+        if not isinstance(target, str) or not 1 <= len(target) <= MAX_OBJECT_ID_LEN or target != target.strip():
+            reject("object_edit.target_id", "invalid target id")
+        revision = edit["expected_revision"]
+        if (isinstance(revision, bool) or not isinstance(revision, (int, float))
+                or not 0 <= revision <= MAX_REVISION or not math.isfinite(revision)
+                or int(revision) != revision):
+            reject("object_edit.expected_revision", "must be an integer in range")
+        obj = self.objects.get(target)
+        if obj is None:
+            reject("object_edit.target_id", "unknown target", status="rejected_target")
+        if revision != obj.revision:
+            reject("object_edit.expected_revision", "stale object revision",
+                   status="rejected_revision", current_revision=obj.revision)
+        if self.interaction.held_object_id == target:
+            reject("object_edit.target_id", "held object cannot be edited", status="rejected_target")
+        if operation == "duplicate":
+            if not self._free_slots[obj.shape]:
+                reject("object_edit.operation", "no free shape slots", status="rejected_capacity")
+            # No authored-data coercion here: the source is already an owner object.
+            result = self.spawn_object(shape=obj.shape, position_mm=list(obj.position_mm),
+                                       size_mm=list(obj.size_mm), yaw_deg=obj.yaw_deg,
+                                       variant=obj.variant)
+            actual = result["id"]
+        else:
+            self.remove_object(target)
+            actual = target
+        return {"ok": True, "status": "applied", "property_id": "object." + operation,
+                "target_id": target, "actual_value": actual, "revision": self.revision}
 
     def apply_command(self, command, *, fly_position_mm=(0.0, 0.0, 0.0)):
         """Apply one parsed LabCommand on the simulation-owner thread."""
         op = command.op
         a = command.args
+        if op == "edit_object":
+            return self.edit_object(a.get("object_edit"))
         if op == "drive_object":
             object_id = _tool_id(a)
             speed = _tool_number(a.get("speed_mm_s", 20), "speed_mm_s", 0, 60)
@@ -1276,6 +1387,8 @@ class LabWorld:
             return self._fire_bb(actor, direction)
         if op == "interaction":
             return self.apply_interaction(command)
+        if op == "edit_property":
+            return self.apply_edit(a.get("edit"))
         if op in ("spawn_object", "spawn_box", "spawn_sphere", "spawn_wall"):
             shape = a.get("shape", "box")
             if op.startswith("spawn_") and op != "spawn_object":
@@ -1811,8 +1924,9 @@ class LabWorld:
         diameter = eating.size_mm[0] - FEED_SHRINK_MM_S * dt
         if diameter < FEED_MIN_DIAMETER_MM:
             contact_s = self.feeding.pop(food_id, 0.0)
-            self.remove_object(food_id)
+            # Depletion owns the end event below; do not also close it in removal.
             self._eating_id = None
+            self.remove_object(food_id)
             # Close the contact interval opened by feeding_begin before the food
             # disappears, so every begin has exactly one end.
             self._append_event({"event": "feeding_end", "classification": PHYSICAL,
@@ -2034,7 +2148,10 @@ class LabWorld:
     def state(self):
         return {
             "physical_backend": bool(self._bound),
+            "environment_capabilities": environment_capabilities(
+                self.force_body_ids if self._bound else None),
             "world_revision": int(self.revision),
+            "environment_revision": int(self.environment_revision),
             "objects": [self.objects[k].state() for k in sorted(self.objects)],
             "projectiles": self.projectile_state(),
             "player": self.player.render_pose(),

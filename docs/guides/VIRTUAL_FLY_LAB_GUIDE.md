@@ -1,6 +1,6 @@
 # Thongpari Fly Neuron Sim — Virtual Fly Lab 사용 가이드
 
-현재 Virtual Fly Lab V2의 **권장 실행 방법은 저장소 루트의 `Thongpari Fly Neuron Sim 실험실.command`를 Finder에서 더블클릭하는 것**이다. 이 런처는 실제 FlyGym/MuJoCo bridge와 `ThongpariFlyNeuronSim --flygym`을 함께 띄우며, `--flygym` 실행에서는 Virtual Fly Lab 창도 자동으로 열린다.
+현재 Virtual Fly Lab의 권장 실행 방법은 [저장소 루트 런처](<../../../Thongpari Fly Neuron Sim.command>) 또는 [Virtual Fly Lab 런처](<../../Virtual Fly Lab.command>)를 Finder에서 더블클릭하는 것이다. 최신 소스는 필요할 때 자동 빌드되며 실제 FlyGym/MuJoCo bridge와 하나의 Lab 창을 시작한다.
 
 Lab은 개입을 세 종류로 구분한다.
 
@@ -17,7 +17,7 @@ Lab은 개입을 세 종류로 구분한다.
 가장 먼저 쓸 런처:
 
 ```text
-Thongpari Fly Neuron Sim 실험실.command
+Thongpari Fly Neuron Sim.command
 ```
 
 더블클릭하면 실제 FlyGym/MuJoCo body, whole-brain Metal simulation, Lab UI/telemetry/recording이 함께 시작된다. 열린 Terminal 창은 실험이 끝날 때까지 유지한다. 첫 실제 viewer 실행은 JIT/그래픽 준비 때문에 bridge 연결이 늦을 수 있으며 앱은 연결을 재시도한다.
@@ -25,23 +25,37 @@ Thongpari Fly Neuron Sim 실험실.command
 CLI로 같은 구성을 띄우려면:
 
 ```sh
-./run_flygym.sh --flygym
+./run_flygym.sh
 ```
 
 ## World 탭
 
 ### 물체
 
-shape 메뉴에서 다음 네 종류를 만들 수 있다.
+shape 메뉴에서 다음 여섯 종류를 만들 수 있다.
 
 | shape | 동작 |
 |---|---|
-| `box` | 충돌 가능한 box |
-| `sphere` | 충돌 가능한 sphere |
-| `wall` | 충돌 가능한 wall geometry |
-| `food marker` | 초록색 비충돌 odor source. 위치/heading에서 계산한 bilateral odor를 Swift가 실제 `ORN_DM1`+`ORN_VA2` L/R에 연결. taste/reward/feeding/scripted seeking은 없음 |
+| `box` | 충돌 가능한 상자 |
+| `sphere` | 충돌 가능한 공 |
+| `wall` | 충돌 가능한 벽 |
+| `food` | variant별 물리 형상·냄새·먹이 상태를 backend가 표시 |
+| `car` | 주행 가능한 장난감 자동차 |
+| `trap` | 다시 설치 가능한 함정 |
 
-`Name`, `X/Y/Z (mm)`, `Size (mm)`를 입력하고 `Create`를 누른다. 같은 이름에 대해 `Update position`, `Update size`, `Remove`를 사용할 수 있다. Python 쪽은 미리 컴파일된 슬롯을 사용하며 기본 풀은 box 8, sphere 8, wall 8, food 4개다.
+기존 **물체 놓기**의 이름·XYZ·크기 및 만들기/옮기기/크기 바꾸기/지우기는 legacy 경로다. 이 경로의 기존 보정(clamping)은 유지되며 아래 V6.3 strict inspector와 구분한다. 현재 기본 precompiled pool은 box/sphere/wall 각각 64, food 8, car 4, trap 2개다.
+
+### V6.3 선택 물체 편집
+
+현재 구현·검증 단계다. [진행 상태](../reports/V6_PROGRESS.md)와 [직접 GUI 체크리스트](../../notes/validation/v6-3-2026-10-05/GUI_CHECKLIST.md)를 구분해 읽는다. 화면 캡처 또는 자동 테스트 통과만으로 클릭·드래그 수용 완료를 주장하지 않는다.
+
+1. **Edit(편집)** 모드로 바꾸고 3D 화면의 backend ray pick 또는 **선택 물체 편집** 목록에서 물체를 선택한다.
+2. **이동 / Z 회전 / 크기**를 고른다. XYZ는 mm, X/Y 바닥·Z 위쪽이다. 회전은 Z yaw만 지원한다. box/wall 크기는 물체 local 축 전체 길이 XYZ, sphere/food/car/trap은 descriptor의 scalar S(지름 또는 길이)다.
+3. 색과 X/Y/Z/S 라벨이 있는 핸들을 드래그하거나 수치 칸을 입력하고 **적용 / Return**을 누른다. 두 경로는 동일한 descriptor와 captured object revision을 사용한다. 드래그 중에는 초안만 보여 주고 놓을 때 한 번 요청한다.
+4. 대기 중에는 mutation control이 비활성화된다. **시뮬레이터** 값과 revision·applied tick 응답이 실제 적용의 근거다. 범위 밖·NaN/inf·held·stale 오류는 적용하지 않으며 오류 위치를 표시한다.
+5. **복제**는 원본과 같은 위치에 새 ID를 만든다. 겹치므로 이후 이동한다. pose/shape/size/yaw/food variant만 복사하며 주행·feeding 등 실행 상태는 초기화한다. **삭제**도 revision 검사를 거친다. 실행 취소와 scene 저장은 후속 단계다.
+
+카메라/outline은 최신 snapshot과 requested camera에 기반한다. JPEG stream에는 frame stamp와 depth mask가 없어 순간적인 이미지 불일치나 가림 없는 outline이 있을 수 있다.
 
 ### Move an object toward the fly
 

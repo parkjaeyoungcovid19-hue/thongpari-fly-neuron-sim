@@ -1,0 +1,14 @@
+{
+  "description": "Revision must be nonnegative",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "property_id": "temperature.celsius",
+    "target_id": null,
+    "expected_revision": -1,
+    "unit": "degC",
+    "value": 30
+  },
+  "expect": "reject",
+  "path": "edit.expected_revision"
+}

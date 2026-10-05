@@ -1,0 +1,41 @@
+PASS  V6.3 production schedule chooser retains captured epoch across reset
+PASS  V6.3 production schedule chooser still derives unsupplied controls
+PASS  V6.3 mismatched ACK retained 0
+PASS  V6.3 mismatched ACK retained 1
+PASS  V6.3 mismatched ACK retained 2
+PASS  V6.3 mismatched ACK retained 3
+PASS  V6.3 malformed/boundary not applied 0
+PASS  V6.3 malformed/boundary not applied 1
+PASS  V6.3 malformed/boundary not applied 2
+PASS  V6.3 malformed/boundary not applied 3
+PASS  V6.3 malformed/boundary not applied 4
+PASS  V6.3 malformed/boundary not applied 5
+PASS  V6.3 malformed/boundary not applied 6
+PASS  V6.3 ACK reports normalized actual only
+PASS  V6.3 replayed ACK ignored
+PASS  V6.3 reset discards pending identity
+PASS  V6.3 timeout unknown outcome
+PASS  V6.3 invalid duplicate ID rejected
+PASS  V6.3 invalid duplicate ID rejected
+PASS  V6.3 invalid duplicate ID rejected
+PASS  V6.3 confirmed duplicate ID
+PASS  V6.3 camera projection finite
+PASS  V6.3 move projected axis metric
+PASS  V6.3 dirty invalid draft survives polling
+PASS  V6.3 Return rejects invalid draft without send
+PASS  V6.3 Escape restores owner numeric value
+PASS  V6.3 Return sends once while pending
+PASS  V6.3 owner geometry never optimistic
+PASS  V6.3 clean dynamic pose tracks owner
+PASS  V6.3 real shared field editor exists
+PASS  V6.3 active same-revision draft frozen
+PASS  V6.3 authored revision replaces shared field editor
+PASS  V6.3 Return cannot silently rebase old text
+PASS  V6.3 Escape replaces real shared editor
+PASS  V6.3 Escape then Return cannot resubmit old text
+PASS  V6.3 confirmed participant removal enters Edit
+PASS  V6.3 snapshot before delete ACK retains original
+PASS  V6.3 own delete ACK clears captured selection
+PASS  V6.3 duplicate ACK before snapshot retains new ID
+PASS  V6.3 late ACK cannot steal newer selection
+V6.3 editor diagnostics: 0 failures

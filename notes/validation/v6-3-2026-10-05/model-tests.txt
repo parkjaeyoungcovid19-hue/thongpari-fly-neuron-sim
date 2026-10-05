@@ -1,0 +1,40 @@
+PASS  default runtime slot capacity contract: {'box': 64, 'sphere': 64, 'wall': 64, 'food': 8, 'car': 4, 'trap': 2}
+PASS  food variants rotate in fixed order: ['apple', 'banana', 'cheese', 'grapes', 'cookie', 'sugar_cube', 'apple']
+PASS  unknown food variant rejected without leaking a slot
+PASS  variant on a non-food object rejected
+PASS  explicit variant honoured and reported
+PASS  all eight default food slots are distinct and occupied
+PASS  ninth food rejected without changing world state: 'no free food slots'
+PASS  deleting food releases exactly one slot
+PASS  new food reuses the released slot without growing capacity
+PASS  reset restores all eight food slots
+PASS  reset restarts the rotation
+PASS  odor alone gives no taste signal: odor=0.402 taste=0.0
+PASS  mouth contact reports the food's sugar content: taste=1.0 eating=snack events=['feeding_begin']
+PASS  eating shrinks the food: diameter=0.976
+PASS  food disappears once eaten: events=[{'event': 'food_eaten', 'classification': 'PHYSICAL', 'id': 'snack', 'food_variant': 'sugar_cube', 'contact_s': 0.5000000000000001, 'sim_tick_ms': 520}] taste=0.0
+PASS  eating closes the contact interval before the food disappears: drained=[{'event': 'feeding_end', 'classification': 'PHYSICAL', 'id': 'snack', 'contact_s': 0.5000000000000001, 'reason': 'eaten', 'sim_tick_ms': 520}, {'event': 'food_eaten', 'classification': 'PHYSICAL', 'id': 'snack', 'food_variant': 'sugar_cube', 'contact_s': 0.5000000000000001, 'sim_tick_ms': 520}]
+PASS  body packet round-trips the taste fields
+PASS  body packet clamps taste and ignores bad ids
+realbody: prewarming full body pipeline
+realbody: ready
+PASS  ground is the square lawn
+PASS  fly geoms carry NeuroMechFly materials: 69/69
+PASS  inactive figure is hidden and non-colliding
+PASS  active figure shows limbs and face, only limbs collide: visible=11 solid=5
+PASS  toy gun adds decorative parts only
+PASS  looking down pitches the camera, not the body: body_up=[0.0, 0.0, 1.0] look_fwd_z=0.866
+PASS  stick-figure leg collides with the fly: limb contacts=1
+PASS  food model shows every part and ray-picks to the food id: shown=4 hit={'hit': True, 'target_id': 'apple', 'target_kind': 'lab_object', 'distance_mm': 8.650926243676794, 'point_mm': [38.65092624367679, 20.0, 1.4], 'normal_world': [-0.9993138935727439, 0.0, 0.037037037037036875], 'geom_id': 193}
+PASS  removed food hides its model
+PASS  food 6 mm away: odor but no taste: taste=0.0 odor=0.435
+PASS  haustellum contact eats the food until it disappears: steps=134 events=['feeding_begin', 'feeding_end', 'food_eaten']
+PASS  distant food untouched
+PASS  eaten food slot hidden again
+PASS  BB lands under the crosshair (aim point converges, gravity solved): landing=[20.3, 30.01, 0.01] miss=0.30mm
+PASS  BB tracer shows while in flight
+PASS  BB tracer group is hidden from the fly's eye renderer
+PASS  body collision masks track geom masks (parked slots leave the broadphase): parked=214 bad_live=[] bad_after=[]
+PASS  MuJoCo energy bookkeeping is off (never read)
+PASS  controller observation reader is bit-identical to FlyGym from_sim: mismatches=0/60 with-contact-force=30
+V5.6.2 REAL: 0 FAIL

@@ -26,6 +26,7 @@ from protocol import (
     V4_EXPERIMENT_QUANTUM_TICKS, V4_PROTOCOL_VERSION,
 )
 from neural_decoder import decode, LocomotorCommand
+from environment_properties import EditError
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("THONGPARI_BRIDGE_PORT", "17841"))
@@ -259,6 +260,14 @@ class Bridge:
             "fly": body._thorax_position(),
             "participant": None if render_player is None else render_player(),
         }
+
+    def _apply_interactive_owner_inputs(self):
+        """Interactive serve-loop boundary: V4-stamped lab commands (editor,
+        interaction) and player inputs are ACKed with the owner tick/epoch,
+        exactly like the deterministic path."""
+        tick = self._current_owner_tick()
+        self._apply_lab_commands(applied_tick=tick, applied_epoch=self.session_epoch)
+        self._process_player_inputs(applied_tick=tick, applied_epoch=self.session_epoch)
 
     def _current_owner_tick(self):
         if self.session_mode == "deterministic" and self.session_id:
@@ -495,7 +504,7 @@ class Bridge:
                     self._queue_lab_response(response)
                     continue
             try:
-                apply_fn(command)
+                result = apply_fn(command)
                 self.lab_applied += 1
                 self.last_lab_action = command.op
                 response = self._lab_state(
@@ -503,6 +512,8 @@ class Bridge:
                     applied_tick=(applied_tick if v4 else None),
                     applied_epoch=(applied_epoch if v4 else None),
                     status=("applied" if v4 else None))
+                if command.op in ("edit_property", "edit_object"):
+                    response.edit = result
                 if key is not None:
                     self._remember(self.recent_command_results, key, response)
                 self._queue_lab_response(response)
@@ -512,6 +523,9 @@ class Bridge:
                 response = self._lab_state(
                     ack=command.seq, ok=False, error=str(exc)[:512],
                     last_action=command.op, status=("rejected" if v4 else None))
+                if isinstance(exc, EditError):
+                    response.edit = {"ok": False, "status": exc.status, "path": exc.path,
+                                     "reason": exc.reason, **exc.detail}
                 if key is not None:
                     self._remember(self.recent_command_results, key, response)
                 self._queue_lab_response(response)
@@ -1053,11 +1067,7 @@ class Bridge:
             try:
                 # Only this serve loop advances MuJoCo, so all LabWorld model/data
                 # mutations happen here on the simulation-owner thread.
-                self._apply_lab_commands()
-                self._process_player_inputs(
-                    applied_tick=self._current_owner_tick(),
-                    applied_epoch=self.session_epoch,
-                )
+                self._apply_interactive_owner_inputs()
                 obs = self.body.step(cmd, dt, tempo=tempo)
                 self._collect_lab_events()
             except Exception as e:

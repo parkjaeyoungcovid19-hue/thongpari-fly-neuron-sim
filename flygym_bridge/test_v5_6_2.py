@@ -24,7 +24,13 @@ def check(name, ok, detail=""):
 
 
 # ---------------------------------------------------------------- mock ----
-world = LabWorld(slot_counts={"food": 8})
+# Assert the supported default independently of DEFAULT_SLOT_COUNTS: importing
+# that constant here would let an accidental capacity change pass unnoticed.
+world = LabWorld()
+check("default runtime slot capacity contract",
+      world.state()["slot_capacity"] ==
+      {"box": 64, "sphere": 64, "wall": 64, "food": 8, "car": 4, "trap": 2},
+      repr(world.state()["slot_capacity"]))
 order = [world.spawn_object(shape="food", position_mm=[40 + 5 * i, 0, 1.5])["food_variant"]
          for i in range(7)]
 check("food variants rotate in fixed order",
@@ -46,7 +52,31 @@ check("variant on a non-food object rejected", rejected)
 chosen = world.spawn_object(shape="food", object_id="chosen", variant="cheese")
 check("explicit variant honoured and reported",
       chosen["food_variant"] == "cheese" and chosen["sugar_content"] == sm.FOOD_SUGAR["cheese"])
+check("all eight default food slots are distinct and occupied",
+      world.state()["slot_free"]["food"] == 0 and
+      len({obj.slot for obj in world.objects.values() if obj.shape == "food"}) == 8)
+full_state = world.state()
+try:
+    world.spawn_object(shape="food", object_id="overflow")
+    overflow_error = None
+except LabError as exc:
+    overflow_error = str(exc)
+check("ninth food rejected without changing world state",
+      overflow_error == "no free food slots" and world.state() == full_state,
+      repr(overflow_error))
+released_slot = world.objects["chosen"].slot
+world.remove_object("chosen")
+check("deleting food releases exactly one slot",
+      world.state()["slot_free"]["food"] == 1 and "chosen" not in world.objects)
+world.spawn_object(shape="food", object_id="replacement", variant="banana")
+check("new food reuses the released slot without growing capacity",
+      world.objects["replacement"].slot == released_slot and
+      world.state()["slot_free"]["food"] == 0 and
+      world.state()["slot_capacity"]["food"] == 8 and
+      len(world.objects) == 8)
 world.reset()
+check("reset restores all eight food slots",
+      world.state()["slot_free"]["food"] == 8 and not world.objects)
 check("reset restarts the rotation",
       world.spawn_object(shape="food")["food_variant"] == sm.FOOD_VARIANT_ORDER[0])
 

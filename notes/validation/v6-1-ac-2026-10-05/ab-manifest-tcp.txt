@@ -1,0 +1,6 @@
+0 manifest body_hz=38.1 gap_ms=35 sim_wall=0.781
+0 nomanifest body_hz=38.1 gap_ms=35 sim_wall=0.797
+1 manifest body_hz=38.1 gap_ms=35 sim_wall=0.793
+1 nomanifest body_hz=38.1 gap_ms=35 sim_wall=0.780
+2 manifest body_hz=37.5 gap_ms=55 sim_wall=0.696
+2 nomanifest body_hz=37.6 gap_ms=36 sim_wall=0.791

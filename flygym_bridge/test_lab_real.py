@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from environment import ArenaConfig
 from fly_body import RealFlyBody
+from lab_world import LabError
 from neural_decoder import LocomotorCommand
 from player_body import PLAYER_MOVE_SPEED_MM_S
 from protocol import LabCommand, PlayerInputPacket
@@ -59,9 +60,11 @@ try:
           f"wall_dt={exact_obs.wall_dt:.9f}")
 
     capacity = world.state()["slot_capacity"]
-    check("expanded runtime object capacity",
-          capacity.get("box", 0) >= 64 and capacity.get("sphere", 0) >= 64 and
-          capacity.get("wall", 0) >= 64 and capacity.get("food", 0) >= 32,
+    # The approved performance budget keeps food at eight multi-part slots.
+    # Assert the public defaults independently of the implementation constant.
+    check("real default runtime slot capacity contract",
+          capacity == {"box": 64, "sphere": 64, "wall": 64,
+                       "food": 8, "car": 4, "trap": 2},
           repr(capacity))
 
     # The old real topology exhausted at 8 box/sphere/wall and 4 food objects.
@@ -98,8 +101,47 @@ try:
           max(float(body.sim.mj_model.geom_rgba[g, 3]) for g in visible_gids) > 0.9 and
           np.allclose(body.sim.mj_data.mocap_pos[stress_mocap], last_stress.position_mm),
           f"slot={last_stress.slot}")
+    check("real food pool is full with eight distinct slots",
+          stress_state["slot_free"]["food"] == 0 and
+          len({obj.slot for obj in world.objects.values() if obj.shape == "food"}) == 8)
+    full_state = copy.deepcopy(world.state())
+    full_mocap = body.sim.mj_data.mocap_pos.copy()
+    full_rgba = body.sim.mj_model.geom_rgba.copy()
+    try:
+        world.spawn_object(shape="food", object_id="capacity_food_overflow")
+        overflow_error = None
+    except LabError as exc:
+        overflow_error = str(exc)
+    check("real ninth food rejected without changing world or physical state",
+          overflow_error == "no free food slots" and world.state() == full_state and
+          np.array_equal(body.sim.mj_data.mocap_pos, full_mocap) and
+          np.array_equal(body.sim.mj_model.geom_rgba, full_rgba), repr(overflow_error))
+
+    released_slot = last_stress.slot
+    world.remove_object(last_stress.object_id)
+    check("real food deletion releases one slot and hides its geometry",
+          world.state()["slot_free"]["food"] == 1 and
+          last_stress.object_id not in world.objects and
+          all(float(body.sim.mj_model.geom_rgba[g, 3]) == 0.0 for g in visible_gids))
+    replacement_id = "capacity_food_replacement"
+    replacement_pos = [-480.0, -12.0, 1.5]
+    world.spawn_object(shape="food", object_id=replacement_id,
+                       position_mm=replacement_pos, size_mm=2.0, variant="sugar_cube")
+    replacement = world.objects[replacement_id]
+    check("real food reuses the released physical slot without growing capacity",
+          replacement.slot == released_slot and replacement.variant == "sugar_cube" and
+          world.state()["slot_free"]["food"] == 0 and
+          world.state()["slot_capacity"]["food"] == 8 and
+          len([obj for obj in world.objects.values() if obj.shape == "food"]) == 8 and
+          np.allclose(body.sim.mj_data.mocap_pos[stress_mocap], replacement_pos) and
+          max(float(body.sim.mj_model.geom_rgba[g, 3]) for g in visible_gids) > 0.9)
+    stress_ids[-1] = replacement_id
     for object_id in stress_ids:
         world.remove_object(object_id)
+    check("real food cleanup restores all eight slots and hides reused geometry",
+          world.state()["slot_free"]["food"] == 8 and
+          not any(obj.shape == "food" for obj in world.objects.values()) and
+          all(float(body.sim.mj_model.geom_rgba[g, 3]) == 0.0 for g in visible_gids))
 
     initial = world.objects.get("obstacle_box")
     check("initial ArenaConfig obstacle exists", initial is not None)

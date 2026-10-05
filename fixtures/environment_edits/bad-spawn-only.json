@@ -1,0 +1,14 @@
+{
+  "description": "Spawn-only property is not live-editable",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "property_id": "object.shape",
+    "target_id": "box_1",
+    "expected_revision": 0,
+    "unit": "none",
+    "value": "sphere"
+  },
+  "expect": "reject",
+  "path": "edit.property_id"
+}

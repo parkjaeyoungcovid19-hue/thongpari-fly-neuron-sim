@@ -1,0 +1,13 @@
+{
+  "description": "Local scalar size",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "property_id": "object.sphere.size_mm",
+    "target_id": "sphere_1",
+    "expected_revision": 0,
+    "unit": "mm",
+    "value": 7.5
+  },
+  "expect": "accept"
+}

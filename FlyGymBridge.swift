@@ -38,7 +38,10 @@ final class FlyGymBridge {
     /// because it carries the authoritative object list for the preallocated
     /// world. Keep a hard bound so a malformed peer still cannot grow memory
     /// without limit.
-    private let maxInboundLineBytes = 512 * 1024
+    // V6.1 adds ~21 KiB of descriptors: a valid configured 1536-object state
+    // can now exceed 512 KiB. Leave bounded room for those previously fitting
+    // packets; this transport ceiling is separate from schema validation.
+    private let maxInboundLineBytes = 1024 * 1024
     let host: String
     let port: UInt16
     /// Minimum interval between brain packets on the wire (~66 Hz cap).
@@ -1051,6 +1054,7 @@ final class FlyGymBridge {
                                        sessionID: state.sessionID,
                                        epoch: state.epoch,
                                        simTick: state.simTick,
+                                       edit: state.edit,
                                        receivedAt: receivedAt,
                                        connectionGeneration: generation))
             }

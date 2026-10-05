@@ -1,0 +1,14 @@
+{
+  "description": "Global property takes null target",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "property_id": "temperature.celsius",
+    "target_id": "box_1",
+    "expected_revision": 0,
+    "unit": "degC",
+    "value": 30
+  },
+  "expect": "reject",
+  "path": "edit.target_id"
+}

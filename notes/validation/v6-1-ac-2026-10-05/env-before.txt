@@ -1,0 +1,4 @@
+Mon Oct  5 21:43:00 KST 2026
+Now drawing from 'AC Power'
+ -InternalBattery-0 (id=22478947)	82%; AC attached; not charging present: true
+21:43  up 22 days, 11:20, 1 user, load averages: 3.36 3.17 2.37

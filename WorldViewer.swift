@@ -527,6 +527,15 @@ final class WorldViewer: SCNView {
         needsInitialCameraFrame = (currentSnapshotSource == nil)
     }
 
+    /// Orbit around one point (MuJoCo mm), e.g. the object being edited.
+    func focusObservationCamera(onMM positionMM: [Double], extentMM: Double) {
+        guard positionMM.count == 3, !cameraState.mode.ridesParticipant else { return }
+        if cameraState.mode != .orbit { setObservationCameraMode(.orbit) }
+        cameraState.targetScene = WorldViewerCoordinates.sceneComponents(fromMuJoCo: positionMM)
+        cameraState.distance = max(30, extentMM * 4)
+        applyCameraState()
+    }
+
     func rotateObservationCamera(deltaX: Double, deltaY: Double) {
         // The participant's own look (captured mouse) steers these views.
         guard !cameraState.mode.ridesParticipant else { return }

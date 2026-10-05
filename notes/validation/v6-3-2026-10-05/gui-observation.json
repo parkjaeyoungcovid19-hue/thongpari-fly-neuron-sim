@@ -1,0 +1,48 @@
+{
+  "observed_at": "2026-10-05T22:14:00+09:00",
+  "time_note": "Approximate local observation time; tool/job logs carry exact timestamps.",
+  "phase": "pre-V6.3 baseline (existing V6.2 executable)",
+  "command": "./ThongpariFlyNeuronSim --lab",
+  "job_id": "bash-84",
+  "app_pid": 71029,
+  "backend_pid": 71030,
+  "window_id": 49677,
+  "window_title": "Virtual Fly Lab",
+  "backend": "real FlyGym / MuJoCo",
+  "private_ports": [
+    50115,
+    50116
+  ],
+  "screenshots": [
+    "gui-baseline.png"
+  ],
+  "observed": [
+    "Real NeuroMechFly meshes in live MuJoCo canvas",
+    "Korean World inspector, numeric object form and XY map",
+    "Authoritative backend connection and fresh body telemetry"
+  ],
+  "not_verified": [
+    "V6.3 final editor",
+    "GUI click/drag/keyboard pathways",
+    "Interactive pause/edit/resume",
+    "GUI acceptance performance"
+  ],
+  "permission_readback": {
+    "accessibility": false,
+    "screen_recording": false,
+    "source": "host Node process",
+    "executable": "/opt/homebrew/Cellar/node/25.9.0_2/bin/node"
+  },
+  "window_readback": {
+    "degraded_reason": "ax_window_unresolved",
+    "element_count": 0,
+    "screenshot_frame_valid": true,
+    "background_input_routes": "accessibility, window_pointer and pid_keyboard refused"
+  },
+  "policy": "No security/TCC bypass, no foreground retry, no approval escalation.",
+  "cleanup": {
+    "managed_job": "killed via job_kill SIGTERM",
+    "listeners": "no listeners on owned private ports",
+    "backend": "PID 71030 subsequently exited"
+  }
+}

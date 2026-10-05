@@ -1,0 +1,258 @@
+{
+  "schema_version": 1.0,
+  "descriptors": [
+    {
+      "property_id": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn",
+      "label": "🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰🪰",
+      "value_type": "number",
+      "unit": "normalized",
+      "min": 0,
+      "max": 1,
+      "default": null,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "command0",
+        "command1",
+        "command2",
+        "command3",
+        "command4",
+        "command5",
+        "command6",
+        "command7",
+        "command8",
+        "command9",
+        "command10",
+        "command11",
+        "command12",
+        "command13",
+        "command14",
+        "command15"
+      ],
+      "legacy_field": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "notes": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn"
+    },
+    {
+      "property_id": "boundary.vector2",
+      "label": "Box position",
+      "value_type": "vector",
+      "unit": "mm",
+      "min": [
+        0,
+        0
+      ],
+      "max": [
+        1,
+        1
+      ],
+      "default": [
+        0,
+        1
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_box",
+        "move_object"
+      ],
+      "legacy_field": "position_mm",
+      "notes": "World XYZ mm, not a floor snap. Supplied pose can intersect ground. Move preserves omitted coordinates; resize does not adjust Z."
+    },
+    {
+      "property_id": "boundary.unit_vector3",
+      "label": "Touch direction",
+      "value_type": "vector",
+      "unit": "unit_vector",
+      "min": [
+        -1,
+        -1,
+        -1
+      ],
+      "max": [
+        1,
+        1,
+        1
+      ],
+      "default": [
+        0,
+        1,
+        0
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "touch"
+      ],
+      "legacy_field": "direction_world",
+      "notes": "Unit-direction APPLIED component bounds. Legacy REQUEST accepts/coerces a 3-vector then normalizes; zero/invalid falls back [0,1,0], not strict component rejection. Hidden by Swift command/form. This descriptor does not authorize or tighten mutation."
+    },
+    {
+      "property_id": "boundary.rgba4",
+      "label": "Box position",
+      "value_type": "vector",
+      "unit": "rgba",
+      "min": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "max": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "default": [
+        0,
+        1,
+        0,
+        1
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_box",
+        "move_object"
+      ],
+      "legacy_field": "position_mm",
+      "notes": "World XYZ mm, not a floor snap. Supplied pose can intersect ground. Move preserves omitted coordinates; resize does not adjust Z."
+    },
+    {
+      "property_id": "boundary.boolean",
+      "label": "Left eye enabled",
+      "value_type": "boolean",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": null,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "set_eye_state",
+        "eye_state"
+      ],
+      "legacy_field": "left_enabled",
+      "notes": "Context-dependent default."
+    },
+    {
+      "property_id": "boundary.enum",
+      "label": "Object shape",
+      "value_type": "enum",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": "choice63",
+      "choices": [
+        "choice0",
+        "choice1",
+        "choice2",
+        "choice3",
+        "choice4",
+        "choice5",
+        "choice6",
+        "choice7",
+        "choice8",
+        "choice9",
+        "choice10",
+        "choice11",
+        "choice12",
+        "choice13",
+        "choice14",
+        "choice15",
+        "choice16",
+        "choice17",
+        "choice18",
+        "choice19",
+        "choice20",
+        "choice21",
+        "choice22",
+        "choice23",
+        "choice24",
+        "choice25",
+        "choice26",
+        "choice27",
+        "choice28",
+        "choice29",
+        "choice30",
+        "choice31",
+        "choice32",
+        "choice33",
+        "choice34",
+        "choice35",
+        "choice36",
+        "choice37",
+        "choice38",
+        "choice39",
+        "choice40",
+        "choice41",
+        "choice42",
+        "choice43",
+        "choice44",
+        "choice45",
+        "choice46",
+        "choice47",
+        "choice48",
+        "choice49",
+        "choice50",
+        "choice51",
+        "choice52",
+        "choice53",
+        "choice54",
+        "choice55",
+        "choice56",
+        "choice57",
+        "choice58",
+        "choice59",
+        "choice60",
+        "choice61",
+        "choice62",
+        "choice63"
+      ],
+      "scope": "local",
+      "apply_mode": "spawn_only",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object"
+      ],
+      "legacy_field": "shape",
+      "notes": "Spawn only; existing object shape is immutable. food_marker/food_source alias food. Food has modeled odor/contact, no collision; toys use collidable palettes.",
+      "future_ignored": true
+    }
+  ],
+  "future_ignored": {
+    "anything": true
+  }
+}

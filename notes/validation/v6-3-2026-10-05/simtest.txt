@@ -1,0 +1,25 @@
+metal-sim: Apple M2 N=139255 E=15091983 load 288 ms compile 2 ms
+metal-sim: 30000 steps in 8716 ms (291 µs/step, 258 spikes/step avg)
+connectome: 139255 neurons | 15091983 edges | Apple M2 | fixed point Q16
+groups: loom L/R 162/152 | GF: 2 | DNa L/R: 2/2 | MDN: 4 | DNp09: 2 | DNg11: 6 | escW: 6 | ascend: 24 | sens: 16
+spontaneous 4s: pop 1.72 Hz/neuron, LC 0.0 Hz, DNa02 L/R 45.0/37.5 Hz, MDN 15.7 Hz, GF spikes: 0
+stationary bootstrap 5s: walk-drive on 49%, DNp09 4.3-39.9 Hz
+abrupt loom 0.4s: LC rate 172.9 Hz, GF spikes 145, first at 3 ms
+behavior 20s: walk-drive on 34%, groom-drive on 6%, DNp09 0.4-38.3 Hz, pop 5.7 Hz
+siesta 15s (scale 0.84): walk-drive on 48%
+air puff 1s: GF spikes 1
+left-eye loom: DNa L-R rate diff -15.6 -> -27.4 Hz, LC 31.0 Hz
+click probes: GF cluster -> spike yes, DNg11 cluster -> groom rate 198 Hz
+state check: 200 steps, 47875 spikers (56 role-tagged) match membrane/refractory/histogram -> consistent
+bench 16-step batches: 102 µs/step, 243 spikes/step
+bench  1-step batches: 306 µs/step, 248 spikes/step
+PASS realtime: 16-step batches 102 µs/step (budget 1000)
+taste groups: sugar GRN 21/21 root IDs matched, MN9 2/2
+PASS taste: identified groups present — every shipped root ID found in data/
+PASS taste: sugar 0 == no-taste baseline — sugar GRN 0.00 Hz, MN9 23.69 Hz, 471135 spikes both
+PASS taste: readout does not change dynamics — readout-off run bit-identical, slot 15 empty at every sampled step (the --gpucheck ABI)
+PASS taste: sugar drive raises sugar-GRN rate — sugar GRN 0.0 -> 58.0 (0.3) -> 85.2 Hz (1.0)
+MN9 8 s (base | sugar 1.0 | odor-only 1.0): seed 5EED1F1F 17.9 | 33.4 | 19.9 Hz; seed 0BAD5EED 11.9 | 33.5 | 11.0 Hz; seed 12345678 11.2 | 35.6 | 12.2 Hz;
+PASS taste: MN9 readout rises with sugar (3-seed mean) — mean 13.7 -> 34.2 Hz with sugar, 14.4 Hz odor-only
+PASS taste: odor-only input gives zero taste current — sugar-GRN ext max 0.000 with ORN ext 0.060; groups disjoint; sugar GRN 0.00 Hz under odor only
+PASS: GF silent at rest, fires on loom; locomotor drive fluctuates; stim works; siesta alive

@@ -1,0 +1,13 @@
+{
+  "description": "Normalized lower bound",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "property_id": "eyes.right_mask",
+    "target_id": null,
+    "expected_revision": 0,
+    "unit": "normalized",
+    "value": 0
+  },
+  "expect": "accept"
+}

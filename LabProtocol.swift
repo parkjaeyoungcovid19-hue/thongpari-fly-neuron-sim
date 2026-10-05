@@ -69,6 +69,9 @@ struct LabCommand: Codable {
     var distanceMM: Double? = nil
     var equipped: Bool? = nil
     var direction: [Double]? = nil
+    // V6.2 strict single-property edit (`edit_property`); see EnvironmentEdit.
+    var edit: EnvironmentEdit? = nil
+    var objectEdit: WorldObjectEdit? = nil
 
     enum CodingKeys: String, CodingKey {
         case type, id, action, target, x, y, z, size, speed, strength, value
@@ -84,7 +87,8 @@ struct LabCommand: Codable {
         case sessionID = "session_id"
         case epoch
         case requestedTick = "requested_tick"
-        case shape, equipped, direction
+        case shape, equipped, direction, edit
+        case objectEdit = "object_edit"
         case sizeMM = "size_mm"
         case speedMMs = "speed_mm_s"
         case distanceMM = "distance_mm"
@@ -92,6 +96,11 @@ struct LabCommand: Codable {
 }
 
 extension LabCommand {
+    /// `edit_property {edit}`; the backend ACK carries an EnvironmentEditResult.
+    static func editProperty(id: Int = 0, _ edit: EnvironmentEdit) -> LabCommand {
+        LabCommand(id: id, action: "edit_property", edit: edit)
+    }
+
     static func interaction(id: Int, toolID: String, actorID: String,
                             target: String? = nil, rayOriginMM: [Double]? = nil,
                             rayDirection: [Double]? = nil,
@@ -432,6 +441,8 @@ struct LabAck: Decodable, FlyGymStampedPacket {
     var sessionID: String?
     var epoch: Int?
     var simTick: Int?
+    /// Copied from the carrying lab_state; never decoded from a bare lab_ack.
+    var edit: EnvironmentEditResult? = nil
     var receivedAt: Date = Date()
     var connectionGeneration: UInt64 = 0
 
@@ -535,9 +546,11 @@ struct LabWorldObjectRemote: Decodable {
     /// food model name for food. Older backends omit both.
     var trapState: String? = nil
     var foodVariant: String? = nil
+    /// V6.2 edit expected_revision source; nil from older backends.
+    var revision: Int? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, shape
+        case id, shape, revision
         case positionMM = "position_mm"
         case sizeMM = "size_mm"
         case yawDeg = "yaw_deg"
@@ -558,6 +571,7 @@ extension LabWorldObjectRemote {
         yawDeg = try c.decode(Double.self, forKey: .yawDeg)
         trapState = (try? c.decodeIfPresent(String.self, forKey: .trapState)) ?? nil
         foodVariant = (try? c.decodeIfPresent(String.self, forKey: .foodVariant)) ?? nil
+        revision = (try? c.decodeIfPresent(Int.self, forKey: .revision)) ?? nil
     }
 }
 
@@ -573,13 +587,19 @@ struct LabProjectileRemote: Decodable {
 }
 
 struct LabRemoteWorldState: Decodable {
+    /// Optional V6.1 metadata, not current values or permission to apply an edit.
+    var environmentCapabilities: EnvironmentCapabilities?
     var objects: [LabWorldObjectRemote]?
     var slotCapacity: [String: Int]?
     var slotFree: [String: Int]?
     var projectiles: [LabProjectileRemote]?
+    /// V6.2 expected_revision for global (temperature/eyes) edits.
+    var environmentRevision: Int?
 
     enum CodingKeys: String, CodingKey {
         case objects, projectiles
+        case environmentCapabilities = "environment_capabilities"
+        case environmentRevision = "environment_revision"
         case slotCapacity = "slot_capacity"
         case slotFree = "slot_free"
     }
@@ -589,8 +609,12 @@ struct LabRemoteWorldState: Decodable {
         objects = try c.decodeIfPresent([LabWorldObjectRemote].self, forKey: .objects)
         slotCapacity = try c.decodeIfPresent([String: Int].self, forKey: .slotCapacity)
         slotFree = try c.decodeIfPresent([String: Int].self, forKey: .slotFree)
+        // A supplied manifest is decoded strictly and dropped WHOLE on failure.
+        // Optional capability corruption must not discard valid world telemetry.
+        environmentCapabilities = try? c.decode(EnvironmentCapabilities.self, forKey: .environmentCapabilities)
         // Optional V5.6.2 field; older backends omit it and a bad one is dropped.
         projectiles = (try? c.decodeIfPresent([LabProjectileRemote].self, forKey: .projectiles)) ?? nil
+        environmentRevision = (try? c.decodeIfPresent(Int.self, forKey: .environmentRevision)) ?? nil
     }
 }
 
@@ -656,11 +680,12 @@ struct LabRemoteState: Decodable, FlyGymStampedPacket {
     var epoch: Int?
     var simTick: Int?
     var interaction: LabInteractionState?
+    var edit: EnvironmentEditResult?
     var receivedAt: Date = Date()
     var connectionGeneration: UInt64 = 0
 
     enum CodingKeys: String, CodingKey {
-        case type, t, ack, ok, error, temperature, wind, status, epoch
+        case type, t, ack, ok, error, temperature, wind, status, epoch, edit
         case objectCount = "object_count"
         case objects
         case slotCapacity = "slot_capacity"
@@ -701,6 +726,8 @@ struct LabRemoteState: Decodable, FlyGymStampedPacket {
         simTick = try c.decodeIfPresent(Int.self, forKey: .simTick)
         // A malformed interaction block must not discard otherwise valid lab_state.
         interaction = try? c.decode(LabInteractionState.self, forKey: .interaction)
+        // Likewise optional: a malformed edit detail drops only the detail.
+        edit = try? c.decode(EnvironmentEditResult.self, forKey: .edit)
     }
 
     var authoritativeObjects: [LabWorldObjectRemote]? { objects ?? worldState?.objects }

@@ -1,0 +1,21 @@
+{
+  "observed_at_approx": "2026-10-05T22:34:12+09:00",
+  "user_answer": "권한 허용 후 GUI 검증 계속 (Recommended)",
+  "permission_recheck": {
+    "accessibility": false,
+    "screen_recording": false,
+    "screen_recording_capturable": null,
+    "direct_capture_status": "not_checked",
+    "executable": "/opt/homebrew/Cellar/node/25.9.0_2/bin/node",
+    "pid": 42986,
+    "responsible_ppid": 42970,
+    "host_bundle_id": ""
+  },
+  "health": {
+    "overall": "degraded",
+    "tcc_accessibility": "fail",
+    "tcc_screen_recording": "fail",
+    "ax_capability": "fail"
+  },
+  "disposition": "User authorization does not prove TCC changed. No refused input was retried and no foreground/security bypass was attempted."
+}

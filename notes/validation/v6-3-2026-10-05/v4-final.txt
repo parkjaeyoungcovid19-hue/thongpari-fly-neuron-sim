@@ -1,0 +1,19 @@
+PASS  session starts epoch 1 tick 0
+PASS  begin confirmation enters running
+PASS  one outstanding quantum reserved
+PASS  command during in-flight quantum targets next boundary
+PASS  matching result advances exact 20 ticks
+PASS  duplicate result ignored
+PASS  stale begin confirmation is idempotent after tick advances
+PASS  command at idle boundary targets current tick
+PASS  pause waits for outstanding step
+PASS  in-flight result still completes while pausing
+PASS  pause control becomes ready exactly at boundary
+PASS  matching pause confirmation seals barrier
+PASS  paused session cannot reserve step
+PASS  resume enters resuming
+PASS  resume confirmation returns running
+PASS  logical reset increments epoch once
+PASS  reset finishes at tick zero
+PASS  old epoch result rejected without advancing
+ALL V4 SESSION TESTS PASS

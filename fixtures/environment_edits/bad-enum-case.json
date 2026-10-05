@@ -1,0 +1,14 @@
+{
+  "description": "Choices are exact, not case-folded",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "property_id": "temperature.mode",
+    "target_id": null,
+    "expected_revision": 0,
+    "unit": "none",
+    "value": "Flywire_Sensory"
+  },
+  "expect": "reject",
+  "path": "edit.value"
+}

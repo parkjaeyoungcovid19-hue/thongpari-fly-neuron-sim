@@ -42,6 +42,10 @@ struct LabStepReservation: Equatable {
 }
 
 struct LabCommandSchedule: Equatable {
+    /// Preserve a captured owner boundary; do not rederive/retag after reset.
+    static func choose(explicit: LabCommandSchedule?, fallback: @autoclosure () -> LabCommandSchedule?) -> LabCommandSchedule? {
+        explicit ?? fallback()
+    }
     let sessionID: String
     let epoch: Int
     let requestedTick: Int

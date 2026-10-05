@@ -1503,6 +1503,9 @@ if args.contains("--gpucheck") {
 if args.contains("--bridgetest") {
     runBridgeTest()
 }
+if args.contains("--worldeditortest") {
+    runWorldEditorTest()
+}
 if args.contains("--labtest") {
     runLabTest()
 }

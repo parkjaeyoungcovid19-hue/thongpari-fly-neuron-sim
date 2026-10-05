@@ -1,0 +1,19 @@
+metal-sim: Apple M2 N=139255 E=15091983 load 67 ms compile 1 ms
+PASS  GF stim -> escape flight: state=flying
+PASS  DNg11 stim -> grooming: state=grooming
+PASS  DNp09 stim -> walks, speed rises (capped): state=walking speed=41
+PASS  MDN stim (from idle) -> backward walk: backwardTimer=0.50
+PASS  DNa-left stim -> left (CCW) turn while walking: heading change +0.25 rad
+PASS  moderate loom -> fear response (dart or escape): state=flying speed=0
+PASS  tap near fly -> startle escape via sensory pathway: state=flying
+PASS  ledge follow window edge: attached, y=-47
+PASS  window closes underfoot -> takeoff: took off
+PASS  sleep signal -> sleeping; wake -> grooming: woke to grooming
+PASS  thermal tempo scales walking speed: cool 46 -> hot 70 pt/s
+PASS  flight: altitude drives scale; escape flies higher than casual: escape alt 0.77 scale 1.86 | casual alt 0.43 scale 1.54
+PASS  flight: wings actually beat: wing sweep 0.35 rad over 0.5 s
+PASS  escape-DN activity mid-flight raises wing-beat effort: effort 0.50 -> 1.02
+PASS  threat while grounded raises the wings (no takeoff): raise 1.00, wing tilt -0.50 rad
+PASS  landing is smooth: no scale/height snap at touchdown: landed=yes, max per-frame Δscale 0.05, Δz 4.8
+PASS  circadian curve: siesta + night dips, dawn/dusk peaks: 3h 0.25, 9h 1.00, 14h 0.55, 18h 1.00
+ALL BEHAVIOR TESTS PASS

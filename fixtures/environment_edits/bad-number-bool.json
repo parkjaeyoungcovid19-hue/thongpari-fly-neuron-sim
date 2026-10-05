@@ -1,0 +1,14 @@
+{
+  "description": "Boolean is not a number",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "property_id": "temperature.celsius",
+    "target_id": null,
+    "expected_revision": 0,
+    "unit": "degC",
+    "value": true
+  },
+  "expect": "reject",
+  "path": "edit.value"
+}

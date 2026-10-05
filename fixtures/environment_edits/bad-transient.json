@@ -1,0 +1,14 @@
+{
+  "description": "Transient action parameter is not a setting",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "property_id": "touch.strength",
+    "target_id": "thorax",
+    "expected_revision": 0,
+    "unit": "normalized",
+    "value": 0.5
+  },
+  "expect": "reject",
+  "path": "edit.property_id"
+}

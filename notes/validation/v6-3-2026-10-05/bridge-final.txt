@@ -1,0 +1,98 @@
+PASS  inbound dispatch decodes escaped top-level tag
+PASS  inbound rejects malformed and outbound-only packets without overwriting body
+PASS  brain keys
+PASS  body parse
+PASS  feedback clamps
+PASS  malformed rejected: 5/5
+PASS  taste_sugar optional strict decode: rejected: NaN 1.0001 -0.1 1e999 "0.5" true [0.5]
+PASS  taste_sugar reaches feedback; stale clears
+PASS  V5 atomic world snapshot strict parse
+PASS  V5 snapshot rejects invalid vector/quaternion
+PASS  V5 snapshot wire names are canonical
+PASS  V5.4 player pose preserves collision/display contract
+PASS  V5 viewer requires explicit server capabilities
+PASS  V5.4 participant requires explicit player capability
+PASS  V5 render request has bounded observation lane
+PASS  V5 sessionless snapshot accepted + generation stamped
+PASS  V5 stale snapshot cannot replace newer snapshot
+PASS  V5 ray pick uses separate bounded read-only lane
+PASS  V5 authoritative pick result echoes source + carries hit point/normal
+PASS  V5 pick UI accepts pose-advanced successful ACK after source validation
+PASS  V5 pick UI always consumes matching backend error ACK
+PASS  V5 pick UI ignores stale successful ACK from older request
+PASS  V5 pick result requires source snapshot metadata
+PASS  V5 active-session old-epoch responses rejected
+PASS  V4-only peer does not silently enable V5 viewport
+PASS  V5.1-only peer does not silently enable V5.4 participant
+PASS  V5 viewport coordinate basis round-trip
+PASS  V5 MuJoCo +Z yaw maps to SceneKit +Y yaw
+PASS  V5 pick ray uses inverse viewport basis
+PASS  V5.2 common state keeps session timeline authoritative
+PASS  V5.5 pending Participate stays visibly selected without claiming authority
+PASS  V5.2 authoritative pick updates one shared object selection
+PASS  V5.2 shared selection is reconciled by authoritative snapshot
+PASS  V5.4 participate request does not claim mode before backend snapshot
+PASS  V5.4 rejected participate request preserves prior mode
+PASS  V5.4 player snapshot confirms Participate mode
+PASS  V5.4 authoritative player pick reaches common selection state
+PASS  V5.4 disable request stays Participate while player still exists
+PASS  V5.4 player-free snapshot confirms Observe mode
+PASS  V5.4 disconnect during enable clears pending participant command
+PASS  V5.4 disconnect during disable clears pending participant command
+PASS  V5.4 connection-generation rollover clears stale participant command
+PASS  V5.5 player input requires explicit layered capability
+PASS  V5.5 PlayerInput coalesces axes/held latest-wins and accumulates look once
+PASS  V5.5 coalesced look above per-packet bound is split without loss
+PASS  V5.5 safety release discards pending mouse look and remainder
+PASS  V5.5 PlayerInput result strict schema carries applied tick
+PASS  V5.5 accepted result is generation stamped
+PASS  V5.5 outbound PlayerInput never exceeds Python seq bound
+PASS  V5.5 deterministic PlayerInput cannot be overtaken by experiment step
+PASS  V5.5 WASD/E state is bounded and Esc is local neutral safety release
+PASS  V5.5 focus loss neutralizes held state and never revives stale repeats
+PASS  V5.5 mouse look follows +Y-left world basis and bounded radians
+PASS  V5.5 remap persists unique swaps while Esc stays reserved
+PASS  V5.5 corrupt persisted Esc binding fails safely to non-Esc mapping
+PASS  V5.5 Participate window enables ordinary mouse-move delivery
+PASS  V5.5 text/control focus suppresses capture
+PASS  V5.5 Participate capture is exclusive from pick/Observe camera gestures
+PASS  V5.5 reconnect starts fresh interactive owner session and clears stale input state
+PASS  V5.3 Follow fly tracks authoritative fly motion
+PASS  V5.3 first snapshot frames authoritative scene
+PASS  V5.3 orbit/follow/free camera inputs are presentation-only
+PASS  standing contact -> 0 gait
+PASS  fresh real ignores procedural gait
+PASS  brisk body -> ~1
+PASS  stale falls back
+PASS  old packet falls back
+PASS  body sim time/dt reach feedback
+PASS  fresh food odor maps
+PASS  stale food odor clears
+PASS  fresh body heading maps
+PASS  stale body heading clears
+PASS  bounded queue: depth=1
+PASS  escape pulse gets protected lane: depth=2
+PASS  body generation + simTime stamped
+PASS  body freshness exposes age/generation
+PASS  fresh bodyHz reports live cadence: 50.0 Hz
+PASS  lab state/ack/event generation stamped
+PASS  lab state/ack/event freshness exposes age
+PASS  large lab_state exceeds historical 64 KiB guard: bytes=69227
+PASS  224-object lab_state survives recv framing: bytes=69227 objects=224
+PASS  V6.1 configured pool transport fixture exists
+PASS  V6.1 >512 KiB supported scene retains state/manifest/ACK: bytes=538226
+PASS  V6.1 complete oversized line rejected without losing latest state
+PASS  recv flood guard remains bounded: buffer=0 malformed=1
+PASS  disconnect clears remote state
+PASS  reconnect advances generation and stays empty
+PASS  stale bodyHz drops to zero
+PASS  stale lab age is queryable
+PASS  deterministic ACK requires current session + epoch
+PASS  current-epoch deterministic ACK accepted
+PASS  reset promotes expected epoch before confirmation
+PASS  old epoch ACK rejected after reset epoch promotion
+PASS  reconnect generation does not become simulation epoch
+PASS  V4 discrete queue overflow fails closed visibly
+PASS  V4 command wire order cannot be overtaken by boundary step
+PASS  32-lab burst preserves <=100ms brain gap: lab=32 brain=7 maxGap=75.0ms
+ALL BRIDGE TESTS PASS

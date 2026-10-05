@@ -235,8 +235,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private let sessionStatusLabel = NSTextField(wrappingLabelWithString: L("Session — interactive", "세션 — 실시간"))
     private let viewStateLabel = NSTextField(wrappingLabelWithString: "View — OBSERVE · fly fly · object none · tick 0 ms · RUNNING")
     /// Edit is a later-version contract, so the toolbar offers only these two.
-    private let segmentModes: [LabViewMode] = [.observe, .participate]
-    private let viewModeControl = NSSegmentedControl(labels: ["Observe", "Participate"],
+    private let segmentModes: [LabViewMode] = [.observe, .participate, .edit]
+    private let viewModeControl = NSSegmentedControl(labels: ["Observe", "Participate", "Edit"],
                                                      trackingMode: .selectOne,
                                                      target: nil, action: nil)
     private let temperatureModeStatusLabel = NSTextField(wrappingLabelWithString: L("Neural input: OFF — environment-only temperature is recorded without neural input.", "신경 입력 끔 — 온도는 기록만 하고 뇌에는 전달하지 않습니다."))
@@ -327,6 +327,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                                             names: ["loom L", "loom R", "legacy air", "gait"])
     private let flywireSensoryGraph = LabGraphView(frame: .zero,
                                                    names: ["food L", "food R", "warm", "cool", "wind C", "wind E"])
+    private let worldEditor = WorldEditorInspector(frame: .zero)
     private let bodyGraph = LabGraphView(frame: .zero,
                                          names: ["speed×20", "turn÷5", "contact", "eye loom", "food L", "food R", "distance÷100"])
     private let visionGraph = LabGraphView(frame: .zero,
@@ -707,6 +708,41 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         mujocoFrameView.translatesAutoresizingMaskIntoConstraints = false
         mujocoFrameView.isHidden = true
         worldViewer.addSubview(mujocoFrameView)
+        // Above the streamed primary canvas, below HUDs. Outside handle circles,
+        // hitTest passes through to WorldViewer for existing camera/pick gestures.
+        worldEditor.overlay.translatesAutoresizingMaskIntoConstraints = false
+        worldViewer.addSubview(worldEditor.overlay, positioned: .above, relativeTo: mujocoFrameView)
+        NSLayoutConstraint.activate([
+            worldEditor.overlay.leadingAnchor.constraint(equalTo: worldViewer.leadingAnchor),
+            worldEditor.overlay.trailingAnchor.constraint(equalTo: worldViewer.trailingAnchor),
+            worldEditor.overlay.topAnchor.constraint(equalTo: worldViewer.topAnchor),
+            worldEditor.overlay.bottomAnchor.constraint(equalTo: worldViewer.bottomAnchor)
+        ])
+        worldEditor.onSelect = { [weak self] id in self?.viewState.selectObject(id) }
+        worldEditor.onFocus = { [weak self] id in self?.focusCamera(onObject: id) }
+        worldEditor.onSelectResult = { [weak self] id,source in
+            guard let self, self.viewState.mode == .edit, self.viewState.selectedObjectID == source else { return false }
+            self.viewState.selectObject(id); return true
+        }
+        worldEditor.onSubmit = { [weak self] command, captured in
+            guard let self, let bridge = self.bridge,
+                  self.viewState.mode == .edit, !self.viewerFrameStale,
+                  self.viewState.selectedObjectID == (command.edit?.targetID ?? command.objectEdit?.targetID),
+                  self.workspace?.acceptsBackendCommands == true else { return nil }
+            let session = self.coordinator.sessionSnapshot()
+            guard !session.sessionID.isEmpty, session.epoch > 0,
+                  session.sessionID == captured.sessionID, session.epoch == captured.epoch,
+                  bridge.connectionGeneration == captured.generation,
+                  session.phase == .running || session.phase == .paused else { return nil }
+            // Interactive controls must carry the same identity/boundary as
+            // deterministic controls, not use the legacy unstamped path.
+            let schedule = self.coordinator.labCommandSchedule() ?? LabCommandSchedule(
+                sessionID: session.sessionID, epoch: session.epoch, requestedTick: session.simTick)
+            guard schedule.sessionID == captured.sessionID, schedule.epoch == captured.epoch,
+                  bridge.connectionGeneration == self.viewState.connectionGeneration,
+                  let id = self.sendCommand(command, scheduleOverride: schedule) else { return nil }
+            return (id, self.pendingCommandSchedules[id] ?? schedule)
+        }
         worldViewer.bringAimMarkToFront()
         NSLayoutConstraint.activate([
             mujocoFrameView.leadingAnchor.constraint(equalTo: worldViewer.leadingAnchor),
@@ -925,6 +961,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             viewModeControl.selectedSegment = modes.firstIndex(of: viewState.displayedMode) ?? 0
             worldViewerStatusLabel.stringValue = L("3D world — enabling backend participant probe…", "3D 화면 — 참여자 몸을 세계에 넣는 중…")
         case .observe:
+            if viewState.mode == .edit { viewState.mode = .observe; viewState.rejectModeTransition() }
             if viewState.mode == .participate {
                 releasePlayerHeldInput(reason: "mode exit")
                 guard let id = send("set_player_active", value: 0) else {
@@ -939,7 +976,25 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 worldViewerStatusLabel.stringValue = L("3D world — disabling backend participant probe…", "3D 화면 — 참여자 몸을 세계에서 빼는 중…")
             }
         case .edit:
-            viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+            guard workspace?.acceptsBackendCommands == true, !viewerFrameStale else {
+                viewModeControl.selectedSegment = modes.firstIndex(of: viewState.mode) ?? 0
+                return
+            }
+            guard coordinator.ensureInteractivePlayerInputSession() else { return }
+            if viewState.mode == .participate {
+                releasePlayerHeldInput(reason: "enter Edit")
+                guard let id = send("set_player_active", value: 0) else { return }
+                participantCommandPending.begin(commandID: id, connectionGeneration: bridge?.connectionGeneration ?? 0)
+                viewState.beginModeTransition(to: .edit)
+            } else {
+                viewState.mode = .edit
+                viewState.rejectModeTransition()
+                // Follow-fly framing usually leaves the selected object off screen.
+                if let id = viewState.selectedObjectID, !worldEditor.overlay.selectionOnScreen {
+                    focusCamera(onObject: id)
+                }
+            }
+            viewModeControl.selectedSegment = modes.firstIndex(of: viewState.displayedMode) ?? 0
         }
         renderViewState()
     }
@@ -1486,6 +1541,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         return LabInspectorPage([
             section(L("Selection", "선택한 대상"), help: L("Click the fly or an object in the 3D view. A selection is confirmed only by the backend's ray pick; the fly is drawn as a position marker, not its real body geometry.", "3D 화면에서 파리나 물체를 클릭하면 선택됩니다. 드래그하면 카메라가 돌아가고, Shift나 Option을 누른 채 드래그하면 옮겨지며, 스크롤이나 핀치로 확대합니다. 선택은 시뮬레이터가 실제로 맞았는지 확인한 뒤에 확정됩니다."),
                     [viewStateLabel]),
+            section(L("Selected object editor", "선택 물체 편집"), kind: .physical, [worldEditor]),
             section(L("Place objects", "물체 놓기"), kind: .physical,
                     help: L("Top-down map of the arena: up is +X (forward), left is +Y. Clicking the map fills X/Y; with “Create on map click” on, the click also creates the object.", "경기장을 위에서 본 지도입니다. 위쪽이 앞(+X), 왼쪽이 +Y입니다. 지도를 클릭하면 X/Y 칸이 채워지고, ‘지도를 클릭하면 바로 만들기’를 켜 두면 클릭과 동시에 물체가 생깁니다."),
                     [LabForm.grid([(L("Type", "종류"), objectShape), (L("Name", "이름"), objectID)]),
@@ -1797,6 +1853,15 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         worldViewerStatusLabel.textColor = .secondaryLabelColor
     }
 
+    /// Orbit the 3D view around an object, keeping the camera popup in sync.
+    private func focusCamera(onObject id: String) {
+        guard let object = arenaPlacement.worldObjects.first(where: { $0.id == id }) else { return }
+        applyCameraMode(.orbit)
+        worldViewer.focusObservationCamera(onMM: object.positionMM, extentMM: object.sizeMM.max() ?? 10)
+        worldViewerStatusLabel.stringValue = L("3D world — orbiting \(id)", "3D 화면 — \(id) 중심으로 보기")
+        worldViewerStatusLabel.textColor = .secondaryLabelColor
+    }
+
     @objc private func resetObservationCamera() {
         worldViewer.resetObservationCamera()
         worldViewerStatusLabel.stringValue = L("3D world — observation camera reset", "3D 화면 — 카메라 초기화됨")
@@ -1895,7 +1960,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             protocolLabel.stringValue = L("FlyGym bridge — disabled (launch with --flygym for physical-world controls)", "물리 시뮬레이터 꺼짐 — 물리 세계를 조작하려면 시뮬레이터와 함께 실행하세요")
             return nil
         }
-        let schedule = coordinator.labCommandSchedule() ?? scheduleOverride
+        let schedule = LabCommandSchedule.choose(explicit: scheduleOverride, fallback: coordinator.labCommandSchedule())
         var command = command
         command.protocolVersion = schedule == nil ? nil : FlyGymProtocolV4.version
         command.sessionID = schedule?.sessionID
@@ -2522,7 +2587,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                                         positionMM: object.positionMM, sizeMM: object.sizeMM,
                                         yawDeg: yawRadians(quaternion: object.orientationQuatXYZW) * 180 / .pi,
                                         trapState: object.trapState ?? lab?.trapState,
-                                        foodVariant: lab?.foodVariant)
+                                        foodVariant: lab?.foodVariant, revision: object.revision)
         }
         if let fly = snapshot.fly {
             arenaPlacement.flyPose = (fly.positionMM[0], fly.positionMM[1],
@@ -2551,6 +2616,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     /// Each ACK resolves its timeline row once; only that first resolution is
     /// recorded, so the repeated `ack` field of lab_state never double-counts.
     private func handle(ack: LabAck) {
+        worldEditor.accept(ack)
         coordinator.noteLabAck(ack)
         interactionPresentation.accept(ack: ack)
         guard timeline.apply(ack: ack) else { return }
@@ -2704,7 +2770,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                     lastViewerSessionID = snapshot.sessionID
                     lastViewerEpoch = snapshot.epoch
                     if snapshot.ok, let snapshotID = snapshot.snapshotID, let revision = snapshot.revision {
+                        let retainedSelection = worldEditor.retainSelection(viewState.selectedObjectID, snapshot: snapshot)
                         viewState.accept(snapshot: snapshot, connectionGeneration: viewerGeneration)
+                        if let retainedSelection { viewState.selectObject(retainedSelection) }
                         worldViewer.apply(snapshot: snapshot)
                         updateArenaFromAtomicSnapshot(snapshot)
                         noteParticipantContact(snapshot)
@@ -2789,6 +2857,15 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 worldCapacityLabel.stringValue = L("Object capacity — ", "물체 수 (사용/최대) — ") + parts.joined(separator: " · ")
             }
             refreshToyInspector(objects: state?.authoritativeObjects)
+            let editorSession = coordinator.sessionSnapshot()
+            worldEditor.update(objects: arenaPlacement.worldObjects,
+                               selectedID: viewState.selectedObjectID,
+                               capabilities: state?.worldState?.environmentCapabilities,
+                               identity: WorldEditorIdentity(generation: bridge.connectionGeneration,
+                                                             sessionID: editorSession.sessionID, epoch: editorSession.epoch),
+                               mode: viewState.mode,
+                               available: workspace?.acceptsBackendCommands == true && !viewerFrameStale && viewState.viewerAvailable,
+                               heldID: state?.interaction?.heldObjectID, camera: worldViewer.mujocoCamera)
             let (newAcks, cursor) = bridge.labAcks(after: ackCursor)
             ackCursor = cursor
             newAcks.forEach(handle(ack:))

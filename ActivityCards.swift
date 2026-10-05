@@ -36,7 +36,7 @@ enum ActivityCardKind {
 enum ActivityCardValue: Equatable {
     case number(Double)
     case flag(Bool)
-    /// The source is not available in this sample (paused, no brain loaded).
+    /// The source is unavailable: no brain, absent/non-finite telemetry, or a paused index/event.
     case missing
     case unsupported
 }
@@ -284,8 +284,8 @@ final class ActivityCardPanel: NSStackView {
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
 
     static var helpText: String {
-        L("Read-only. MEASURED cards are spike rates or spike events of the simulated connectome, not recordings from a real fly. MODEL INDEX cards are the existing readouts that drive the body model. Neither reads the fly's thoughts or feelings. Hunger is not modelled yet. Clicking a card only shows its source; it never stimulates the brain or sends a command. “—” means the value is not available right now (paused, or no brain loaded).",
-          "읽기 전용입니다. ‘측정값’은 시뮬레이션한 연결망의 발화율이나 발화 사건이며 실제 파리에서 잰 값이 아닙니다. ‘모델 지표’는 몸 모델을 움직이는 기존 계산값입니다. 둘 다 파리의 생각이나 감정을 읽은 것이 아닙니다. 배고픔은 아직 모델이 없습니다. 카드를 눌러도 출처만 보여 줄 뿐 뇌를 자극하거나 명령을 보내지 않습니다. ‘—’는 지금 값을 읽을 수 없다는 뜻입니다(일시 정지 또는 뇌 모델 없음).")
+        L("Read-only. MEASURED cards are spike rates or spike events of the simulated connectome, not recordings from a real fly. MODEL INDEX cards are the existing readouts that drive the body model. Neither reads the fly's thoughts or feelings. Hunger is not modelled yet. Clicking a card only shows its source; it never stimulates the brain or sends a command. While paused, model indices and spike events show “—”; spike-rate cards keep the last sample, not a live measurement. “—” also means no brain is loaded or the sample is missing/non-finite.",
+          "읽기 전용입니다. ‘측정값’은 시뮬레이션한 연결망의 발화율이나 발화 사건이며 실제 파리에서 잰 값이 아닙니다. ‘모델 지표’는 몸 모델을 움직이는 기존 계산값입니다. 둘 다 파리의 생각이나 감정을 읽은 것이 아닙니다. 배고픔은 아직 모델이 없습니다. 카드를 눌러도 출처만 보여 줄 뿐 뇌를 자극하거나 명령을 보내지 않습니다. 일시 정지 중 모델 지표와 발화 사건은 ‘—’로 표시하고, 발화율 카드는 마지막 표본을 유지합니다(실시간 측정 아님). 뇌 모델이 없거나 표본이 누락·비정상인 경우에도 ‘—’로 표시합니다.")
     }
 
     var detailText: String { detailLabel.stringValue }

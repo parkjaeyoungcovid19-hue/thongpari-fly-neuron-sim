@@ -1256,6 +1256,8 @@ class LabStatePacket:
     session_id: str | None = None
     epoch: int | None = None
     sim_tick: int | None = None
+    # V6.2 edit_property result: applied actual_value/revision or rejection path.
+    edit: dict | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "LabStatePacket":
@@ -1281,6 +1283,7 @@ class LabStatePacket:
             session_id=(None if d.get("session_id") is None else _session_id(d.get("session_id"))),
             epoch=(None if d.get("epoch") is None else _bounded_int(d.get("epoch"), 1)),
             sim_tick=(None if d.get("sim_tick") is None else _bounded_int(d.get("sim_tick"), 0)),
+            edit=dict(d["edit"]) if isinstance(d.get("edit"), dict) else None,
         )
 
     def to_dict(self) -> dict:
@@ -1299,6 +1302,8 @@ class LabStatePacket:
             d["epoch"] = self.epoch
         if self.sim_tick is not None:
             d["sim_tick"] = self.sim_tick
+        if self.edit is not None:
+            d["edit"] = self.edit
         # Swift V1 deliberately decodes a small flat summary while the nested
         # state object retains the complete backend state for future clients.
         if isinstance(self.state, dict):

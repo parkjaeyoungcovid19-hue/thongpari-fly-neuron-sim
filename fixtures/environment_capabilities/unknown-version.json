@@ -1,0 +1,1032 @@
+{
+  "schema_version": 2,
+  "descriptors": [
+    {
+      "property_id": "object.shape",
+      "label": "Object shape",
+      "value_type": "enum",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": "box",
+      "choices": [
+        "box",
+        "sphere",
+        "wall",
+        "food",
+        "car",
+        "trap"
+      ],
+      "scope": "local",
+      "apply_mode": "spawn_only",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object"
+      ],
+      "legacy_field": "shape",
+      "notes": "Spawn only; existing object shape is immutable. food_marker/food_source alias food. Food has modeled odor/contact, no collision; toys use collidable palettes."
+    },
+    {
+      "property_id": "object.box.position_mm",
+      "label": "Box position",
+      "value_type": "vector",
+      "unit": "mm",
+      "min": [
+        -1000,
+        -1000,
+        -1000
+      ],
+      "max": [
+        1000,
+        1000,
+        1000
+      ],
+      "default": [
+        40,
+        0,
+        5
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_box",
+        "move_object"
+      ],
+      "legacy_field": "position_mm",
+      "notes": "World XYZ mm, not a floor snap. Supplied pose can intersect ground. Move preserves omitted coordinates; resize does not adjust Z."
+    },
+    {
+      "property_id": "object.box.size_mm",
+      "label": "Box size",
+      "value_type": "vector",
+      "unit": "mm",
+      "min": [
+        0.2,
+        0.2,
+        0.2
+      ],
+      "max": [
+        200,
+        200,
+        200
+      ],
+      "default": [
+        10,
+        10,
+        10
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_box",
+        "resize_object"
+      ],
+      "legacy_field": "size_mm",
+      "notes": "Full XYZ lengths; Swift common size form sends equal components, so anisotropy is backend-only. UI min .1 differs from backend .2."
+    },
+    {
+      "property_id": "object.sphere.position_mm",
+      "label": "Sphere position",
+      "value_type": "vector",
+      "unit": "mm",
+      "min": [
+        -1000,
+        -1000,
+        -1000
+      ],
+      "max": [
+        1000,
+        1000,
+        1000
+      ],
+      "default": [
+        40,
+        0,
+        5
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_sphere",
+        "move_object"
+      ],
+      "legacy_field": "position_mm",
+      "notes": "World XYZ mm, not a floor snap. Supplied pose can intersect ground. Move preserves omitted coordinates; resize does not adjust Z."
+    },
+    {
+      "property_id": "object.sphere.size_mm",
+      "label": "Sphere size",
+      "value_type": "number",
+      "unit": "mm",
+      "min": 0.2,
+      "max": 100,
+      "default": 5,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_sphere",
+        "resize_object"
+      ],
+      "legacy_field": "size_mm",
+      "notes": "Scalar diameter; applied size_mm is equal3 vector. Lists use first component; malformed supplied scalar falls back to3 (absent sphere default5)."
+    },
+    {
+      "property_id": "object.wall.position_mm",
+      "label": "Wall position",
+      "value_type": "vector",
+      "unit": "mm",
+      "min": [
+        -1000,
+        -1000,
+        -1000
+      ],
+      "max": [
+        1000,
+        1000,
+        1000
+      ],
+      "default": [
+        40,
+        0,
+        7.5
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_wall",
+        "move_object"
+      ],
+      "legacy_field": "position_mm",
+      "notes": "World XYZ mm, not a floor snap. Supplied pose can intersect ground. Move preserves omitted coordinates; resize does not adjust Z."
+    },
+    {
+      "property_id": "object.wall.size_mm",
+      "label": "Wall size",
+      "value_type": "vector",
+      "unit": "mm",
+      "min": [
+        0.2,
+        0.2,
+        0.2
+      ],
+      "max": [
+        200,
+        200,
+        200
+      ],
+      "default": [
+        2,
+        30,
+        15
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_wall",
+        "resize_object"
+      ],
+      "legacy_field": "size_mm",
+      "notes": "Full XYZ lengths; Swift common size form sends equal components, so anisotropy is backend-only. UI min .1 differs from backend .2."
+    },
+    {
+      "property_id": "object.food.position_mm",
+      "label": "Food position",
+      "value_type": "vector",
+      "unit": "mm",
+      "min": [
+        -1000,
+        -1000,
+        -1000
+      ],
+      "max": [
+        1000,
+        1000,
+        1000
+      ],
+      "default": [
+        20,
+        0,
+        1.5
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "VISUAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_food",
+        "spawn_food_marker",
+        "move_object"
+      ],
+      "legacy_field": "position_mm",
+      "notes": "World XYZ mm, not a floor snap. Supplied pose can intersect ground. Move preserves omitted coordinates; resize does not adjust Z."
+    },
+    {
+      "property_id": "object.food.size_mm",
+      "label": "Food size",
+      "value_type": "number",
+      "unit": "mm",
+      "min": 0.2,
+      "max": 100,
+      "default": 3,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "VISUAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_food",
+        "spawn_food_marker",
+        "resize_object"
+      ],
+      "legacy_field": "size_mm",
+      "notes": "Scalar diameter; applied size_mm is equal3 vector. Lists use first component; malformed supplied scalar falls back to3 (absent sphere default5)."
+    },
+    {
+      "property_id": "object.car.position_mm",
+      "label": "Car position",
+      "value_type": "vector",
+      "unit": "mm",
+      "min": [
+        -1000,
+        -1000,
+        -1000
+      ],
+      "max": [
+        1000,
+        1000,
+        1000
+      ],
+      "default": null,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "move_object"
+      ],
+      "legacy_field": "position_mm",
+      "notes": "World XYZ mm, not a floor snap. Supplied pose can intersect ground. Move preserves omitted coordinates; resize does not adjust Z. Absent spawn pose is [40,0,.205*length] for car; [40,0,.3*side+4] for trap. UI toy spawn computes Z; backend accepts explicit Z."
+    },
+    {
+      "property_id": "object.car.size_mm",
+      "label": "Car size",
+      "value_type": "number",
+      "unit": "mm",
+      "min": 4,
+      "max": 60,
+      "default": 14,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "resize_object"
+      ],
+      "legacy_field": "size_mm",
+      "notes": "Scalar length/side. Applied car dimensions [L,.44L,.41L], trap [L,L,.6L]. Spawn is strict scalar or len1; resize legacy clamps/uses first vector component. No Z adjustment on resize."
+    },
+    {
+      "property_id": "object.trap.position_mm",
+      "label": "Trap position",
+      "value_type": "vector",
+      "unit": "mm",
+      "min": [
+        -1000,
+        -1000,
+        -1000
+      ],
+      "max": [
+        1000,
+        1000,
+        1000
+      ],
+      "default": null,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "move_object"
+      ],
+      "legacy_field": "position_mm",
+      "notes": "World XYZ mm, not a floor snap. Supplied pose can intersect ground. Move preserves omitted coordinates; resize does not adjust Z. Absent spawn pose is [40,0,.205*length] for car; [40,0,.3*side+4] for trap. UI toy spawn computes Z; backend accepts explicit Z."
+    },
+    {
+      "property_id": "object.trap.size_mm",
+      "label": "Trap size",
+      "value_type": "number",
+      "unit": "mm",
+      "min": 8,
+      "max": 60,
+      "default": 20,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "resize_object"
+      ],
+      "legacy_field": "size_mm",
+      "notes": "Scalar length/side. Applied car dimensions [L,.44L,.41L], trap [L,L,.6L]. Spawn is strict scalar or len1; resize legacy clamps/uses first vector component. No Z adjustment on resize."
+    },
+    {
+      "property_id": "object.yaw_deg",
+      "label": "Object yaw",
+      "value_type": "number",
+      "unit": "deg",
+      "min": -36000,
+      "max": 36000,
+      "default": 0,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_box",
+        "spawn_sphere",
+        "spawn_wall",
+        "spawn_food",
+        "spawn_food_marker",
+        "move_object"
+      ],
+      "legacy_field": "yaw_deg",
+      "notes": "REQUEST bounds: clamp to [-36000,36000], then modulo360. APPLIED range [0,360). All shapes; rotation around Z only, no tilt. Swift command/form has no yaw field; food rotates visually, is noncollidable."
+    },
+    {
+      "property_id": "object.food.variant",
+      "label": "Food variant",
+      "value_type": "enum",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": null,
+      "choices": [
+        "apple",
+        "banana",
+        "cheese",
+        "grapes",
+        "cookie",
+        "sugar_cube"
+      ],
+      "scope": "local",
+      "apply_mode": "spawn_only",
+      "supported_effects": [
+        "VISUAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_food",
+        "spawn_food_marker"
+      ],
+      "legacy_field": "variant",
+      "notes": "Absent variant rotates deterministically in choices order. Spawn-only; no existing-food variant setter, generic spawn_object ignores variant. State field food_variant; sugar is derived, not editable. UI has no selector."
+    },
+    {
+      "property_id": "temperature.celsius",
+      "label": "Temperature",
+      "value_type": "number",
+      "unit": "degC",
+      "min": 0,
+      "max": 50,
+      "default": 25,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "temperature",
+        "set_temperature"
+      ],
+      "legacy_field": "celsius",
+      "notes": "Backend stores 0..50C; Swift UI/coordinator clamp10..40C and currently activate locally before ACK. environment_only records only; modeled_physiology uses Swift tempo (no TRN); flywire_sensory uses modeled TRN_VP2/VP3a+VP3b current (no legacy temperature tempo override). No Python direct neural input."
+    },
+    {
+      "property_id": "temperature.mode",
+      "label": "Temperature mode",
+      "value_type": "enum",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": "environment_only",
+      "choices": [
+        "environment_only",
+        "modeled_physiology",
+        "flywire_sensory"
+      ],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "temperature",
+        "set_temperature"
+      ],
+      "legacy_field": "mode",
+      "notes": "Backend stores 0..50C; Swift UI/coordinator clamp10..40C and currently activate locally before ACK. environment_only records only; modeled_physiology uses Swift tempo (no TRN); flywire_sensory uses modeled TRN_VP2/VP3a+VP3b current (no legacy temperature tempo override). No Python direct neural input."
+    },
+    {
+      "property_id": "wind.strength",
+      "label": "Wind strength",
+      "value_type": "number",
+      "unit": "normalized",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "wind",
+        "wind_puff"
+      ],
+      "legacy_field": "strength",
+      "notes": "Dimensionless, not m/s. Flags independently gate thorax mass*10000mm/s2*strength force and modeled JO-C/E current. Initial off; UI form .7. Zero stops timer/continuous. Scene candidate only for authored continuous wind, not active puff."
+    },
+    {
+      "property_id": "wind.direction_deg",
+      "label": "Wind direction",
+      "value_type": "number",
+      "unit": "deg",
+      "min": -36000,
+      "max": 36000,
+      "default": 0,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "wind",
+        "wind_puff"
+      ],
+      "legacy_field": "direction_deg",
+      "notes": "REQUEST clamp [-36000,36000], then modulo360; APPLIED [0,360). 0 points +X,90 +Y; world horizontal force direction, not meteorological wind-from. UI remainder may be negative. Neural model uses body-relative direction; no food odor advection."
+    },
+    {
+      "property_id": "wind.continuous",
+      "label": "Continuous wind",
+      "value_type": "boolean",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": null,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "wind",
+        "wind_puff"
+      ],
+      "legacy_field": "continuous",
+      "notes": "Contextual request default: wind infers duration_ms absent; wind_puff defaults false. Applied true only if strength>0. Initial false. Scene candidate only for deliberate continuous settings; active timers are not scene settings."
+    },
+    {
+      "property_id": "wind.duration_ms",
+      "label": "Wind puff duration",
+      "value_type": "number",
+      "unit": "ms",
+      "min": 1,
+      "max": 10000,
+      "default": 500,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "wind",
+        "wind_puff"
+      ],
+      "legacy_field": "duration_ms",
+      "notes": "Finite puff only; absent on wind implies continuous unless overridden. Continuous ignores duration. Active state contains remaining_ms, NOT authored duration. UI generic ms allows60000; backend clamps10000. Timer is simulation-time."
+    },
+    {
+      "property_id": "wind.physical",
+      "label": "Wind physical enabled",
+      "value_type": "boolean",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": true,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "wind",
+        "wind_puff"
+      ],
+      "legacy_field": "physical",
+      "notes": "Independent boolean request flag; state uses physical_enabled. Both true initially. stop_wind retains flags/direction; scene candidate only for continuous wind configuration."
+    },
+    {
+      "property_id": "wind.sensory",
+      "label": "Wind sensory enabled",
+      "value_type": "boolean",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": true,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "wind",
+        "wind_puff"
+      ],
+      "legacy_field": "sensory",
+      "notes": "Independent boolean request flag; state uses sensory_enabled. Both true initially. stop_wind retains flags/direction; scene candidate only for continuous wind configuration."
+    },
+    {
+      "property_id": "eyes.left_enabled",
+      "label": "Left eye enabled",
+      "value_type": "boolean",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": true,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "set_eye_state",
+        "eye_state"
+      ],
+      "legacy_field": "left_enabled",
+      "notes": "Disabled or mask1 blacks actual eye frames; partial mask multiplies by1-mask. No direct neural probe. UI cover/restore sends mask endpoints only; enabled and fractional mask are backend-only. restore_eyes resets both enabled/masks."
+    },
+    {
+      "property_id": "eyes.left_mask",
+      "label": "Left eye mask",
+      "value_type": "number",
+      "unit": "normalized",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "set_eye_state",
+        "eye_state"
+      ],
+      "legacy_field": "left_mask",
+      "notes": "Disabled or mask1 blacks actual eye frames; partial mask multiplies by1-mask. No direct neural probe. UI cover/restore sends mask endpoints only; enabled and fractional mask are backend-only. restore_eyes resets both enabled/masks."
+    },
+    {
+      "property_id": "eyes.right_enabled",
+      "label": "Right eye enabled",
+      "value_type": "boolean",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": true,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "set_eye_state",
+        "eye_state"
+      ],
+      "legacy_field": "right_enabled",
+      "notes": "Disabled or mask1 blacks actual eye frames; partial mask multiplies by1-mask. No direct neural probe. UI cover/restore sends mask endpoints only; enabled and fractional mask are backend-only. restore_eyes resets both enabled/masks."
+    },
+    {
+      "property_id": "eyes.right_mask",
+      "label": "Right eye mask",
+      "value_type": "number",
+      "unit": "normalized",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "choices": [],
+      "scope": "global",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "set_eye_state",
+        "eye_state"
+      ],
+      "legacy_field": "right_mask",
+      "notes": "Disabled or mask1 blacks actual eye frames; partial mask multiplies by1-mask. No direct neural probe. UI cover/restore sends mask endpoints only; enabled and fractional mask are backend-only. restore_eyes resets both enabled/masks."
+    },
+    {
+      "property_id": "touch.target",
+      "label": "Touch target",
+      "value_type": "enum",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": "thorax",
+      "choices": [
+        "thorax",
+        "head",
+        "abdomen",
+        "left_front_leg",
+        "left_middle_leg",
+        "left_hind_leg",
+        "right_front_leg",
+        "right_middle_leg",
+        "right_hind_leg",
+        "lf",
+        "lm",
+        "lh",
+        "rf",
+        "rm",
+        "rh"
+      ],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "touch"
+      ],
+      "legacy_field": "target",
+      "notes": "Unbound nominal targets include legacy leg aliases. Bound export filters resolved force-body targets. Physical specificity is body-part; neural channel is generic JO-A/B-like, not selected-part mapping. No persistent touch state."
+    },
+    {
+      "property_id": "touch.strength",
+      "label": "Touch strength",
+      "value_type": "number",
+      "unit": "normalized",
+      "min": 0,
+      "max": 1,
+      "default": 0.5,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "touch"
+      ],
+      "legacy_field": "strength",
+      "notes": "Physical force always enabled: mass*16000mm/s2*strength. No physical:false switch. UI default .55; sensory flag independently controls generic modeled touch channel."
+    },
+    {
+      "property_id": "touch.duration_ms",
+      "label": "Touch duration",
+      "value_type": "number",
+      "unit": "ms",
+      "min": 1,
+      "max": 1000,
+      "default": 20,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "SENSORY-MODEL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "touch"
+      ],
+      "legacy_field": "duration_ms",
+      "notes": "Backend default20ms versus UI150ms; UI generic maximum60000, backend clamps1000. Simulation-time active remaining timer is transient, not authored persistent duration."
+    },
+    {
+      "property_id": "touch.direction_world",
+      "label": "Touch direction",
+      "value_type": "vector",
+      "unit": "unit_vector",
+      "min": [
+        -1,
+        -1,
+        -1
+      ],
+      "max": [
+        1,
+        1,
+        1
+      ],
+      "default": [
+        0,
+        1,
+        0
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "touch"
+      ],
+      "legacy_field": "direction_world",
+      "notes": "Unit-direction APPLIED component bounds. Legacy REQUEST accepts/coerces a 3-vector then normalizes; zero/invalid falls back [0,1,0], not strict component rejection. Hidden by Swift command/form. This descriptor does not authorize or tighten mutation."
+    },
+    {
+      "property_id": "touch.sensory",
+      "label": "Touch sensory enabled",
+      "value_type": "boolean",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": true,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "touch"
+      ],
+      "legacy_field": "sensory",
+      "notes": "Backend-only option; physical force remains on. Generic modeled sensory drive, not direct neural stimulation or selected-part neural mapping."
+    },
+    {
+      "property_id": "flash.eye",
+      "label": "Flash eye",
+      "value_type": "enum",
+      "unit": "none",
+      "min": null,
+      "max": null,
+      "default": "both",
+      "choices": [
+        "left",
+        "right",
+        "both"
+      ],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "flash_eye"
+      ],
+      "legacy_field": "eye",
+      "notes": "Brightness telemetry only: max(current,intensity) for selected eyes. Preserves looming; no real illumination or photoreceptor neural connection. Simulation-time pulse, never scene lighting."
+    },
+    {
+      "property_id": "flash.intensity",
+      "label": "Flash intensity",
+      "value_type": "number",
+      "unit": "normalized",
+      "min": 0,
+      "max": 1,
+      "default": 1,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "flash_eye"
+      ],
+      "legacy_field": "intensity",
+      "notes": "Brightness telemetry only: max(current,intensity) for selected eyes. Preserves looming; no real illumination or photoreceptor neural connection. Simulation-time pulse, never scene lighting. Zero stops without live timer."
+    },
+    {
+      "property_id": "flash.duration_ms",
+      "label": "Flash duration",
+      "value_type": "number",
+      "unit": "ms",
+      "min": 1,
+      "max": 5000,
+      "default": 100,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "SENSORY-MODEL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "flash_eye"
+      ],
+      "legacy_field": "duration_ms",
+      "notes": "Brightness telemetry only: max(current,intensity) for selected eyes. Preserves looming; no real illumination or photoreceptor neural connection. Simulation-time pulse, never scene lighting. UI generic maximum60000; backend clamps5000."
+    },
+    {
+      "property_id": "approach.speed_mm_s",
+      "label": "Approach speed",
+      "value_type": "number",
+      "unit": "mm/s",
+      "min": 0.1,
+      "max": 2000,
+      "default": 80,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "approach_object",
+        "approach"
+      ],
+      "legacy_field": "speed_mm_s",
+      "notes": "Moves object toward snapshotted fly XY, not scripted fly locomotion. UI speed default12mm/s. Task is transient; completed authored object pose is separately a scene candidate."
+    },
+    {
+      "property_id": "approach.end_distance_mm",
+      "label": "Approach end distance",
+      "value_type": "number",
+      "unit": "mm",
+      "min": 0.5,
+      "max": 500,
+      "default": 8,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "approach_object",
+        "approach"
+      ],
+      "legacy_field": "end_distance_mm",
+      "notes": "Moves object toward snapshotted fly XY, not scripted fly locomotion. UI speed default12mm/s. Task is transient; completed authored object pose is separately a scene candidate."
+    },
+    {
+      "property_id": "drive.speed_mm_s",
+      "label": "Car drive speed",
+      "value_type": "number",
+      "unit": "mm/s",
+      "min": 0,
+      "max": 60,
+      "default": 20,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "drive_object"
+      ],
+      "legacy_field": "speed_mm_s",
+      "notes": "Car-only transient action; actual strict legacy domain is 0 < value <= max (lower bound exclusive). Held car cannot drive. No active drive/task persistence."
+    },
+    {
+      "property_id": "drive.distance_mm",
+      "label": "Car drive distance",
+      "value_type": "number",
+      "unit": "mm",
+      "min": 0,
+      "max": 300,
+      "default": 80,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "transient",
+      "legacy_commands": [
+        "drive_object"
+      ],
+      "legacy_field": "distance_mm",
+      "notes": "Car-only transient action; actual strict legacy domain is 0 < value <= max (lower bound exclusive). Held car cannot drive. No active drive/task persistence."
+    }
+  ]
+}

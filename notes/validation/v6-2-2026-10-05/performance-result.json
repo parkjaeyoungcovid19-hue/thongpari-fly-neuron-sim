@@ -1,0 +1,10 @@
+{
+  "port": 17841,
+  "mode": "fresh-real-headless",
+  "started_at": 1791205762.974495,
+  "head": "799067408bc7be23733d24768fd8276c267a43b0",
+  "backend_pid": 70745,
+  "exit": 0,
+  "backend_returncode": -15,
+  "cleanup": "backend exited and port bindable"
+}

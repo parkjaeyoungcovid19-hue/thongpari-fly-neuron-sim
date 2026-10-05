@@ -1,0 +1,175 @@
+PASS  lab command queue bounded: depth=32 dropped=68
+PASS  lab queue drops oldest: dropped=68
+PASS  lab_state parse
+PASS  lab_state type gate
+PASS  V6.1 shared fixtures present: /Users/apgx/Documents/Codex Projects/초파리/siliconfly/fixtures/environment_capabilities
+PASS  V6.1 strict fixture bad-context-notes.json: reject
+PASS  V6.1 optional manifest state bad-context-notes.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture bad-control-whitespace.json: reject
+PASS  V6.1 optional manifest state bad-control-whitespace.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture bad-default.json: reject
+PASS  V6.1 optional manifest state bad-default.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture bad-range.json: reject
+PASS  V6.1 optional manifest state bad-range.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture bad-type.json: reject
+PASS  V6.1 optional manifest state bad-type.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture bad-unicode-choice.json: reject
+PASS  V6.1 optional manifest state bad-unicode-choice.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture bad-unit.json: reject
+PASS  V6.1 optional manifest state bad-unit.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture duplicate-id.json: reject
+PASS  V6.1 optional manifest state duplicate-id.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture missing-field.json: reject
+PASS  V6.1 optional manifest state missing-field.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture unknown-version.json: reject
+PASS  V6.1 optional manifest state unknown-version.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture valid-boundaries.json: accept
+PASS  V6.1 optional manifest state valid-boundaries.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture valid-unicode-identity.json: accept
+PASS  V6.1 optional manifest state valid-unicode-identity.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture valid.json: accept
+PASS  V6.1 optional manifest state valid.json: no partial salvage or telemetry loss
+PASS  V6.1 strict fixture wrong-vector.json: reject
+PASS  V6.1 optional manifest state wrong-vector.json: no partial salvage or telemetry loss
+V6.1 DECODE BENCH: bytes=29674 descriptors=39 n=1000 p50=0.493ms p95=0.546ms (standalone only; not live acceptance)
+PASS  V6.1 authoritative temperature modes/range and normalized wind: backend0...50 vs UI10...40; wind not m/s
+PASS  V6.1 unsupported controls not fabricated: read-only lookup, not edit authorization
+PASS  V6.1 older backend without manifest remains valid: no fabricated defaults
+PASS  V6.2 shared edit fixtures present: 35 in /Users/apgx/Documents/Codex Projects/초파리/siliconfly/fixtures/environment_edits
+PASS  V6.2 edit fixture bad-bool-number.json: edit.value: must be a boolean (expected edit.value)
+PASS  V6.2 edit fixture bad-enum-case.json: edit.value: must be one of the descriptor choices (expected edit.value)
+PASS  V6.2 edit fixture bad-enum-choice.json: edit.value: must be one of the descriptor choices (expected edit.value)
+PASS  V6.2 edit fixture bad-global-target.json: edit.target_id: global property takes null target_id (expected edit.target_id)
+PASS  V6.2 edit fixture bad-local-no-target.json: edit.target_id: local property requires a target_id (expected edit.target_id)
+PASS  V6.2 edit fixture bad-missing-revision.json: edit.expected_revision: required (expected edit.expected_revision)
+PASS  V6.2 edit fixture bad-not-object.json: edit: must be an object (expected edit)
+PASS  V6.2 edit fixture bad-number-bool.json: edit.value: must be a finite number in [0.0, 50.0] (expected edit.value)
+PASS  V6.2 edit fixture bad-number-string.json: edit.value: must be a finite number in [0.0, 50.0] (expected edit.value)
+PASS  V6.2 edit fixture bad-range-above.json: edit.value: must be a finite number in [0.0, 50.0] (expected edit.value)
+PASS  V6.2 edit fixture bad-range-below.json: edit.value: must be a finite number in [0.0, 1.0] (expected edit.value)
+PASS  V6.2 edit fixture bad-revision-bool.json: edit.expected_revision: must be a nonnegative integer (expected edit.expected_revision)
+PASS  V6.2 edit fixture bad-revision-fraction.json: edit.expected_revision: must be a nonnegative integer (expected edit.expected_revision)
+PASS  V6.2 edit fixture bad-revision-negative.json: edit.expected_revision: must be a nonnegative integer (expected edit.expected_revision)
+PASS  V6.2 edit fixture bad-schema-version.json: edit.schema_version: unsupported edit schema_version (expected edit.schema_version)
+PASS  V6.2 edit fixture bad-spawn-only.json: edit.property_id: spawn_only property is not live-editable (expected edit.property_id)
+PASS  V6.2 edit fixture bad-target-whitespace.json: edit.target_id: local property requires a target_id (expected edit.target_id)
+PASS  V6.2 edit fixture bad-transient.json: edit.property_id: transient action parameter is not an editable setting (expected edit.property_id)
+PASS  V6.2 edit fixture bad-unit-missing.json: edit.unit: unit must be none (expected edit.unit)
+PASS  V6.2 edit fixture bad-unit.json: edit.unit: unit must be degC (expected edit.unit)
+PASS  V6.2 edit fixture bad-unknown-field.json: edit.celsius: unknown field (expected edit.celsius)
+PASS  V6.2 edit fixture bad-unknown-property.json: edit.property_id: unknown property (expected edit.property_id)
+PASS  V6.2 edit fixture bad-vector-arity.json: edit.value: must be a 3-vector (expected edit.value)
+PASS  V6.2 edit fixture bad-vector-component.json: edit.value[1]: must be a finite number in [0.2, 200.0] (expected edit.value[1])
+PASS  V6.2 edit fixture bad-vector-string.json: edit.value[1]: must be a finite number in [-1000.0, 1000.0] (expected edit.value[1])
+PASS  V6.2 edit fixture valid-box-position.json: accept + encode round trip
+PASS  V6.2 edit fixture valid-eye-enabled.json: accept + encode round trip
+PASS  V6.2 edit fixture valid-eye-mask-min.json: accept + encode round trip
+PASS  V6.2 edit fixture valid-sphere-size.json: accept + encode round trip
+PASS  V6.2 edit fixture valid-temperature-bounds.json: accept + encode round trip
+PASS  V6.2 edit fixture valid-temperature-mode.json: accept + encode round trip
+PASS  V6.2 edit fixture valid-temperature.json: accept + encode round trip
+PASS  V6.2 edit fixture valid-wall-size-bounds.json: accept + encode round trip
+PASS  V6.2 edit fixture valid-wind-validator-only.json: accept + encode round trip
+PASS  V6.2 edit fixture valid-yaw-request-bound.json: accept + encode round trip
+PASS  V6.2 edit fixtures cover accept and reject: accept=10 reject=25
+PASS  V6.2 nonfinite values rejected before encoding: NaN/inf/number-as-bool
+PASS  V6.2 edit_property wire shape: {"type":"lab_command","id":12,"edit":{"expected_revision":7,"property_id":"eyes.left_enabled","value":false,"unit":"none","schema_version":1,"target_id":null},"action":"edit_property"}
+PASS  V6.2 ACK edit detail decodes; malformed detail drops only itself: applied/stale/malformed
+PASS  V5.6 grab/place flat wire and V4 envelope
+PASS  V5.6 command constructor rejects bad ray and place ray
+PASS  bridge interaction uses lab queue and interactive V4 envelope
+PASS  legacy LabCommand wire has no interaction keys
+PASS  interaction strict optional decode and old backend contrast
+PASS  old or malformed backend disables interaction and says unknown
+PASS  pending interaction prevents a duplicate E command
+PASS  successful interaction ACK clears pending
+PASS  lost interaction ACK releases pending gate with timeout status
+PASS  all ten interaction rejection codes have user text
+PASS  E physical key press is one command; repeat and duplicate down ignored
+PASS  second E while pending shows reason and queues no interaction command
+PASS  missing interaction state shows ignored E reason
+PASS  inactive session shows ignored E reason
+PASS  text focus, non-participation and pending all suppress E
+PASS  lab_event parse
+PASS  V5.6 lab_event detail decode; malformed detail keeps the event: box_1 · fly thorax · peak 0.25 (model units) · 14 ms · @1200 ms
+PASS  MuJoCo frames are latmetal-sim: Apple M2 N=139255 E=15091983 load 323 ms compile 5 ms
+lab recorder event write: forced recorder write failure (test)
+lab recorder telemetry write: forced recorder write failure (test)
+lab recorder final event write: forced recorder write failure (test)
+flygym service: mock bridge pid 73677 on 127.0.0.1:59028
+est-wins, never a replay backlog: shown=[5] replaced=4
+PASS  look sensitivity default 0.0015, persisted, clamped: default=0.0015 reloaded=0.0025 high=0.006 nan=0.0015
+PASS  pointer lock never touches the cursor without a window
+PASS  carry_speed_mm_s optional strict decode
+PASS  backend body state is authoritative for wind/touch neural source
+PASS  V3 SensoryModel preserves V2 source→drive equations
+PASS  V3 MotorReadout preserves V2 rate→command sequence/reset
+PASS  decoded BrainSignals reach telemetry
+PASS  missing BrainSignals clear telemetry
+PASS  body timing reaches lab telemetry
+PASS  body timing columns recorded
+PASS  direct-neural roles map to existing neurons
+PASS  FlyWire sensory group counts: odor=69/66 thermo=7/9 wind=56/363
+PASS  persistent sensory current reaches ORN group
+PASS  modeled sensory clear zeros ORN current
+PASS  brain reset clears persistent sensory current
+PASS  modeled odor raises ORN receptor spiking: baseline=0 driven=252
+PASS  default UI food geometry raises ORN receptor spiking: odor=0.0732 current=0.0312 baseline=0 driven=2
+PASS  warm TRN modeled drive raises receptor spiking: baseline=0 driven=24 current=0.06
+PASS  cool TRN modeled drive raises receptor spiking: baseline=0 driven=36 current=0.06
+PASS  JO-C wind modeled drive raises receptor spiking: baseline=0 driven=191 current=0.055
+PASS  JO-E wind modeled drive raises receptor spiking: baseline=0 driven=1159 current=0.055
+PASS  receptor EMA rates reach telemetry: ORN L/R 0.0/0.0 Hz · JO-E 15.9 Hz
+PASS  unknown neural role rejected
+PASS  V3 extraction preserves same-seed downstream neural state
+PASS  V5.7 activity card clicks leave neural state identical to an untouched twin: diverged=false missed=[]
+PASS  V5.7 control: a click wired to a GF stimulus is detected by the same probe
+PASS  recorder writes V4 metadata
+PASS  recorder stop completes only after saved state: completed=true state=saved
+PASS  recorder flushes queued telemetry tail on stop
+PASS  recorder preserves start/marker/stop events
+PASS  rapid stop→start never overlaps recorder sessions: immediate=nil after=/var/folders/jm/qrd14_n943sdnsjnn5y8gljh0000gn/T/siliconfly-recorder-test-9836B9AE-ADA7-4210-9A49-9F737548C9B4/experiment-20261005-230821-3
+PASS  recorder write failure propagates as failed: event write: forced recorder write failure (test)
+PASS  AppKit quit policy blocks automatic termination after save failure
+PASS  AppKit quit failure requires explicit user override
+PASS  application-quit recorder drain keeps tail
+PASS  AppKit quit policy terminates only after successful recorder drain
+PASS  AppKit quit success replies terminate without failure prompt
+PASS  bridge keeps every ACK between UI refreshes, repeated lab_state ACK once: ids=[1, 2]
+PASS  interaction events survive between UI refreshes for existing timeline
+PASS  timeline resolves applied/rejected once, then times out and loses stale rows: [ThongpariFlyNeuronSim.LabTimelineStatus.applied, ThongpariFlyNeuronSim.LabTimelineStatus.rejected, ThongpariFlyNeuronSim.LabTimelineStatus.timedOut, ThongpariFlyNeuronSim.LabTimelineStatus.lost]
+PASS  late ACK still resolves a timed-out row with the real applied tick
+PASS  workspace connection never reports live for a dead backend or stale body
+PASS  recording line never implies a save that has not completed
+PASS  app-owned backend stops cleanly and becomes restartable
+PASS  backend without a checkout reports unavailable, never restartable
+PASS  mood readout follows its stated rules and hits fade: calm happy cold hot scared angry happy hurt sleepy
+PASS  third-person interaction ray starts at participant eye, not camera
+PASS  aim mark appears only for captured first-person view
+PASS  participant first/third person cameras follow the participant's look: eye=[24.0, 1.5, 2.5] fwd=[0.0, 1.0, 0.0] behind=[24.0, -12.5, 8.0]
+PASS  V5.7 activity cards pass existing telemetry through unchanged: cards=17 wrong=[]
+PASS  V5.7 hunger card is unsupported, with no odour-derived proxy
+PASS  V5.7 pause help distinguishes held spike rates from missing indices/events
+PASS  V5.7 absent telemetry shows — never 0 (no brain, paused, non-finite): absent-but-shown=[] pausedDash=true pausedRates=true
+PASS  V5.7 every card states its unit, classification and source: unlabeled=[]
+PASS  V5.7 every card click selects it and shows its source: missed=[]
+PASS  V5.7 card clicks queue no bridge, lab or player command
+PASS  V5.7 control: a click wired to a lab command is detected by the same probe
+PASS  V5.6.2 spawn_object toy wire: shape + scalar size_mm, never size: ["size_mm": 14, "type": lab_command, "y": -4, "id": 0, "target": car_1, "action": spawn_object, "z": 2.87, "shape": car, "x": 30]
+PASS  V5.6.2 drive/arm/equip/fire wire names and defaults: drive=["action", "distance_mm", "id", "speed_mm_s", "target", "type"]
+PASS  V5.6.2 every backend-read argument arrives after Python's flat merge: missing=[]
+PASS  V5.6.2 toy constructors enforce the backend bounds
+PASS  V5.6.2 fire_bb direction = participant aim forward, unit length: dir=[0.6123717455846742, 0.6123724639606213, -0.5000008105917194]
+PASS  V5.6.2 G toggles equip, F fires only when equipped, never on key-repeat: unequipped=nil equip=Optional(ThongpariFlyNeuronSim.PlayerToolAction.equipGun(true)) fire=Optional(ThongpariFlyNeuronSim.PlayerToolAction.fire)
+PASS  V5.6.2 tool keys are never held movement/actions
+PASS  V5.6.2 click: first captures, then fires when equipped and grabs when not: routed=[ThongpariFlyNeuronSim.PlayerToolAction.grab, ThongpariFlyNeuronSim.PlayerToolAction.fire]
+PASS  V5.6.2 no fire while a text field has focus or capture is released
+PASS  V5.6.2 gun/fire remap persists and older custom keys survive the upgrade: reloaded fire=40 gun=3 upgraded=[13, 1, 0, 2, 3, 5, 12]
+PASS  V5.6.2 Drive only for a car, Re-arm only for a trap
+PASS  V5.6.2 trap_state/food_variant/projectiles decode when present
+PASS  V5.6.2 older/malformed toy fields decode as absent, never drop the state
+PASS  V5.6.2 toy events read as physical events with force in model units: Car car_1 contacted the fly · peak normal force 0.0123 (model units); car stopped
+PASS  V5.6.2 feeding events have their own wording, not the raw event name: Fly's mouth touched apple food_2 | Fly's mouth left apple food_2 · mouth contact 1.50 s | apple food_2 eaten up · mouth contact 1.50 s
+PASS  V5.6.2 SceneKit fallback draws car/trap as sized boxes: car=Optional(<SCNBox: 0xb2e19b300 | width=14.000 height=5.740 length=6.160 chamferRadius=0.000>) trap=Optional(<SCNBox: 0xb2e19b400 | width=20.000 height=12.000 length=20.000 chamferRadius=0.000>)
+PASS  interface language is pinned to English for suites
+ALL LAB TESTS PASS

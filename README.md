@@ -54,7 +54,7 @@ The point is not to fake convincing animal behavior. Every response can be trace
 
 ## Status
 
-**V5.6.2 (sandbox) and V5.7 (activity cards) are implemented and pass the automated, real-backend and TCP suites (2026-09-29); final GUI acceptance is pending.** A bit-identical performance pass followed. [V6](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md) (environment editing) waits for that acceptance — see the [V6 readiness report](docs/reports/V6_START_READINESS_2026-09-28.md).
+**V5.6.2 (sandbox) and V5.7 (activity cards) are implemented; V5 is not complete.** The [2026-10-05 revalidation](notes/validation/v5-next-2026-10-05/README.md) closed A-1–A-4 with automated tests and a fresh real-headless TCP pass (38.1 Hz). Integrated GUI acceptance and live rendering performance remain unverified. At the user’s request on 2026-10-05, those gates are deferred. [V6.1–V6.2](docs/reports/V6_PROGRESS.md) add backend capability descriptors and strict revision-checked property edits with automated evidence. V6.3 object selection, gizmos, numeric editing and duplicate/delete are being implemented; direct GUI interaction verification is currently unavailable because the tool host lacks macOS Accessibility permission. Undo and scene save remain planned; neither V5 nor V6 is complete. The [readiness report](docs/reports/V6_START_READINESS_2026-09-28.md) remains a historical planning assessment, not completion evidence.
 
 | Version | What it added |
 |---|---|
@@ -115,6 +115,8 @@ Movement is integrated in **simulation time**, not frame rate or key repeat. Mou
 - **Food.** Apple, banana, cheese, grapes, cookie and sugar cube, cycling on each spawn. Food can be carried to lure the fly; the odour model is unchanged.
 - **Feeding.** When the proboscis tip (`c_haustellum`) touches food, the food shrinks and disappears (`feeding_begin`, `feeding_end`, `food_eaten`). While eating, `taste_sugar` drives the **21 left-labellum sugar GRNs** from the v783 list (eonsystemspbc/fly-brain `a3db62f9`); MN9 is shown read-only. The current gain and per-food sugar are model assumptions. There is no reward, hunger or scripted approach — odour alone produces no taste signal.
 - **Toys.** A toy car drives straight and stops on contact (`car_hit_fly`); a glass cage trap drops only when the fly is fully underneath; the BB gun fires real-gravity pellets aimed at the ray hit under the center mark. The trajectory line is in a geom group the fly's eyes never render. Any fly response comes from physics and the existing sensory paths.
+
+The default fixed-topology object pools support **64 boxes, 64 spheres, 64 walls, 8 food objects, 4 cars and 2 traps** at once (mock and real backends). Food and toys have multi-part geometry, so their smaller pools limit idle MuJoCo cost. Spawning beyond a shape's capacity is rejected without changing the world; deleting an object releases its slot for reuse. These are preallocated defaults, not dynamically growing pools.
 
 ### Activity cards
 
@@ -216,6 +218,7 @@ Self-tests are built into the binary; Python tests run against the mock and the 
 ./ThongpariFlyNeuronSim --behaviortest   # sim -> body end to end
 ./ThongpariFlyNeuronSim --gpucheck       # GPU vs an independent CPU reference
 
+./flygym-venv/bin/python flygym_bridge/test_v5_6_2.py --mock-only # food capacity / lifecycle, no MuJoCo
 ./flygym-venv/bin/python flygym_bridge/test_interaction_real.py   # grab / carry in real MuJoCo
 ./flygym-venv/bin/python flygym_bridge/test_player_collision_real.py
 ./flygym-venv/bin/python flygym_bridge/test_lab_real.py
@@ -223,7 +226,9 @@ Self-tests are built into the binary; Python tests run against the mock and the 
 
 Against a fresh backend (`./run_flygym.sh --bridge-only`, or `bridge.py --mock`), `--bridgeloop`, `--labloop`, `--v4loop` and `--interactionloop` exercise the real TCP path. `--inputprobe` measures input latency and look cadence, and exits non-zero if its preconditions fail.
 
-Latest full run (V5.6.2 + V5.7 + performance, 2026-09-29): Python suites, Swift self-tests and fresh-backend TCP loops passed, except one known `test_lab_real` capacity check (food slot count 8) unrelated to the performance pass. Details: [2026-09-29 validation](notes/validation/v5-independent-2026-09-29/README.md). New suites: `test_v5_6_2.py`, `test_v5_6_2_tools.py`.
+Historical independent run (2026-09-29): 17 commands passed and 2 failed: the stale [real Lab capacity check](<flygym_bridge/test_lab_real.py>) and the real-headless TCP body-rate gate (14.1 Hz < 30 Hz). That run was not a complete V5/performance pass. Details: [2026-09-29 validation](<notes/validation/v5-independent-2026-09-29/README.md>). New suites: [sandbox and feeding tests](<flygym_bridge/test_v5_6_2.py>), [toy tests](<flygym_bridge/test_v5_6_2_tools.py>).
+
+Focused capacity recheck (2026-10-05): corrected the stale `food >= 32` test expectation to the approved default of 8, without changing runtime pools. Added mock and real checks for exhaustion, rejection without state changes, deletion and slot reuse; real checks also inspect MuJoCo geometry activation and cleanup. Six mock/contract Python suites passed **236 checks**; the real headless Lab suite passed **68 checks**, with no failures. Swift, GUI, TCP-loop and performance validation were not rerun in that focused test/documentation-only pass. Subsequent [2026-10-05 V5 closure revalidation](<notes/validation/v5-next-2026-10-05/README.md>) includes the feeding deletion fix, pause-help correction, build, seven Swift suites, twelve Python suites and a fresh real-headless TCP pass; GUI/live-rendering acceptance remains pending.
 
 ---
 
@@ -274,7 +279,7 @@ Use it for **controlled comparisons inside the same model**, not as a claim that
 └── docs/                          guides, plans + roadmap, reports, reference
 ```
 
-Controls and preset values: **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. Bridge internals and protocol: **[flygym_bridge/README.md](flygym_bridge/README.md)**. The **[V4–V14 roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** is implemented strictly in order; V6–V14 remain planned. Sandbox contract: **[V5.6.2 spec](docs/plans/VIRTUAL_FLY_LAB_V5_6_2_SANDBOX_SPEC.md)**.
+Controls and preset values: **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. Bridge internals and protocol: **[flygym_bridge/README.md](flygym_bridge/README.md)**. The **[V4–V14 roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** normally proceeds in order; the documented user exception starts V6.1 while deferring V5 GUI/live acceptance. V6.3 is in progress; V6.4–V14 remain planned. Sandbox contract: **[V5.6.2 spec](docs/plans/VIRTUAL_FLY_LAB_V5_6_2_SANDBOX_SPEC.md)**.
 
 ---
 

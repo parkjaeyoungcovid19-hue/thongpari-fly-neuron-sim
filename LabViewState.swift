@@ -109,8 +109,8 @@ struct LabViewState: Equatable {
         }
         let backendMode: LabViewMode = snapshot.player == nil ? .observe : .participate
         if let pendingMode {
-            if pendingMode == backendMode {
-                mode = backendMode
+            if pendingMode == backendMode || (pendingMode == .edit && backendMode == .observe) {
+                mode = pendingMode
                 self.pendingMode = nil
             }
         } else if mode != .edit {

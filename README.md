@@ -9,7 +9,7 @@
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS%20·%20Apple%20Silicon-111111?style=flat-square">
   <img alt="Swift" src="https://img.shields.io/badge/frontend-Swift%20%2B%20Metal-F05138?style=flat-square">
   <img alt="FlyGym" src="https://img.shields.io/badge/body-FlyGym%202.1%20%2B%20MuJoCo%203.9-5C7CFA?style=flat-square">
-  <img alt="status" src="https://img.shields.io/badge/V5.7-sandbox%20·%20activity%20cards-2E8B57?style=flat-square">
+  <img alt="status" src="https://img.shields.io/badge/V6.5-world%20editor%20·%20environment%20panel-2E8B57?style=flat-square">
 </p>
 
 <p align="center">
@@ -24,6 +24,8 @@
 - **Closed loop** — descending-neuron activity drives the FlyGym walking controller; measured body state, rendered-eye vision, contacts, odor, wind and temperature flow back into identified neural populations.
 - **You** — a stick-figure participant in the same MuJoCo world: walk with WASD, look with the mouse, pick up and carry objects, and fire a toy BB gun.
 - **Sandbox** — a grass lawn, six food models the fly can actually eat (proboscis contact → sugar-taste neurons), a toy car and a cage trap.
+- **Editor** — select any object in the 3D view, then move, rotate, resize or duplicate it with typed values or drag handles; add tilted ramps the fly climbs with its own legs.
+- **Environment panel** — temperature, continuous wind with a direction dial, per-eye covers and food placement, each showing the value the simulator actually applied and what reaches the fly right now.
 
 The point is not to fake convincing animal behavior. Every response can be traced along **source → modeled sensor → receptor activity → brain output → controller → measured motion**, and every control says whether it is physical, a sensory model, or direct neural stimulation.
 
@@ -32,6 +34,14 @@ The point is not to fake convincing animal behavior. Every response can be trace
 ## Tour
 
 <table>
+  <tr>
+    <td width="50%"><img src="docs/images/ui-edit.png" alt="Edit mode: a ramp tilted 25 degrees selected in the 3D view with its yellow outline and X/Y/Z handles, and the object editor showing Move, Rotate Z, Size and Tilt tools with the applied values"></td>
+    <td width="50%"><img src="docs/images/ui-environment.png" alt="Stimuli page as the environment panel: the fly eating a piece of cheese while the panel shows the values at the fly, temperature 30 °C to thermosensory neurons, and a continuous antenna-only wind"></td>
+  </tr>
+  <tr>
+    <td><b>Edit</b> (V6.3–V6.4) — click an object or pick it from the list, then type values or drag the coloured handles. Here a 60 mm ramp is tilted to 25°; the outline follows the real pose and every change waits for the simulator's ACK. No undo yet.</td>
+    <td><b>Environment</b> (V6.5) — the Stimuli page now reads the world at the fly: here it is eating cheese at 30 °C with a continuous antenna-only wind. Applied values and in-flight edits are shown separately.</td>
+  </tr>
   <tr>
     <td width="50%"><img src="docs/images/ui-participate.png" alt="Participate mode, third-person camera: the participant sphere and physical boxes in the MuJoCo world"></td>
     <td width="50%"><img src="docs/images/ui-brain.png" alt="Brain page: 139,255-neuron point cloud with spike flashes, a colour legend of the behaviour-relevant populations and direct stimulation controls"></td>
@@ -54,7 +64,7 @@ The point is not to fake convincing animal behavior. Every response can be trace
 
 ## Status
 
-**V5.6.2 (sandbox) and V5.7 (activity cards) are implemented; V5 is not complete.** The [2026-10-05 revalidation](notes/validation/v5-next-2026-10-05/README.md) closed A-1–A-4 with automated tests and a fresh real-headless TCP pass (38.1 Hz). Integrated GUI acceptance and live rendering performance remain unverified. At the user’s request on 2026-10-05, those gates are deferred. [V6.1–V6.2](docs/reports/V6_PROGRESS.md) add backend capability descriptors and strict revision-checked property edits with automated evidence. V6.3 object selection, gizmos, numeric editing and duplicate/delete are being implemented; direct GUI interaction verification is currently unavailable because the tool host lacks macOS Accessibility permission. Undo and scene save remain planned; neither V5 nor V6 is complete. The [readiness report](docs/reports/V6_START_READINESS_2026-09-28.md) remains a historical planning assessment, not completion evidence.
+**V6.1–V6.5 (world editing and the environment panel) are implemented; neither V5 nor V6 is complete.** Each step passed its automated Swift/Python suites, real-MuJoCo tests and real TCP probes ([V6 progress](docs/reports/V6_PROGRESS.md)). At the user's request, V5 GUI/live acceptance and the V6.3/V6.4 GUI checks were deferred while work moved on. A [real-GUI audit on 2026-10-06](notes/validation/gui-2026-10-06/REPORT.md) drove the packaged app and found four defects: the editor dropped a ramp's tilt, food odour used the origin instead of the fly's position, environment errors were overwritten by older replies, and the editor kept English text after a language change. All four are [fixed and covered by new tests](notes/validation/gui-fixes-2026-10-06/README.md); a full GUI re-check is still pending. Undo (V6.6) and scene save (V6.7) are next. The [readiness report](docs/reports/V6_START_READINESS_2026-09-28.md) remains a historical planning assessment, not completion evidence.
 
 | Version | What it added |
 |---|---|
@@ -68,19 +78,23 @@ The point is not to fake convincing animal behavior. Every response can be trace
 | **V5.6.2** | Sandbox: stick-figure participant, grass lawn, colourised fly, six food models, feeding with sugar-taste GRNs, toy car, cage trap, BB gun |
 | **V5.7** | Read-only activity cards from existing telemetry, each labelled MEASURED, MODEL INDEX or UNSUPPORTED |
 | Perf | Bit-identical speed-ups: end-to-end sim/wall 0.44 → 0.70×, canvas 17 → 24 fps |
+| V6.1–V6.2 | Backend capability descriptors for every editable property; strict, revision-checked `edit_property` with shared Swift/Python fixtures (rejects instead of clamping) |
+| V6.3 | Edit mode: pick objects in the 3D view, move / rotate / resize by numbers or drag handles, duplicate, delete |
+| **V6.4** | Ramps: tilted fixed terrain (0–45°) with leg contact pairs, so the fly climbs on its own legs |
+| **V6.5** | Environment panel: values at the fly, temperature, continuous wind with a direction dial, per-eye covers, food placement |
 
-Per-version evidence lives in [`docs/reports/V5_PROGRESS.md`](docs/reports/V5_PROGRESS.md) and [`notes/validation/`](notes/validation/v5-6-1-2026-09-27/README.md).
+Per-version evidence lives in [`docs/reports/V5_PROGRESS.md`](docs/reports/V5_PROGRESS.md), [`docs/reports/V6_PROGRESS.md`](docs/reports/V6_PROGRESS.md) and [`notes/validation/`](notes/validation/v5-6-1-2026-09-27/README.md).
 
 ---
 
 ## The lab
 
-The Lab is a single standard macOS window: a toolbar (**Observe / Participate**, pause, record, language), a source-list sidebar, the live world canvas with a timeline and status line beneath it, and an inspector that follows the sidebar. Changing the sidebar page never moves the camera or drops the selection.
+The Lab is a single standard macOS window: a toolbar (**Observe / Participate / Edit**, pause, record, language), a source-list sidebar, the live world canvas with a timeline and status line beneath it, and an inspector that follows the sidebar. Changing the sidebar page never moves the camera or drops the selection.
 
 | Page | What you can do |
 |---|---|
-| **World** | Place, move, resize and remove boxes, spheres, walls, food, toy cars and cage traps (fields or click-on-map); drive a car or re-arm a trap; make an object approach the fly; participant key bindings and look sensitivity; resets |
-| **Stimuli** | Cover or flash either eye, wind (physical force and/or modeled antennal drive), touch thorax/head/abdomen/legs, temperature mode |
+| **World** | Place boxes, spheres, walls, ramps, food, toy cars and cage traps (fields or click-on-map); the selected-object editor in Edit mode; drive a car or re-arm a trap; make an object approach the fly; participant key bindings and look sensitivity; resets |
+| **Stimuli** | The environment panel: live values at the fly, temperature and its mode, wind (physical force and/or modeled antennal drive, continuous or one puff), per-eye covers and flashes, food in front of the fly, touch thorax/head/abdomen/legs |
 | **Brain** | Whole-brain point cloud, neuron selection, direct stimulation of GF, DNa, MDN, DNp09, DNg11, LC4/LPLC2 and the exposed receptor groups |
 | **Data** | Activity cards; source state, receptor drive and spike rates, decoded `BrainSignals`, controller output, packet age, sim/wall timing, measured motion |
 | **Experiment** | Deterministic session, markers, looming/wind/touch/direct-neural presets, replay, recording |
@@ -108,6 +122,16 @@ Choose **Participate**, then click the 3D view to take control. The cursor hides
 Movement is integrated in **simulation time**, not frame rate or key repeat. Mouse-look deltas are applied exactly once however the OS splits the events.
 
 **Carrying** is kinematic and XY-only at up to 40 mm/s, held just in front of where you look. Since V5.6.1 each 0.1 ms physics substep is constrained *before* it is taken: MuJoCo's signed distance and witness points give the surface normal and remaining gap to nearby objects and to your own body, and the step keeps only what every surface allows. A held box therefore slides along walls and swings around you instead of pushing into you. It keeps 0.5 mm from the participant and stops 0.005 mm short of other objects. The older approaches — straight chase, polar sweep, tangent slide — each shoved the participant (up to 32.5 mm) or stuck against walls in real-MuJoCo tests. A post-step guard still reverts any step that deepens a penetration.
+
+### Edit: select, move, rotate, resize, tilt
+
+Choose **Edit**, then click an object in the 3D view or pick it from the list; **Show in view** turns the orbit camera to it. The tools are **Move**, **Rotate Z**, **Size** and, for ramps only, **Tilt**. Type a value and press Return, or drag a coloured handle; Esc cancels a drag. Out-of-range values are refused before anything is sent. Every edit carries the object's revision, so an edit made against an older state is rejected rather than applied over someone else's change, and the field shows the value the simulator reports back. **Duplicate** and **Delete** use the same path; a full slot pool is reported in words. There is no undo yet (V6.6).
+
+**Ramps** are fixed terrain: a thin box tilted 0–45° about its own Y axis. Tilting or resizing keeps the low edge in place, and they cannot be grabbed. FlyGym's fly geoms do not collide with anything by default, so every ramp slot gets explicit contact pairs for the tibiae, tarsi and body, with the floor's friction and solver settings. In real MuJoCo the fly climbs a ramp on its own legs (thorax height 1.0 → 7.4 mm); without those pairs its legs pass through. The cost: about +2% per step when ramps are far away, about +45% while the fly stands on one (mesh–box collision).
+
+### Environment panel
+
+The Stimuli page starts with **Now at the fly**: the latest body packet (position, heading) and what each modeled sensor reports there — temperature and thermosensory current, wind relative to the fly's heading and JO-C/E current, eye brightness, odour and nearest food, sugar taste. Below it, each setting shows the **applied** value from the simulator separately from an edit that is still on its way. A fast slider drag sends a bounded number of edits and ends on the last value. Wind can blow continuously at a set strength and direction, with the body push and the antennal sense switched on separately; changing it while a timed puff runs is rejected until the puff ends or you press Stop.
 
 ### Sandbox: food, feeding, toys
 
@@ -187,7 +211,7 @@ The launcher rebuilds when a Swift source is newer than the binary, then runs `.
 
 If macOS "Optimize Mac Storage" has offloaded `flygym-venv` to iCloud, the first backend start downloads each Python file on demand and can take many minutes. Keep the project folder downloaded.
 
-**Performance.** On the 8 GB M2 MacBook Air in the screenshots, the full real body with the render stream now runs at about **0.7× real time** with ~35 Hz body feedback and a 24 fps canvas (it was ~0.44× / 17 fps before the 2026-09-29 pass). Every change in that pass was checked to leave physics bit-identical (qpos/qvel hashes over 90 intervals). The remaining cost is MuJoCo's own step (~74%) and the FlyGym controller; going further would change timestep or solver. When feedback drops below 30 Hz the status line says `DEGRADED` rather than hiding it. These are machine-specific observations, not benchmarks. Details: [`V5_PROGRESS.md`](docs/reports/V5_PROGRESS.md).
+**Performance.** On the 8 GB M2 MacBook Air in the screenshots, the full real body with the render stream now runs at about **0.7× real time** with ~35 Hz body feedback and a 24 fps canvas (it was ~0.44× / 17 fps before the 2026-09-29 pass). Every change in that pass was checked to leave physics bit-identical (qpos/qvel hashes over 90 intervals). The remaining cost is MuJoCo's own step (~74%) and the FlyGym controller; going further would change timestep or solver. When feedback drops below 30 Hz the status line says `DEGRADED` rather than hiding it. These are machine-specific observations, not benchmarks. Details: [`V5_PROGRESS.md`](docs/reports/V5_PROGRESS.md). With the V6 features the picture is not settled: the 2026-10-06 GUI audit saw 19–23 Hz body feedback on battery power, and the AC-power measurement has not been redone since V6.4–V6.5 (a headless TCP run measured 38.3 Hz on AC after V6.1).
 
 ---
 
@@ -213,6 +237,7 @@ Self-tests are built into the binary; Python tests run against the mock and the 
 ./ThongpariFlyNeuronSim --labtest        # lab protocol, input, frame hand-off
 ./ThongpariFlyNeuronSim --bridgetest     # wire contract and decoders
 ./ThongpariFlyNeuronSim --v4test         # deterministic sessions
+./ThongpariFlyNeuronSim --worldeditortest # editor, ramps, environment panel (headless AppKit)
 ./ThongpariFlyNeuronSim --v4timingtest
 ./ThongpariFlyNeuronSim --simtest        # circuit invariants + GPU throughput
 ./ThongpariFlyNeuronSim --behaviortest   # sim -> body end to end
@@ -222,6 +247,8 @@ Self-tests are built into the binary; Python tests run against the mock and the 
 ./flygym-venv/bin/python flygym_bridge/test_interaction_real.py   # grab / carry in real MuJoCo
 ./flygym-venv/bin/python flygym_bridge/test_player_collision_real.py
 ./flygym-venv/bin/python flygym_bridge/test_lab_real.py
+./flygym-venv/bin/python flygym_bridge/test_environment_edits.py  # shared edit fixtures
+./flygym-venv/bin/python flygym_bridge/test_v6_4_terrain_real.py  # the fly climbs a ramp in real MuJoCo
 ```
 
 Against a fresh backend (`./run_flygym.sh --bridge-only`, or `bridge.py --mock`), `--bridgeloop`, `--labloop`, `--v4loop` and `--interactionloop` exercise the real TCP path. `--inputprobe` measures input latency and look cadence, and exits non-zero if its preconditions fail.
@@ -257,6 +284,9 @@ Use it for **controlled comparisons inside the same model**, not as a claim that
 ├── FlyGymPackets.swift, LabProtocol.swift   wire packets and lab telemetry types
 ├── LabWindow.swift, LabChrome.swift         the Lab window, sidebar, inspector pages
 ├── WorldViewer.swift, MuJoCoCanvas.swift    3D canvas: camera, picking, participate input, MuJoCo frames
+├── WorldEditor.swift              Edit mode: selected-object editor, handles, ACK bookkeeping
+├── EnvironmentProperty.swift      capability descriptors and revision-checked edits
+├── EnvironmentPanel.swift         the environment panel (Stimuli page)
 ├── PlayerController.swift         WASD / mouse-look / focus / remap / look sensitivity
 ├── BrainView.swift                139k-neuron point cloud (Brain page)
 ├── ActivityCards.swift            read-only activity cards (Data page)
@@ -265,10 +295,12 @@ Use it for **controlled comparisons inside the same model**, not as a claim that
 ├── LabDiagnostics.swift           --labtest
 ├── SimDiagnostics.swift           --simtest / --behaviortest / --v4timingtest
 ├── BridgeDiagnostics.swift        --bridgetest and the live TCP loops, --inputprobe
+├── WorldEditorDiagnostics.swift, EnvironmentPanelDiagnostics.swift   --worldeditortest
 ├── flygym_bridge/
 │   ├── bridge.py                  Python server (sessions, commands, input, snapshots)
 │   ├── fly_body.py                mock + real FlyGym body
-│   ├── lab_world.py               world objects, stimuli, carry constraints
+│   ├── lab_world.py               world objects, ramps, stimuli, carry constraints
+│   ├── environment_properties.py  capability descriptors and edit validation
 │   ├── interaction.py             grab / place contract and constrained carry step
 │   ├── player_body.py             participant (stick figure) physics and movement
 │   ├── sandbox_models.py          food, car, trap, BB and stick-figure models from MuJoCo primitives
@@ -279,7 +311,7 @@ Use it for **controlled comparisons inside the same model**, not as a claim that
 └── docs/                          guides, plans + roadmap, reports, reference
 ```
 
-Controls and preset values: **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. Bridge internals and protocol: **[flygym_bridge/README.md](flygym_bridge/README.md)**. The **[V4–V14 roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** normally proceeds in order; the documented user exception starts V6.1 while deferring V5 GUI/live acceptance. V6.3 is in progress; V6.4–V14 remain planned. Sandbox contract: **[V5.6.2 spec](docs/plans/VIRTUAL_FLY_LAB_V5_6_2_SANDBOX_SPEC.md)**.
+Controls and preset values: **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. Bridge internals and protocol: **[flygym_bridge/README.md](flygym_bridge/README.md)**. The **[V4–V14 roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** normally proceeds in order; the documented user exception starts V6.1 while deferring V5 GUI/live acceptance. V6.1–V6.5 are implemented with GUI checks pending; V6.6–V14 remain planned. Sandbox contract: **[V5.6.2 spec](docs/plans/VIRTUAL_FLY_LAB_V5_6_2_SANDBOX_SPEC.md)**.
 
 ---
 
@@ -300,7 +332,7 @@ Please cite the relevant upstream projects and papers when using their data or m
 
 - `docs/images/neuromechfly-v2.jpg` — simulated NeuroMechFly v2 scene, **Ramdya laboratory, EPFL**, **CC BY-SA 4.0**: <https://actu.epfl.ch/news/simulating-how-fruit-flies-see-smell-and-navigat-4>.
 - `docs/images/drosophila-melanogaster.jpg` — *Drosophila melanogaster* by **Alexis** (`alexis_orion` on iNaturalist), **CC BY 4.0**, Wikimedia Commons: <https://commons.wikimedia.org/wiki/File:Drosophila_melanogaster_53362116.jpg>.
-- `docs/images/ui-*.png` — screenshots of this app: `ui-world.png` and `ui-data.png` captured 2026-09-30, the others 2026-09-27.
+- `docs/images/ui-*.png` — screenshots of this app: `ui-edit.png` and `ui-environment.png` captured 2026-10-07 (real backend, AC power; body feedback was 5–21 Hz while the app was driven by accessibility scripting, so the status line reads `DEGRADED`), `ui-world.png` and `ui-data.png` 2026-09-30, the others 2026-09-27.
 
 ---
 

@@ -64,7 +64,7 @@ struct LabCommand: Codable {
     // V5.6.2 sandbox toys. Python merges these flat keys into `args` unchanged,
     // so each wire name is exactly the backend argument name.
     var shape: String? = nil
-    var sizeMM: Double? = nil
+    var sizeMM: LabSizeMM? = nil
     var speedMMs: Double? = nil
     var distanceMM: Double? = nil
     var equipped: Bool? = nil
@@ -72,6 +72,10 @@ struct LabCommand: Codable {
     // V6.2 strict single-property edit (`edit_property`); see EnvironmentEdit.
     var edit: EnvironmentEdit? = nil
     var objectEdit: WorldObjectEdit? = nil
+    // V6.4 ramp tilt (spawn_ramp).
+    var pitchDeg: Double? = nil
+    // V6.5 food model for spawn_food (backend FOOD_VARIANTS name).
+    var variant: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case type, id, action, target, x, y, z, size, speed, strength, value
@@ -92,6 +96,28 @@ struct LabCommand: Codable {
         case sizeMM = "size_mm"
         case speedMMs = "speed_mm_s"
         case distanceMM = "distance_mm"
+        case pitchDeg = "pitch_deg"
+        case variant
+    }
+}
+
+/// `size_mm` on the wire: a toy's scalar length/side, or a ramp's [length, width, thickness].
+enum LabSizeMM: Codable, Equatable {
+    case scalar(Double)
+    case vector([Double])
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let value = try? c.decode(Double.self) { self = .scalar(value) }
+        else { self = .vector(try c.decode([Double].self)) }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .scalar(let value): try c.encode(value)
+        case .vector(let value): try c.encode(value)
+        }
     }
 }
 
@@ -135,7 +161,20 @@ extension LabCommand {
               positionMM.allSatisfy({ $0.isFinite && abs($0) <= 1000 }) else { return nil }
         return LabCommand(id: id, action: "spawn_object", target: target,
                           x: positionMM[0], y: positionMM[1], z: positionMM[2],
-                          shape: shape, sizeMM: sizeMM)
+                          shape: shape, sizeMM: .scalar(sizeMM))
+    }
+
+    /// V6.4 `spawn_ramp {id, position_mm, size_mm: [L, W, T], pitch_deg}`; bounds
+    /// mirror lab_world.RAMP_SIZE_RANGE_MM / RAMP_PITCH_MAX_DEG.
+    static func spawnRamp(id: Int = 0, target: String, positionMM: [Double],
+                          sizeMM: [Double], pitchDeg: Double) -> LabCommand? {
+        guard !target.isEmpty, positionMM.count == 3,
+              positionMM.allSatisfy({ $0.isFinite && abs($0) <= 1000 }),
+              sizeMM.count == 3, zip(sizeMM, LabRamp.sizeRangesMM).allSatisfy({ $1.contains($0) }),
+              LabRamp.pitchRangeDeg.contains(pitchDeg) else { return nil }
+        return LabCommand(id: id, action: "spawn_ramp", target: target,
+                          x: positionMM[0], y: positionMM[1], z: positionMM[2],
+                          sizeMM: .vector(sizeMM), pitchDeg: pitchDeg)
     }
 
     /// `drive_object {id, speed_mm_s, distance_mm}`; 0 < speed ≤ 60, 0 < distance ≤ 300.
@@ -168,6 +207,27 @@ extension LabCommand {
         guard norm.isFinite, norm > 1e-9 else { return nil }
         return LabCommand(id: id, action: "fire_bb", actorID: actorID,
                           direction: direction.map { $0 / norm })
+    }
+}
+
+/// V6.4 ramp presentation defaults. lab_world.py stays authoritative.
+enum LabRamp {
+    static let defaultLengthMM = 40.0
+    static let defaultPitchDeg = 15.0
+    static let thicknessMM = 1.0
+    static let sizeRangesMM: [ClosedRange<Double>] = [5...200, 2...200, 0.2...20]
+    static let pitchRangeDeg: ClosedRange<Double> = 0...45
+
+    /// The spawn form's one size number is the length; the width is half of it.
+    static func size(lengthMM: Double) -> [Double] {
+        let length = min(sizeRangesMM[0].upperBound, max(sizeRangesMM[0].lowerBound, lengthMM))
+        return [length, max(sizeRangesMM[1].lowerBound, length / 2), thicknessMM]
+    }
+
+    /// Centre height that lays the low top edge on the lawn (lab_world.ramp_flush_center_z).
+    static func flushCenterZ(sizeMM: [Double], pitchDeg: Double) -> Double {
+        let p = pitchDeg * .pi / 180
+        return 0.5 * sizeMM[0] * sin(p) - 0.5 * sizeMM[2] * cos(p)
     }
 }
 
@@ -211,6 +271,7 @@ enum LabToy {
         case "box": return L("box", "상자")
         case "sphere": return L("sphere", "공")
         case "wall": return L("wall", "벽")
+        case "ramp": return L("ramp", "경사로")
         default: return shape
         }
     }
@@ -548,9 +609,12 @@ struct LabWorldObjectRemote: Decodable {
     var foodVariant: String? = nil
     /// V6.2 edit expected_revision source; nil from older backends.
     var revision: Int? = nil
+    /// V6.4 ramp tilt; absent for every other shape.
+    var pitchDeg: Double? = nil
 
     enum CodingKeys: String, CodingKey {
         case id, shape, revision
+        case pitchDeg = "pitch_deg"
         case positionMM = "position_mm"
         case sizeMM = "size_mm"
         case yawDeg = "yaw_deg"
@@ -572,6 +636,22 @@ extension LabWorldObjectRemote {
         trapState = (try? c.decodeIfPresent(String.self, forKey: .trapState)) ?? nil
         foodVariant = (try? c.decodeIfPresent(String.self, forKey: .foodVariant)) ?? nil
         revision = (try? c.decodeIfPresent(Int.self, forKey: .revision)) ?? nil
+        pitchDeg = (try? c.decodeIfPresent(Double.self, forKey: .pitchDeg)) ?? nil
+    }
+
+    /// The editor's view of one atomic render object. Yaw and (ramps) tilt
+    /// both come from the same quaternion as the drawn pose; `lab` only
+    /// supplies the labels the render snapshot does not carry.
+    init(render object: WorldRenderObject, lab: LabWorldObjectRemote?) {
+        let q = object.orientationQuatXYZW
+        let (x, y, z, w) = (q[0], q[1], q[2], q[3])
+        // lab_world.LabObject.quat_wxyz = Rz(yaw) · Ry(−pitch).
+        let yaw = atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+        let pitch = asin(min(1, max(-1, 2 * (x * z - w * y))))
+        self.init(id: object.id, shape: object.shape, positionMM: object.positionMM, sizeMM: object.sizeMM,
+                  yawDeg: yaw * 180 / .pi, trapState: object.trapState ?? lab?.trapState,
+                  foodVariant: lab?.foodVariant, revision: object.revision,
+                  pitchDeg: object.shape == "ramp" ? pitch * 180 / .pi : nil)
     }
 }
 
@@ -586,6 +666,38 @@ struct LabProjectileRemote: Decodable {
     }
 }
 
+/// V6.5 applied singleton environment (`state.wind/temperature/eyes`). Each
+/// block decodes independently; a malformed one is dropped, never the state.
+struct LabRemoteWind: Decodable, Equatable {
+    var strength: Double
+    var directionDeg: Double
+    var continuous: Bool
+    var remainingMS: Double?
+    var physicalEnabled: Bool
+    var sensoryEnabled: Bool
+    enum CodingKeys: String, CodingKey {
+        case strength, continuous
+        case directionDeg = "direction_deg", remainingMS = "remaining_ms"
+        case physicalEnabled = "physical_enabled", sensoryEnabled = "sensory_enabled"
+    }
+}
+
+struct LabRemoteTemperature: Decodable, Equatable {
+    var celsius: Double
+    var mode: String
+}
+
+struct LabRemoteEyes: Decodable, Equatable {
+    var leftEnabled: Bool
+    var rightEnabled: Bool
+    var leftMask: Double
+    var rightMask: Double
+    enum CodingKeys: String, CodingKey {
+        case leftEnabled = "left_enabled", rightEnabled = "right_enabled"
+        case leftMask = "left_mask", rightMask = "right_mask"
+    }
+}
+
 struct LabRemoteWorldState: Decodable {
     /// Optional V6.1 metadata, not current values or permission to apply an edit.
     var environmentCapabilities: EnvironmentCapabilities?
@@ -593,11 +705,14 @@ struct LabRemoteWorldState: Decodable {
     var slotCapacity: [String: Int]?
     var slotFree: [String: Int]?
     var projectiles: [LabProjectileRemote]?
-    /// V6.2 expected_revision for global (temperature/eyes) edits.
+    /// V6.2 expected_revision for global (temperature/eyes/wind) edits.
     var environmentRevision: Int?
+    var wind: LabRemoteWind?
+    var temperature: LabRemoteTemperature?
+    var eyes: LabRemoteEyes?
 
     enum CodingKeys: String, CodingKey {
-        case objects, projectiles
+        case objects, projectiles, wind, temperature, eyes
         case environmentCapabilities = "environment_capabilities"
         case environmentRevision = "environment_revision"
         case slotCapacity = "slot_capacity"
@@ -615,6 +730,17 @@ struct LabRemoteWorldState: Decodable {
         // Optional V5.6.2 field; older backends omit it and a bad one is dropped.
         projectiles = (try? c.decodeIfPresent([LabProjectileRemote].self, forKey: .projectiles)) ?? nil
         environmentRevision = (try? c.decodeIfPresent(Int.self, forKey: .environmentRevision)) ?? nil
+        wind = Self.finite(try? c.decodeIfPresent(LabRemoteWind.self, forKey: .wind)) {
+            [$0.strength, $0.directionDeg, $0.remainingMS ?? 0] }
+        temperature = Self.finite(try? c.decodeIfPresent(LabRemoteTemperature.self, forKey: .temperature)) {
+            [$0.celsius] }
+        eyes = Self.finite(try? c.decodeIfPresent(LabRemoteEyes.self, forKey: .eyes)) {
+            [$0.leftMask, $0.rightMask] }
+    }
+
+    private static func finite<T>(_ value: T??, _ numbers: (T) -> [Double]) -> T? {
+        guard let value = value ?? nil, numbers(value).allSatisfy(\.isFinite) else { return nil }
+        return value
     }
 }
 
@@ -1114,6 +1240,8 @@ struct LabTelemetry {
     var windCDrive: Double = 0
     var windEDrive: Double = 0
     var temperatureC: Double = 25
+    /// Mode the brain side is actually using (V6.5 backend reconciliation).
+    var temperatureMode: String = "environment_only"
     var bodyVX: Double = 0
     var bodyYawRate: Double = 0
     var bodyContactMean: Double = 0

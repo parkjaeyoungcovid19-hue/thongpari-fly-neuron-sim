@@ -32,6 +32,7 @@ enum LabLanguage: String, CaseIterable {
     }
 
     static func pinEnglishForTests() { testOverride = .english }
+    static func pinForTests(_ language: LabLanguage) { testOverride = language }
 
     /// Shown in the language's own script so either reader can find it.
     var menuTitle: String {

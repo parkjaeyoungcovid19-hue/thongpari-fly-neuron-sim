@@ -1,0 +1,17 @@
+The following is a diff from the previous accessibility tree for Window: "Virtual Fly Lab" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~		112 텍스트 3D 화면 — 시각 37725 ms · 물체 1개
+~		31 text 타임라인 — 최근 명령과 반응 t31145  #9 edit_property — 적용됨 @t31185
+t31225  #10 edit_property — 적용됨 @t31245
+t36245  #11 edit_property — 적용됨 @t36265
+t36285  #12 edit_property — 적용됨 @t36305
+t36525  recording start → /Users/apgx/Documents/ThongpariFlyNeuronSimExperiments/experiment-20261006-205547 — 앱 안에서 처리 몸 데이터 406 ms 전 · 속도 0.0020 m/s · 발 닿음 1.00 · 눈 샘플 t37625 · 다가옴 감지 L/R 0.005/0.035 · 뇌 활동 2.0 Hz 실시간 — 시뮬레이터(headless) :63243 · 몸 데이터 초당 12회 · 실시간 대비 0.40배 · 느림: 몸 데이터가 초당 30회 미만 ● 기록 중 00:06 → experiment-20261006-205547
+~			34 text 지금 파리 위치의 값 파리 위치  x -8.3 · y -85.6 mm · 바라보는 방향 266° · 몸 시각 37.745 s (406 ms 전)
+온도  34.0 °C (기록만) · 감각 전류 따뜻 0.000 / 차가 0.000 · 온도 뉴런 0.0 / 0.0 Hz
+바람  세기 1.00, 0° 쪽 = 파리 기준 왼쪽으로 (오른쪽에서 붊) (+94°) · 더듬이 전류 C 0.026 / E 0.029 · 0.1 / 0.3 Hz
+빛  눈 밝기 왼 0.56 / 오 0.56 (눈 영상 t37625) · 번쩍임 0.00 / 0.00
+먹이  냄새 왼 0.000 / 오 0.000 · 가장 가까운 먹이 먹이 없음 · 맛(당) 0.00 · 후각 뉴런 0.0 / 0.0 Hz
+Selected text: ```
+0
+```
+
+Note: Pay special attention to the content selected by the user. If the user asks a question or refers to the content they are looking at on-screen, they might be referring to the selected content (but they might be referring to something else that's visible, too).

@@ -1,0 +1,14 @@
+{
+  "description": "Negative ramp tilt is rejected (use yaw to face the other way)",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "expected_revision": 0,
+    "property_id": "object.ramp.pitch_deg",
+    "target_id": "ramp_1",
+    "unit": "deg",
+    "value": -1
+  },
+  "expect": "reject",
+  "path": "edit.value"
+}

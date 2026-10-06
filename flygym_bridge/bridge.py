@@ -522,7 +522,8 @@ class Bridge:
                 self.last_lab_action = command.op
                 response = self._lab_state(
                     ack=command.seq, ok=False, error=str(exc)[:512],
-                    last_action=command.op, status=("rejected" if v4 else None))
+                    last_action=command.op,
+                    status=(getattr(exc, "status", "rejected") if v4 else None))
                 if isinstance(exc, EditError):
                     response.edit = {"ok": False, "status": exc.status, "path": exc.path,
                                      "reason": exc.reason, **exc.detail}

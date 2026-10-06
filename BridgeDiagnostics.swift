@@ -925,7 +925,7 @@ func runBridgeTest() {
               frame.count > 512 * 1024 && frame.count < 1024 * 1024
               && buffer.isEmpty && bridge.malformedCount == 0
               && state?.authoritativeObjects?.count == 1536
-              && state?.worldState?.environmentCapabilities?.descriptors.count == 39
+              && state?.worldState?.environmentCapabilities?.descriptors.count == 42
               && state?.sessionID == "v6-large-fixture" && state?.epoch == 1
               && bridge.latestLabAck()?.id == 101, "bytes=\(frame.count)")
         var oversized = Data(repeating: 0x78, count: 1024 * 1024 + 1)

@@ -1,0 +1,17 @@
+{
+  "description": "Ramp size at per-axis minimums",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "expected_revision": 0,
+    "property_id": "object.ramp.size_mm",
+    "target_id": "ramp_1",
+    "unit": "mm",
+    "value": [
+      5,
+      2,
+      0.2
+    ]
+  },
+  "expect": "accept"
+}

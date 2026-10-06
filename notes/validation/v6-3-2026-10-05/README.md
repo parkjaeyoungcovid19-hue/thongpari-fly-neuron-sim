@@ -11,7 +11,7 @@
 
 ## 자동 검사
 
-현재 최종 결과 미수집. 자동 검증을 실제 GUI 수용으로 대체하지 않는다. 실행 위치는 저장소 디렉터리다.
+23:08 후보의 [자동 결과](<RESULTS.md>)는 수집됐다. 23:38 이후 다른 세션의 소스 수정·23:41 binary 재빌드에는 그 결과를 전용하지 않는다. [후보별 GUI 인계](<GUI_PARENT_HANDOFF.md>)에 실제 편집 모드 전환·물체 선택 성공과 미검증 범위를 구분했다. 자동 검증을 실제 GUI 수용으로 대체하지 않는다. 실행 위치는 저장소 디렉터리다.
 
 ```sh
 ./build.sh
@@ -27,4 +27,4 @@
 - [권한 재확인](permissions-after-user-grant.json): 사용자가 권한 허용 후 계속을 선택했지만 현재 host의 Accessibility/Screen Recording은 여전히 false였다. 사용자 승인과 OS grant를 구분한다.
 - [GUI checklist](GUI_CHECKLIST.md): 입력·geometry·negative/no-mutation·성능 항목 모두 실제 새 프로세스 동선 증거가 필요하다.
 
-새 build의 exact-window screenshot/layout smoke는 후속 기록할 예정이다. 실제 클릭·드래그·Return 입력이 거절되면 해당 항목은 미검증으로 유지한다. foreground retry, TCC 우회 또는 backend command 주입을 GUI 수용으로 기록하지 않는다. V6.4로 진행하지 않는다.
+23:08 후보의 [실제 편집 화면](<gui-candidate-edit.png>)과 다음 fresh AX snapshot에서 toolbar/선택 전환을 확인했다. 이후 exact-window AX route가 동작했으므로 이전 permission false 기록만으로 모든 입력이 계속 차단됐다고 결론내리지 않는다. 최신 빌드의 전체 GUI 검증은 다른 세션과 소스/앱 소유권 조율 후 필요하다. foreground retry, TCC 우회 또는 backend command 주입을 GUI 수용으로 기록하지 않는다. V6.4로 진행하지 않는다.

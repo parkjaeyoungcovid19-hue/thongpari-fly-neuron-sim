@@ -1,0 +1,18 @@
+The following is a diff from the previous accessibility tree for Window: "Virtual Fly Lab" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~		28 텍스트 3D 화면 — 시각 48085 ms · 물체 1개
+~			30 text 🥵 슬픔 — 더워요 34 °C는 너무 더워요 감각·행동 신호로 만든 추정
+~		31 text 타임라인 — 최근 명령과 반응 t36245  #11 edit_property — 적용됨 @t36265
+t36285  #12 edit_property — 적용됨 @t36305
+t36525  recording start → /Users/apgx/Documents/ThongpariFlyNeuronSimExperiments/experiment-20261006-205547 — 앱 안에서 처리
+t37785  #13 edit_property — 적용됨 @t37805
+t44605  #14 edit_property — 적용됨 @t44625 몸 데이터 51 ms 전 · 속도 0.0032 m/s · 발 닿음 1.00 · 눈 샘플 t47965 · 다가옴 감지 L/R 0.124/0.001 · 뇌 활동 1.7 Hz 실시간 — 시뮬레이터(headless) :63243 · 몸 데이터 초당 12회 · 실시간 대비 0.40배 · 느림: 몸 데이터가 초당 30회 미만 ● 기록 중 00:54 → experiment-20261006-205547
+~			34 text 지금 파리 위치의 값 파리 위치  x 46.2 · y -91.8 mm · 바라보는 방향 323° · 몸 시각 48.125 s (51 ms 전)
+온도  34.0 °C (기록만) · 감각 전류 따뜻 0.000 / 차가 0.000 · 온도 뉴런 0.0 / 0.0 Hz
+바람  세기 1.00, 0° 쪽 = 파리 기준 왼쪽 앞으로 (+37°) · 더듬이 전류 C 0.049 / E 0.006 · 16.8 / 0.0 Hz
+빛  눈 밝기 왼 0.56 / 오 0.56 (눈 영상 t47965) · 번쩍임 0.00 / 0.00
+먹이  냄새 왼 0.000 / 오 0.000 · 가장 가까운 먹이 먹이 없음 · 맛(당) 0.00 · 후각 뉴런 0.0 / 0.0 Hz
+Selected text: ```
+0
+```
+
+Note: Pay special attention to the content selected by the user. If the user asks a question or refers to the content they are looking at on-screen, they might be referring to the selected content (but they might be referring to something else that's visible, too).

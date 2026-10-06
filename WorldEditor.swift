@@ -14,14 +14,33 @@ struct WorldObjectEdit: Codable, Equatable {
 }
 
 enum WorldEditorTool: Int, CaseIterable {
-    case move, rotate, size
+    case move, rotate, size, tilt
     var title: String {
         switch self { case .move: return L("Move", "이동")
         case .rotate: return L("Rotate Z", "Z 회전")
-        case .size: return L("Size", "크기") }
+        case .size: return L("Size", "크기")
+        case .tilt: return L("Tilt", "기울기") }
     }
+    /// Tilt exists only where the backend publishes a pitch descriptor (ramps).
     func propertyID(shape: String) -> String {
-        self == .rotate ? "object.yaw_deg" : "object.\(shape).\(self == .move ? "position_mm" : "size_mm")"
+        switch self {
+        case .move: return "object.\(shape).position_mm"
+        case .rotate: return "object.yaw_deg"
+        case .size: return "object.\(shape).size_mm"
+        case .tilt: return "object.\(shape).pitch_deg"
+        }
+    }
+    var isAngle: Bool { self == .rotate || self == .tilt }
+}
+
+extension LabWorldObjectRemote {
+    /// World directions of the object's own X/Y/Z axes: yaw about world Z,
+    /// then (ramps) pitch about the object's Y, raising its +X end.
+    var localAxes: [[Double]] {
+        let y = yawDeg * .pi / 180, p = (pitchDeg ?? 0) * .pi / 180
+        return [[cos(y) * cos(p), sin(y) * cos(p), sin(p)],
+                [-sin(y), cos(y), 0],
+                [-cos(y) * sin(p), -sin(y) * sin(p), cos(p)]]
     }
 }
 
@@ -109,6 +128,10 @@ struct WorldEditorState {
     }
     private static func rejection(_ ack: LabAck) -> String {
         guard let edit = ack.edit else { return L("Not applied — ", "적용 안 됨 — ") + ack.message }
+        if edit.status == "rejected_capacity" {
+            return L("Not applied — every slot for this kind of object is in use; delete one first",
+                     "적용 안 됨 — 이 종류의 물체 자리가 모두 찼습니다. 하나를 지운 뒤 다시 하세요")
+        }
         if edit.status == "rejected_stale_revision" {
             return L("Not applied — the object changed first; check the current values and retry",
                      "적용 안 됨 — 그사이 물체가 바뀌었습니다. 현재 값을 확인하고 다시 시도하세요")
@@ -194,6 +217,7 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
     private let applyButton = NSButton()
     private let duplicateButton = NSButton()
     private let deleteButton = NSButton()
+    private let hint = NSTextField(wrappingLabelWithString: "")
     /// Everything but the status line; collapsed outside Edit mode.
     private let body = NSStackView()
     private(set) var state = WorldEditorState()
@@ -207,6 +231,7 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
     private var wasAvailable = false
     private var mode: LabViewMode = .observe
     private var selectionID: String?
+    private var listedObjects: [LabWorldObjectRemote] = []
     private var confirmedDuplicate: (id: String, until: Date)?
     private var selectionSerial = 0
     private var requestSelectionSerial = 0
@@ -220,17 +245,14 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
 
         objectsPopup.target = self
         objectsPopup.action = #selector(selectionChanged)
-        objectsPopup.setAccessibilityLabel(L("Simulator objects", "시뮬레이터 물체 목록"))
-        focusButton.title = L("Show in view", "선택 물체 보기")
         focusButton.bezelStyle = .rounded
         focusButton.target = self
         focusButton.action = #selector(focusSelected)
         let picker = NSStackView(views: [objectsPopup, focusButton])
         picker.spacing = 8
 
-        tools.segmentCount = 3
+        tools.segmentCount = WorldEditorTool.allCases.count
         tools.selectedSegment = 0
-        for t in WorldEditorTool.allCases { tools.setLabel(t.title, forSegment: t.rawValue) }
         tools.target = self
         tools.action = #selector(toolChanged)
 
@@ -250,13 +272,10 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
             body.addArrangedSubview(row)
         }
 
-        applyButton.title = L("Apply", "적용")
         applyButton.target = self
         applyButton.action = #selector(applyNumeric)
-        duplicateButton.title = L("Duplicate", "복제")
         duplicateButton.target = self
         duplicateButton.action = #selector(duplicate)
-        deleteButton.title = L("Delete", "삭제")
         deleteButton.target = self
         deleteButton.action = #selector(remove)
         for b in [applyButton, duplicateButton, deleteButton] { b.bezelStyle = .rounded }
@@ -267,9 +286,6 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
         actualLabel.font = .systemFont(ofSize: 11)
         actualLabel.textColor = .secondaryLabelColor
         body.addArrangedSubview(actualLabel)
-        let hint = NSTextField(wrappingLabelWithString: L(
-            "Position and size are in mm, rotation in degrees (around the vertical axis only). Press Return to apply typed values, or drag a colored handle in the 3D view; Esc cancels a drag. A duplicate appears on top of the original — move it next. There is no undo yet.",
-            "위치·크기는 mm, 회전은 도(°) 단위이며 수직축으로만 돕니다. 값을 입력하고 Return을 누르거나 3D 화면의 색깔 핸들을 끌어 바꾸고, 끄는 중 Esc를 누르면 취소됩니다. 복제본은 원본과 같은 자리에 생기니 바로 옮기세요. 되돌리기는 아직 없습니다."))
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
         body.addArrangedSubview(hint)
@@ -279,10 +295,30 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
         addArrangedSubview(status)
         overlay.onCommit = { [weak self] t, value, object in self?.submit(t, value, object) }
         overlay.onDraft = { [weak self] text in self?.status.stringValue = text }
-        populate()
-        renderStatus()
+        relabel()
     }
     required init?(coder: NSCoder) { fatalError("init(coder:)") }
+
+    /// Static wording in the current language; LabWindow calls it again on a
+    /// language change. A finished reply is dropped, since it was worded in
+    /// the old language; one still pending is re-worded when its ACK lands.
+    func relabel() {
+        objectsPopup.setAccessibilityLabel(L("Simulator objects", "시뮬레이터 물체 목록"))
+        focusButton.title = L("Show in view", "선택 물체 보기")
+        for t in WorldEditorTool.allCases { tools.setLabel(t.title, forSegment: t.rawValue) }
+        applyButton.title = L("Apply", "적용")
+        duplicateButton.title = L("Duplicate", "복제")
+        deleteButton.title = L("Delete", "삭제")
+        hint.stringValue = L(
+            "Position and size are in mm, rotation in degrees around the vertical axis. Only ramps tilt (0–45°); tilting or resizing a ramp keeps its low edge in place. Press Return to apply typed values, or drag a colored handle in the 3D view; Esc cancels a drag. A duplicate appears on top of the original — move it next. There is no undo yet.",
+            "위치·크기는 mm, 회전은 수직축 기준 도(°) 단위입니다. 기울기는 경사로만 바꿀 수 있고(0–45°), 경사로의 기울기·크기를 바꿔도 낮은 쪽 모서리는 제자리에 있습니다. 값을 입력하고 Return을 누르거나 3D 화면의 색깔 핸들을 끌어 바꾸고, 끄는 중 Esc를 누르면 취소됩니다. 복제본은 원본과 같은 자리에 생기니 바로 옮기세요. 되돌리기는 아직 없습니다.")
+        objectsPopup.removeAllItems()
+        refreshPopup(objects: listedObjects, selectedID: selectionID)
+        state.clearDraftMessage()
+        if dirty { labelFields() } else { populate() }
+        actualLabel.stringValue = object.map(Self.describeCurrent) ?? ""
+        renderStatus()
+    }
 
     func controlTextDidBeginEditing(_ notification: Notification) {
         if !dirty { editingObject = object }
@@ -348,9 +384,9 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
         guard let o = object, let d = descriptor(t, o) else { return false }
         return d.applyMode == .live && o.revision != nil
     }
-    /// Rotation, and size of round/long shapes, are one number.
+    /// Angles, and size of round/long shapes, are one number.
     private func isScalar(_ t: WorldEditorTool, _ o: LabWorldObjectRemote?) -> Bool {
-        t == .rotate || (t == .size && o.flatMap { descriptor(.size, $0) }?.valueType == .number)
+        t.isAngle || (t == .size && o.flatMap { descriptor(.size, $0) }?.valueType == .number)
     }
 
     func update(objects: [LabWorldObjectRemote], selectedID: String?, capabilities: EnvironmentCapabilities?,
@@ -395,6 +431,7 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
     }
 
     private func refreshPopup(objects: [LabWorldObjectRemote], selectedID: String?) {
+        listedObjects = objects
         let ids = objects.map(\.id)
         let listed = objectsPopup.itemArray.compactMap { $0.representedObject as? String }
         if listed != ids || objectsPopup.numberOfItems != ids.count + 1 {
@@ -414,19 +451,13 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
         let position = o.positionMM.map { String(format: "%.1f", $0) }.joined(separator: ", ")
         let size = o.sizeMM.map { String(format: "%.1f", $0) }.joined(separator: " × ")
         let yaw = String(format: "%.1f", o.yawDeg)
-        return L("Now — position \(position) mm · rotation \(yaw)° · size \(size) mm",
-                 "현재 — 위치 \(position) mm · 회전 \(yaw)° · 크기 \(size) mm")
+        let tilt = o.pitchDeg.map { String(format: "%.1f", $0) }
+        return L("Now — position \(position) mm · rotation \(yaw)°" + (tilt.map { " · tilt \($0)°" } ?? "") + " · size \(size) mm",
+                 "현재 — 위치 \(position) mm · 회전 \(yaw)°" + (tilt.map { " · 기울기 \($0)°" } ?? "") + " · 크기 \(size) mm")
     }
 
     private func populate(resetFocused: Bool = false) {
-        let scalar = isScalar(tool, editingObject ?? object)
-        for i in 0..<3 {
-            let label = tool == .rotate ? L("Rotation (°)", "회전 (°)")
-                : scalar ? L("Size (mm)", "크기 (mm)") : ["X (mm)", "Y (mm)", "Z (mm)"][i]
-            labels[i].stringValue = label
-            labels[i].superview?.isHidden = scalar && i > 0
-            fields[i].setAccessibilityLabel(tool.title + " " + label)
-        }
+        labelFields()
         guard let o = editingObject else {
             for field in fields {
                 field.stringValue = ""
@@ -434,12 +465,31 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
             }
             return
         }
-        let values = tool == .move ? o.positionMM : tool == .rotate ? [o.yawDeg] : scalar ? [o.sizeMM[0]] : o.sizeMM
+        let scalar = isScalar(tool, o)
+        let values: [Double]
+        switch tool {
+        case .move: values = o.positionMM
+        case .rotate: values = [o.yawDeg]
+        case .tilt: values = [o.pitchDeg ?? 0]
+        case .size: values = scalar ? [o.sizeMM[0]] : o.sizeMM
+        }
         for (i, field) in fields.enumerated() {
             let value = i < values.count ? String(format: "%.6g", values[i]) : ""
             guard field.stringValue != value, resetFocused || field.currentEditor() == nil else { continue }
             field.stringValue = value
             if resetFocused { field.currentEditor()?.string = value }
+        }
+    }
+
+    private func labelFields() {
+        let scalar = isScalar(tool, editingObject ?? object)
+        for i in 0..<3 {
+            let label = tool == .rotate ? L("Rotation (°)", "회전 (°)")
+                : tool == .tilt ? L("Tilt (°)", "기울기 (°)")
+                : scalar ? L("Size (mm)", "크기 (mm)") : ["X (mm)", "Y (mm)", "Z (mm)"][i]
+            labels[i].stringValue = label
+            labels[i].superview?.isHidden = scalar && i > 0
+            fields[i].setAccessibilityLabel(tool.title + " " + label)
         }
     }
 
@@ -463,8 +513,8 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
     }
     private var guidance: String {
         if mode != .edit {
-            return L("Press Edit in the toolbar to move, rotate, resize, duplicate or delete objects.",
-                     "물체를 옮기거나 돌리고, 크기를 바꾸거나 복제·삭제하려면 위쪽 ‘편집’을 누르세요.")
+            return L("Press Edit in the toolbar to move, rotate, resize, tilt, duplicate or delete objects.",
+                     "물체를 옮기거나 돌리고, 크기·기울기를 바꾸거나 복제·삭제하려면 위쪽 ‘편집’을 누르세요.")
         }
         guard let object else {
             return L("Click an object in the 3D view or choose one from the list.",
@@ -474,6 +524,10 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
             return L("A held object can't be edited — drop it first.", "잡고 있는 물체는 편집할 수 없습니다. 먼저 내려놓으세요.")
         }
         if !available { return L("Waiting for the simulator view…", "시뮬레이터 화면을 기다리는 중…") }
+        if tool == .tilt && object.shape != "ramp" {
+            return L("Only ramps tilt. Other objects turn around the vertical axis only.",
+                     "기울기는 경사로만 바꿀 수 있습니다. 다른 물체는 수직축으로만 돕니다.")
+        }
         if !supported(tool) { return L("This simulator can't change this property.", "이 시뮬레이터에서는 이 속성을 바꿀 수 없습니다.") }
         return L("Type a value and press Return, or drag a colored handle in the 3D view.",
                  "값을 입력하고 Return을 누르거나, 3D 화면의 색깔 핸들을 끌어 바꾸세요.")
@@ -578,13 +632,12 @@ final class WorldEditorOverlay: NSView {
     private func handles() -> [Handle] {
         guard editable, let object = selected, let p = projection, let center = p.project(object.positionMM) else { return [] }
         if tool == .rotate { return [Handle(axis: 2, point: NSPoint(x: center.x+55, y: center.y+35), center: center)] }
+        if tool == .tilt { return [Handle(axis: 1, point: NSPoint(x: center.x+55, y: center.y-35), center: center)] }
         let axes = scalarSize && tool == .size ? [0] : [0, 1, 2]
-        let yaw = object.yawDeg * .pi / 180
+        let local = object.localAxes
         return axes.compactMap { axis in
             var direction = [0.0, 0, 0]; direction[axis] = 1
-            if tool == .size && !scalarSize && axis < 2 {
-                direction = axis == 0 ? [cos(yaw), sin(yaw), 0] : [-sin(yaw), cos(yaw), 0]
-            }
+            if tool == .size && !scalarSize { direction = local[axis] }
             let end = (0..<3).map { object.positionMM[$0]+direction[$0] }
             guard let b = p.project(end) else { return nil }
             let dx = b.x-center.x, dy = b.y-center.y, length = hypot(dx,dy)
@@ -609,12 +662,12 @@ final class WorldEditorOverlay: NSView {
         let delta = NSPoint(x: point.x-d.start.x, y: point.y-d.start.y)
         if tool == .rotate {
             d.value = .number(d.object.yawDeg + Double(delta.x)) // 1 degree / point
+        } else if tool == .tilt {
+            // Drag up to raise the +X end, 1 degree / point, inside the ramp's 0–45°.
+            d.value = .number(min(45, max(0, (d.object.pitchDeg ?? 0) + Double(delta.y))))
         } else {
             var unit = [0.0,0,0]; unit[d.axis] = 1
-            if tool == .size && !scalarSize && d.axis < 2 {
-                let yaw = d.object.yawDeg * .pi / 180
-                unit = d.axis == 0 ? [cos(yaw),sin(yaw),0] : [-sin(yaw),cos(yaw),0]
-            }
+            if tool == .size && !scalarSize { unit = d.object.localAxes[d.axis] }
             let end = (0..<3).map { d.object.positionMM[$0]+unit[$0] }
             guard let a = d.projection.project(d.object.positionMM), let b = d.projection.project(end) else { return }
             let dx = b.x-a.x, dy = b.y-a.y, l2 = dx*dx+dy*dy
@@ -639,12 +692,12 @@ final class WorldEditorOverlay: NSView {
     override func resignFirstResponder() -> Bool { cancelDrag(); return super.resignFirstResponder() }
     override func draw(_ dirtyRect: NSRect) {
         guard visibleSelection, let object = selected, let p = projection else { return }
-        let yaw = object.yawDeg * .pi / 180
+        let axes = object.localAxes
         let corners: [NSPoint?] = (0..<8).map { index in
-            let x = object.sizeMM[0]/2 * (index & 1 == 0 ? -1.0:1.0)
-            let y = object.sizeMM[1]/2 * (index & 2 == 0 ? -1.0:1.0)
-            let z = object.sizeMM[2]/2 * (index & 4 == 0 ? -1.0:1.0)
-            return p.project([object.positionMM[0]+x*cos(yaw)-y*sin(yaw), object.positionMM[1]+x*sin(yaw)+y*cos(yaw),object.positionMM[2]+z])
+            let local = [object.sizeMM[0]/2 * (index & 1 == 0 ? -1.0:1.0),
+                         object.sizeMM[1]/2 * (index & 2 == 0 ? -1.0:1.0),
+                         object.sizeMM[2]/2 * (index & 4 == 0 ? -1.0:1.0)]
+            return p.project((0..<3).map { i in object.positionMM[i] + (0..<3).reduce(0) { $0 + local[$1] * axes[$1][i] } })
         }
         let outline = NSBezierPath(); outline.lineWidth = 2
         for index in 0..<8 { for bit in [1,2,4] where index & bit == 0 {
@@ -658,7 +711,7 @@ final class WorldEditorOverlay: NSView {
             color.setStroke(); line.stroke()
             let rect = NSRect(x:h.point.x-10,y:h.point.y-10,width:20,height:20)
             color.setFill(); NSBezierPath(ovalIn:rect).fill()
-            let label = tool == .rotate ? "↻" : scalarSize && tool == .size ? "S" : ["X","Y","Z"][h.axis]
+            let label = tool == .rotate ? "↻" : tool == .tilt ? "∠" : scalarSize && tool == .size ? "S" : ["X","Y","Z"][h.axis]
             (label as NSString).draw(at:NSPoint(x:h.point.x-5,y:h.point.y-7),withAttributes:[.font:NSFont.systemFont(ofSize:12,weight:.bold),.foregroundColor:NSColor.white])
         }
         if let v = drag?.value, let center = p.project(object.positionMM) {

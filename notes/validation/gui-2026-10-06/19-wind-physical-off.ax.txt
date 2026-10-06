@@ -1,0 +1,17 @@
+The following is a diff from the previous accessibility tree for Window: "Virtual Fly Lab" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~		112 텍스트 3D 화면 — 시각 26365 ms · 물체 1개
+~		31 text 타임라인 — 최근 명령과 반응 t17645  #4 edit_property — 적용됨 @t17665
+t17805  #5 edit_property — 적용됨 @t17825
+t17845  #6 edit_property — 적용됨 @t17865
+t24285  #7 edit_property — 적용됨 @t24305
+t25505  #8 edit_property — 적용됨 @t25525 몸 데이터 120 ms 전 · 속도 0.0021 m/s · 발 닿음 0.83 · 눈 샘플 t26185 · 다가옴 감지 L/R 0.065/0.038 · 뇌 활동 1.7 Hz 실시간 — 시뮬레이터(headless) :63243 · 몸 데이터 초당 8회 · 실시간 대비 0.40배 · 느림: 몸 데이터가 초당 30회 미만 기록 안 함
+~			34 text 지금 파리 위치의 값 파리 위치  x -1.1 · y -61.5 mm · 바라보는 방향 248° · 몸 시각 26.385 s (120 ms 전)
+온도  34.0 °C (기록만) · 감각 전류 따뜻 0.000 / 차가 0.000 · 온도 뉴런 0.0 / 0.0 Hz
+바람  세기 1.00, 0° 쪽 = 파리 기준 왼쪽으로 (오른쪽에서 붊) (+112°) · 더듬이 전류 C 0.017 / E 0.038 · 0.0 / 2.7 Hz
+빛  눈 밝기 왼 0.56 / 오 0.56 (눈 영상 t26185) · 번쩍임 0.00 / 0.00
+먹이  냄새 왼 0.000 / 오 0.000 · 가장 가까운 먹이 먹이 없음 · 맛(당) 0.00 · 후각 뉴런 0.0 / 0.0 Hz
+Selected text: ```
+1
+```
+
+Note: Pay special attention to the content selected by the user. If the user asks a question or refers to the content they are looking at on-screen, they might be referring to the selected content (but they might be referring to something else that's visible, too).

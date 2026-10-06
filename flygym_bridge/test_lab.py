@@ -135,6 +135,20 @@ check("multiple food odor remains bounded", 0.0 <= bilateral_odor["odor_left"] <
       not bilateral_odor["behavior_scripted"],
       repr(bilateral_odor))
 
+# The real body hands MuJoCo's thorax xpos over as a NumPy array.
+import numpy as np
+far_world = LabWorld(slot_counts={"food": 1})
+far_world.spawn_object(shape="food", object_id="far_food", position_mm=[87.3, -111.1, 0], size_mm=2)
+as_list = far_world.food_odor(fly_position_mm=[76.0, -101.7, 0.7], fly_heading_rad=-0.77)
+as_array = far_world.food_odor(fly_position_mm=np.array([76.0, -101.7, 0.7]), fly_heading_rad=-0.77)
+at_origin = far_world.food_odor(fly_position_mm=[0, 0, 0], fly_heading_rad=-0.77)
+check("food odor uses a NumPy fly position, not the origin",
+      as_array == as_list and as_list["nearest_food_distance_mm"] < 20 and
+      at_origin["nearest_food_distance_mm"] > 100, repr((as_list, as_array)))
+check("non-vector fly position still falls back to the origin",
+      far_world.food_odor(fly_position_mm="abc") == far_world.food_odor(fly_position_mm={"x": 1}) ==
+      far_world.food_odor(fly_position_mm=[0, 0, 0]))
+
 body_default = BodyPacket.from_dict({"type": "body"})
 check("BodyPacket odor fields are backward-compatible defaults",
       body_default.odor_left == 0.0 and body_default.odor_right == 0.0 and

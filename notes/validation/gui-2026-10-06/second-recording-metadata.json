@@ -1,0 +1,28 @@
+{
+  "backend_capabilities" : [
+    "applied_tick",
+    "deterministic_experiment",
+    "epoch",
+    "pause_barrier",
+    "player_body",
+    "player_input",
+    "ray_pick",
+    "world_render_snapshot"
+  ],
+  "backend_physics_timestep_s" : 0.0001,
+  "backend_supported_quantum_ticks" : [
+    20
+  ],
+  "created_at" : "2026-10-06T11:55:47Z",
+  "events" : "events.jsonl",
+  "experiment_quantum_ms" : 20,
+  "experiment_quantum_ticks" : 20,
+  "format" : "Thongpari Fly Neuron Sim Virtual Fly Lab V4",
+  "initial_epoch" : 1,
+  "initial_sim_tick" : 36525,
+  "neural_tick_ms" : 1,
+  "protocol_version" : 4,
+  "session_id" : "F3AE963C-B26B-4095-8093-78BE2646F7EF",
+  "session_mode" : "interactive",
+  "telemetry" : "telemetry.csv"
+}

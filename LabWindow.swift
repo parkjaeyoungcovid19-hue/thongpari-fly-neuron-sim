@@ -70,7 +70,8 @@ private final class LabArenaPlacementView: NSView {
             return NSBezierPath(ovalIn: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d))
         }
 
-        let hx = sx * 0.5
+        // A tilted ramp's footprint is its length times cos(tilt).
+        let hx = sx * 0.5 * cos((obj.pitchDeg ?? 0) * Double.pi / 180.0)
         let hy = sy * 0.5
         let yaw = obj.yawDeg * Double.pi / 180.0
         let c = cos(yaw), sn = sin(yaw)
@@ -99,6 +100,7 @@ private final class LabArenaPlacementView: NSView {
             case "sphere": color = .systemPink
             case "car": color = .systemRed
             case "trap": color = .systemCyan
+            case "ramp": color = .systemBrown
             default: color = .systemIndigo
             }
             color.withAlphaComponent(0.22).setFill()
@@ -239,7 +241,6 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private let viewModeControl = NSSegmentedControl(labels: ["Observe", "Participate", "Edit"],
                                                      trackingMode: .selectOne,
                                                      target: nil, action: nil)
-    private let temperatureModeStatusLabel = NSTextField(wrappingLabelWithString: L("Neural input: OFF — environment-only temperature is recorded without neural input.", "신경 입력 끔 — 온도는 기록만 하고 뇌에는 전달하지 않습니다."))
 
     private let objectID = NSTextField(string: "")
     private let objectShape = NSPopUpButton(frame: .zero, pullsDown: false)
@@ -299,17 +300,17 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private var lastObjectCommandTarget: String?
     private var lastObjectCommandDescription = ""
 
-    private let windStrength = NSTextField(string: "0.7")
+    /// V6.5 environment panel: applied values, in-flight edits, sample at the fly.
+    private let environmentPanel = EnvironmentPanel()
     private let windDuration = NSTextField(string: "500")
-    private let windDirection = NSTextField(string: "0")
-    private let windPhysical = NSButton(checkboxWithTitle: "physical force", target: nil, action: nil)
-    private let windSensory = NSButton(checkboxWithTitle: "sensory input", target: nil, action: nil)
-    private let windContinuous = NSButton(checkboxWithTitle: "continuous", target: nil, action: nil)
+    private let foodVariant = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let foodStatusLabel = NSTextField(wrappingLabelWithString: "")
+    private var lastFoodCommandID: Int?
+    /// Last backend temperature handed to the brain side (V6.5 authority fix).
+    private var adoptedTemperature: (celsius: Double, mode: String, at: Date)?
     private let touchStrength = NSTextField(string: "0.55")
     private let touchDuration = NSTextField(string: "150")
     private let touchTarget = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let temperature = NSTextField(string: "25")
-    private let temperatureMode = NSPopUpButton(frame: .zero, pullsDown: false)
     private let flashEye = NSPopUpButton(frame: .zero, pullsDown: false)
     private let flashIntensity = NSTextField(string: "1.0")
     private let flashDuration = NSTextField(string: "100")
@@ -679,15 +680,15 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func languageChanged() {
-        let popups = [objectShape, touchTarget, temperatureMode, flashEye, brainRole]
+        let popups = [objectShape, touchTarget, foodVariant, flashEye, brainRole]
         let values = popups.map { $0.selectedItem?.representedObject as? String }
-        let checks = [windPhysical, windSensory, windContinuous, createOnArenaClick]
+        let checks = [createOnArenaClick]
         let states = checks.map(\.state)
         buildUI()
+        worldEditor.relabel()
         for (popup, value) in zip(popups, values) { if let value { selectPopupValue(popup, value) } }
         for (check, state) in zip(checks, states) { check.state = state }
         arenaPlacement.selectedShape = selectedValue(objectShape, fallback: "box")
-        updateTemperatureModeStatus()
         updateBrainRoleDescription()
         refresh()
     }
@@ -1527,6 +1528,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         driveButton?.isEnabled = false   // enabled per shape by refreshToyInspector
         rearmButton?.isEnabled = false
         addPopupItems(objectShape, [(L("Box", "상자"), "box"), (L("Sphere", "공"), "sphere"), (L("Wall", "벽"), "wall"),
+                                    (L("Ramp (fly can climb it)", "경사로 (파리가 오를 수 있음)"), "ramp"),
                                     (L("Food / odor source", "먹이 (냄새가 나는 곳)"), "food"),
                                     (L("Toy car", "장난감 자동차"), "car"),
                                     (L("Cage trap", "유리 함정"), "trap")])
@@ -1580,55 +1582,85 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func sensesPage() -> NSViewController {
-        [windStrength, windDuration, windDirection, touchStrength, touchDuration, temperature,
-         flashIntensity, flashDuration].forEach { _ = LabForm.number($0) }
-        windPhysical.state = .on; windSensory.state = .on
-        windPhysical.title = L("Physical force", "바람으로 몸을 실제로 밀기")
-        windSensory.title = L("Wind receptors (JO-C/E)", "더듬이의 바람 감각에도 전달 (JO-C/E)")
-        windContinuous.title = L("Keep on until stopped", "멈출 때까지 계속")
+        [windDuration, touchStrength, touchDuration, flashIntensity, flashDuration].forEach { _ = LabForm.number($0) }
+        let panel = environmentPanel
+        panel.configure()
+        panel.windOffButton.target = self
+        panel.windOffButton.action = #selector(stopWind)
+        panel.onSubmit = { [weak self] command, captured in
+            guard let self, let bridge = self.bridge, self.workspace?.acceptsBackendCommands == true else { return nil }
+            let session = self.coordinator.sessionSnapshot()
+            guard !session.sessionID.isEmpty, session.epoch > 0,
+                  session.sessionID == captured.sessionID, session.epoch == captured.epoch,
+                  bridge.connectionGeneration == captured.generation,
+                  session.phase == .running || session.phase == .paused else { return nil }
+            let schedule = self.coordinator.labCommandSchedule() ?? LabCommandSchedule(
+                sessionID: session.sessionID, epoch: session.epoch, requestedTick: session.simTick)
+            guard schedule.sessionID == captured.sessionID, schedule.epoch == captured.epoch,
+                  let id = self.sendCommand(command, scheduleOverride: schedule) else { return nil }
+            return (id, self.pendingCommandSchedules[id] ?? schedule)
+        }
+        panel.onLocalTemperature = { [weak self] celsius, mode in
+            guard let self else { return }
+            self.coordinator.labSetTemperature(celsius: celsius, modeledPhysiology: mode == "modeled_physiology",
+                                               flywireSensory: mode == "flywire_sensory")
+            self.recorder.mark(kind: mode == "environment_only" ? "environment_record_only" : "sensory_model",
+                               detail: "temperature_c=\(celsius) mode=\(mode) local")
+        }
         addPopupItems(touchTarget, [
             (L("Thorax", "가슴 (흉부)"), "thorax"), (L("Head", "머리"), "head"), (L("Abdomen", "배"), "abdomen"),
             (L("Left front leg", "왼쪽 앞다리"), "left_front_leg"), (L("Left middle leg", "왼쪽 가운데 다리"), "left_middle_leg"),
             (L("Left hind leg", "왼쪽 뒷다리"), "left_hind_leg"), (L("Right front leg", "오른쪽 앞다리"), "right_front_leg"),
             (L("Right middle leg", "오른쪽 가운데 다리"), "right_middle_leg"), (L("Right hind leg", "오른쪽 뒷다리"), "right_hind_leg")
         ])
-        addPopupItems(temperatureMode, [
-            (L("FlyWire thermosensory", "온도 감각 뉴런에 전달"), "flywire_sensory"),
-            (L("Record only", "기록만"), "environment_only"),
-            (L("Legacy tempo model", "예전 방식 (활동 속도만)"), "modeled_physiology")
-        ])
-        selectPopupValue(temperatureMode, "environment_only")
-        temperatureMode.target = self
-        temperatureMode.action = #selector(temperatureModeChanged)
         addPopupItems(flashEye, [(L("Left eye", "왼쪽 눈"), "left"), (L("Right eye", "오른쪽 눈"), "right"), (L("Both eyes", "양쪽 눈"), "both")])
-        eyeButtons = [button(L("Cover left", "왼쪽 눈 가리기"), #selector(coverLeft)), button(L("Cover right", "오른쪽 눈 가리기"), #selector(coverRight)),
-                      button(L("Open left", "왼쪽 눈 뜨기"), #selector(restoreLeft)), button(L("Open right", "오른쪽 눈 뜨기"), #selector(restoreRight))]
-        _ = LabForm.status(temperatureModeStatusLabel)
-        updateTemperatureModeStatus()
+        addPopupItems(foodVariant, ["apple", "banana", "cheese", "grapes", "cookie", "sugar_cube"].map { (LabToy.foodName($0), $0) })
+        _ = LabForm.status(foodStatusLabel)
+        foodStatusLabel.isHidden = foodStatusLabel.stringValue.isEmpty
+        func row(_ views: NSView...) -> NSStackView {
+            let stack = NSStackView(views: views)
+            stack.orientation = .horizontal
+            stack.spacing = 8
+            return stack
+        }
+        panel.windDirectionDial.widthAnchor.constraint(equalToConstant: 36).isActive = true
         return LabInspectorPage([
-            section(L("Vision", "시각"), kind: .sensoryModel,
-                    help: L("Covering an eye changes the rendered input reaching it. Flash changes full-field brightness only; there is no invented flash-to-escape circuit.", "눈을 가리면 그 눈에 들어가는 화면이 실제로 바뀝니다. 번쩍임은 눈 전체의 밝기만 바꿉니다. ‘번쩍이면 도망’ 같은 회로를 따로 만들어 넣지 않았습니다."),
-                    [LabForm.buttons(eyeButtons),
+            section(L("Now at the fly", "지금 파리 위치의 값"),
+                    help: L("Measured, not set: the latest body data from the physics simulator (position, odor, eye brightness, taste) and the receptor current the brain side actually injected this frame. Temperature and wind are the same everywhere in the arena; odor and light depend on where the fly is.", "설정값이 아니라 측정값입니다. 물리 시뮬레이터가 보낸 최신 몸 데이터(위치·냄새·눈 밝기·맛)와, 뇌 쪽이 이번 프레임에 감각 뉴런에 실제로 넣은 전류입니다. 온도와 바람은 사육장 어디서나 같고, 냄새와 빛은 파리가 있는 곳에 따라 달라집니다."),
+                    [panel.sample]),
+            section(L("Temperature", "온도"), kind: .sensoryModel,
+                    help: L("Applies as you drag. ‘Thermosensory neurons’ drives TRN_VP2 (warm) and TRN_VP3a/b (cool); the current saturates 10 °C away from 25 °C. ‘Record only’ stores the value with no neural input. The temperature→current conversion is a modeling assumption. The simulator accepts 0–50 °C; this panel offers 10–40 °C.", "끌면 바로 적용됩니다. ‘온도 감각 뉴런에 전달’은 따뜻함 뉴런(TRN_VP2)과 차가움 뉴런(TRN_VP3a/b)을 자극하며, 25 °C에서 10 °C 넘게 벗어나면 더 세지지 않습니다. ‘기록만’은 값만 저장하고 뇌에는 전달하지 않습니다. 온도를 신경 전류로 바꾸는 비율은 모델이 가정한 값입니다. 시뮬레이터는 0–50 °C를 받지만 이 패널은 10–40 °C를 다룹니다."),
+                    [LabForm.grid([("°C", row(panel.temperatureSlider, panel.temperatureField)),
+                                   (L("Mode", "방식"), panel.temperatureMode)]),
+                     panel.temperatureApplied, panel.temperatureStatus]),
+            section(L("Wind", "바람"), kind: .sensoryModel,
+                    help: L("Strength, direction and the two switches set a continuous wind and apply as you change them; strength 0 or Stop turns it off. Direction is in world coordinates: the dial shows, seen from above, where the wind blows (right = +X, up = +Y). ‘Push the body’ is a MuJoCo force on the thorax; ‘antenna wind sense’ drives the JO-C/E groups using the wind's angle to the fly. The push fades as the fly approaches the wind's speed (30 mm/s at strength 1); strong wind, especially head-on, can tip the fly over. A puff blows once for the set time and then stops — it does not resume a continuous wind. Strength is dimensionless, not m/s.", "세기·방향·두 스위치는 ‘계속 부는 바람’을 정하며, 바꾸는 즉시 적용됩니다. 세기 0이나 ‘바람 끄기’로 끕니다. 방향은 세계 좌표입니다. 다이얼은 위에서 본 바람이 부는 쪽입니다(오른쪽 = +X, 위 = +Y). ‘몸을 실제로 밀기’는 물리 엔진에서 가슴을 미는 힘이고, ‘더듬이 바람 감각’은 파리와 바람의 각도로 JO-C/E 뉴런 그룹을 자극합니다. 파리가 바람 속도(세기 1에서 30 mm/s)에 가까워질수록 미는 힘이 줄어듭니다. 센 바람, 특히 정면 바람은 파리를 넘어뜨릴 수 있습니다. ‘한 번 불기’는 정한 시간만 불고 멈추며, 계속 부는 바람으로 돌아가지 않습니다. 세기는 단위 없는 값이며 m/s가 아닙니다."),
+                    [LabForm.grid([(L("Strength 0–1", "세기 0–1"), row(panel.windStrengthSlider, panel.windStrengthField)),
+                                   (L("Direction (°)", "방향 (°)"), row(panel.windDirectionDial, panel.windDirectionField))]),
+                     panel.windPhysical, panel.windSensory,
+                     LabForm.buttons([panel.windOnButton, panel.windOffButton]),
+                     panel.windApplied, panel.windStatus,
+                     LabForm.grid([(L("Puff (ms)", "한 번 (ms)"), windDuration)]),
+                     LabForm.buttons([button(L("Blow once", "한 번 불기"), #selector(applyWindPuff))], columns: 1)]),
+            section(L("Light", "빛"), kind: .sensoryModel,
+                    help: L("Covering scales the rendered image reaching that eye (100% = dark). Flash raises full-field brightness for a moment; there is no photoreceptor pathway or invented flash-to-escape circuit. The scene lighting itself is fixed and cannot be edited.", "가림은 그 눈에 들어가는 실제 화면 밝기를 줄입니다(100% = 깜깜함). 번쩍임은 잠깐 눈 전체 밝기만 올립니다. 광수용체 경로나 ‘번쩍이면 도망’ 회로를 따로 만들어 넣지 않았습니다. 장면 조명 자체는 고정이라 바꿀 수 없습니다."),
+                    [LabForm.grid([(L("Left eye cover", "왼쪽 눈 가림"), row(panel.leftMaskSlider, panel.leftMaskValue)),
+                                   (L("Right eye cover", "오른쪽 눈 가림"), row(panel.rightMaskSlider, panel.rightMaskValue))]),
+                     panel.lightApplied, panel.lightStatus,
                      LabForm.grid([(L("Flash", "번쩍임"), flashEye), (L("Intensity 0–1", "세기 0–1"), flashIntensity),
                                    (L("Duration (ms)", "지속 시간 (ms)"), flashDuration)]),
-                     LabForm.buttons([button(L("Apply flash", "번쩍이기"), #selector(applyFlash))], columns: 1)]),
-            section(L("Wind", "바람"), kind: .sensoryModel,
-                    help: L("Physical force pushes the MuJoCo thorax; receptor mode drives the real JO-C/E FlyWire groups. Direction is relative to the fly's heading.", "‘몸을 밀기’는 물리 엔진에서 파리 가슴을 실제로 밉니다. ‘바람 감각’은 더듬이에서 바람을 느끼는 실제 뉴런 그룹(JO-C/E)을 자극합니다. 방향은 파리가 바라보는 쪽 기준입니다."),
-                    [LabForm.grid([(L("Strength 0–1", "세기 0–1"), windStrength), (L("Direction (°)", "방향 (°)"), windDirection),
-                                   (L("Duration (ms)", "지속 시간 (ms)"), windDuration)]),
-                     windPhysical, windSensory, windContinuous,
-                     LabForm.buttons([button(L("Apply wind", "바람 불기"), #selector(applyWind)),
-                                      button(L("Stop", "멈추기"), #selector(stopWind))])]),
+                     LabForm.buttons([button(L("Flash", "번쩍이기"), #selector(applyFlash))], columns: 1)]),
+            section(L("Food", "먹이"), kind: .sensoryModel,
+                    help: L("Each food is an odor source: concentration falls off with distance (30 mm decay) and is split between the left and right antennae by direction. There is no wind-carried plume. Touching it with the mouth gives a modeled sugar-taste signal and slowly eats it. Move or delete food in the World page or Edit mode.", "먹이마다 냄새가 납니다. 냄새는 거리에 따라 줄고(30 mm마다 약 1/e), 방향에 따라 왼쪽·오른쪽 더듬이에 나뉘어 들어갑니다. 바람에 실려 퍼지는 냄새는 없습니다. 입이 닿으면 모델이 만든 ‘단맛’ 신호가 나오고 먹이가 조금씩 줄어듭니다. 옮기거나 지우려면 ‘세계’ 화면이나 편집 모드를 쓰세요."),
+                    [panel.foodSummary,
+                     LabForm.grid([(L("Kind", "종류"), foodVariant)]),
+                     LabForm.buttons([button(L("Place 15 mm in front of the fly", "파리 앞 15 mm에 놓기"), #selector(placeFoodInFront))], columns: 1),
+                     foodStatusLabel]),
             section(L("Touch", "건드리기"), kind: .physical,
                     help: L("An impulse on the chosen body part. The neural side is a generic touch/startle channel, not body-part-specific transduction.", "고른 몸 부위를 한 번 툭 칩니다. 뇌 쪽 입력은 부위와 상관없는 일반적인 ‘닿음/놀람’ 신호입니다."),
                     [LabForm.grid([(L("Body part", "몸 부위"), touchTarget), (L("Strength 0–1", "세기 0–1"), touchStrength),
                                    (L("Duration (ms)", "지속 시간 (ms)"), touchDuration)]),
-                     LabForm.buttons([button(L("Apply touch", "건드리기 실행"), #selector(applyTouch))], columns: 1)]),
-            section(L("Temperature", "온도"), kind: .sensoryModel,
-                    help: L("FlyWire thermosensory drives TRN_VP2 (warm) and TRN_VP3a/b (cool). Record only stores the value with no neural input. The temperature→current conversion is a modeling assumption.", "‘온도 감각 뉴런에 전달’은 따뜻함을 느끼는 뉴런(TRN_VP2)과 차가움을 느끼는 뉴런(TRN_VP3a/b)을 자극합니다. ‘기록만’은 값만 저장하고 뇌에는 전달하지 않습니다. 온도를 뉴런 신호 세기로 바꾸는 비율은 모델이 가정한 값입니다."),
-                    [LabForm.grid([("°C", temperature), (L("Mode", "방식"), temperatureMode)]),
-                     temperatureModeStatusLabel,
-                     LabForm.buttons([button(L("Set temperature", "온도 적용"), #selector(setTemperature)),
+                     LabForm.buttons([button(L("Apply touch", "건드리기 실행"), #selector(applyTouch)),
                                       button(L("Reset stimuli", "자극 모두 끄기"), #selector(resetSenses))])])
         ])
     }
@@ -1836,6 +1868,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             let size = shape == "car" ? LabToy.carDefaultLengthMM : LabToy.trapDefaultSideMM
             objectSize.stringValue = String(format: "%.0f", size)
             objectZ.stringValue = String(format: "%.2f", LabToy.spawnCenterZ(shape: shape, sizeMM: size))
+        case "ramp":
+            let size = LabRamp.size(lengthMM: LabRamp.defaultLengthMM)
+            objectSize.stringValue = String(format: "%.0f", size[0])
+            objectZ.stringValue = String(format: "%.2f", LabRamp.flushCenterZ(sizeMM: size, pitchDeg: LabRamp.defaultPitchDeg))
         default:
             objectSize.stringValue = "5"
             objectZ.stringValue = "5"
@@ -1880,23 +1916,6 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         setEyeButtonsEnabled(true)
     }
 
-    private func updateTemperatureModeStatus() {
-        switch selectedValue(temperatureMode, fallback: "environment_only") {
-        case "flywire_sensory":
-            temperatureModeStatusLabel.stringValue = L("Neural input: ON — temperature drives FlyWire TRN warm/cool receptor groups.", "신경 입력 켬 — 온도가 따뜻함/차가움을 느끼는 감각 뉴런을 자극합니다.")
-            temperatureModeStatusLabel.textColor = .labelColor
-        case "modeled_physiology":
-            temperatureModeStatusLabel.stringValue = L("Neural input: TEMPO MODEL — changes the legacy physiology tempo path; it does not drive FlyWire TRNs.", "예전 방식 — 몸의 활동 속도만 바꾸고, 온도 감각 뉴런은 자극하지 않습니다.")
-            temperatureModeStatusLabel.textColor = .secondaryLabelColor
-        default:
-            temperatureModeStatusLabel.stringValue = L("Neural input: OFF — environment-only temperature is recorded without neural input.", "신경 입력 끔 — 온도는 기록만 하고 뇌에는 전달하지 않습니다.")
-            temperatureModeStatusLabel.textColor = .systemOrange
-        }
-    }
-
-    @objc private func temperatureModeChanged() {
-        updateTemperatureModeStatus()
-    }
 
     @objc private func quitLab() {
         NSApp.terminate(nil)
@@ -2010,8 +2029,27 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             status: status))
     }
 
+    /// The backend's own reason, before sending, when every slot of a shape is taken.
+    private func slotBudgetMessage(for shape: String) -> String? {
+        guard let state = bridge?.latestLabState(), let total = state.authoritativeSlotCapacity?[shape],
+              let free = state.authoritativeSlotFree?[shape], free <= 0 else { return nil }
+        return Self.slotBudgetText(shape: shape, total: total)
+    }
+
+    private static func slotBudgetText(shape: String, total: Int?) -> String {
+        let name = LabToy.shapeName(shape)
+        let count = total.map { L(" (\($0) of \($0))", " (\($0)/\($0)개)") } ?? ""
+        return L("every \(name) slot is in use\(count) — the simulator's object pools are fixed; delete one to make another",
+                 "\(name) 자리를 모두 쓰고 있습니다\(count) — 시뮬레이터의 물체 자리 수는 고정이니, 하나를 지우면 다시 만들 수 있습니다")
+    }
+
     @objc private func createObject() {
         let shape = selectedValue(objectShape, fallback: "box")
+        if let full = slotBudgetMessage(for: shape) {
+            worldObjectStatusLabel.stringValue = L("Object status — not sent · ", "물체 상태 — 보내지 않음 · ") + full
+            worldObjectStatusLabel.textColor = .systemOrange
+            return
+        }
         let objectTarget = creationTarget(for: shape)
         let action: String
         switch shape {
@@ -2032,6 +2070,15 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             objectZ.stringValue = String(format: "%.2f", z)
             sent = LabCommand.spawnToy(shape: shape, target: objectTarget,
                                        positionMM: [d(objectX), d(objectY), z], sizeMM: size)
+                .flatMap { sendCommand($0) }
+        } else if shape == "ramp" {
+            // Laid flush with the lawn at the default tilt; tilt it later in Edit mode.
+            let size = LabRamp.size(lengthMM: d(objectSize, fallback: LabRamp.defaultLengthMM))
+            let z = LabRamp.flushCenterZ(sizeMM: size, pitchDeg: LabRamp.defaultPitchDeg)
+            objectSize.stringValue = String(format: "%g", size[0])
+            objectZ.stringValue = String(format: "%.2f", z)
+            sent = LabCommand.spawnRamp(target: objectTarget, positionMM: [d(objectX), d(objectY), z],
+                                        sizeMM: size, pitchDeg: LabRamp.defaultPitchDeg)
                 .flatMap { sendCommand($0) }
         } else {
             sent = send(action, target: objectTarget, x: d(objectX), y: d(objectY), z: d(objectZ),
@@ -2136,9 +2183,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         releasePlayerHeldInput(reason: "world reset")
         dropGunState()   // the backend world reset holsters the gun
         clearEyePending()
-        temperature.stringValue = "25"
-        selectPopupValue(temperatureMode, "environment_only")
-        updateTemperatureModeStatus()
+        environmentPanel.clearFeedback()
         if !coordinator.requestDeterministicReset(scopes: ["world", "modeled"]) {
             coordinator.labResetModeledStimuli()
             send("reset_world")
@@ -2158,9 +2203,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         releasePlayerHeldInput(reason: "full reset")
         dropGunState()
         clearEyePending()
-        temperature.stringValue = "25"
-        selectPopupValue(temperatureMode, "environment_only")
-        updateTemperatureModeStatus()
+        environmentPanel.clearFeedback()
         if !coordinator.requestDeterministicReset(scopes: ["brain", "body", "world", "modeled"]) {
             coordinator.labResetBrain()
             coordinator.labResetModeledStimuli()
@@ -2200,29 +2243,54 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         recorder.mark(kind: "sensory_model", detail: "flash eye=\(eye) intensity=\(intensity) duration_ms=\(duration)")
     }
 
-    @objc private func applyWind() {
-        let strength = max(0, min(1, d(windStrength, fallback: 0.7)))
-        let duration = ms(windDuration, fallback: 500)
-        let direction = d(windDirection, fallback: 0).truncatingRemainder(dividingBy: 360)
-        let physical = windPhysical.state == .on
-        let sensory = windSensory.state == .on
-        let continuous = windContinuous.state == .on
+    /// A timed puff is an action, not the panel's continuous-wind setting: it
+    /// borrows the panel's strength, direction and switches and then stops.
+    @objc private func applyWindPuff() {
+        let panel = environmentPanel
+        sendWindPuff(strength: max(0.01, (panel.windStrengthSlider.doubleValue * 100).rounded() / 100),
+                     directionDeg: EnvironmentPanel.worldDeg(dialValue: panel.windDirectionDial.doubleValue).rounded(),
+                     durationMs: ms(windDuration, fallback: 500),
+                     physical: panel.windPhysical.state == .on, sensory: panel.windSensory.state == .on)
+    }
+
+    private func sendWindPuff(strength: Double, directionDeg: Double, durationMs: Int,
+                              physical: Bool, sensory: Bool) {
         if sensory {
-            coordinator.labApplyWind(strength: Float(strength), directionDeg: direction,
-                                     durationMs: duration, continuous: continuous)
+            coordinator.labApplyWind(strength: Float(strength), directionDeg: directionDeg,
+                                     durationMs: durationMs, continuous: false)
         } else {
             coordinator.labStopWind()
         }
-        send("wind", strength: strength, durationMs: duration, directionDeg: direction,
-             physical: physical, sensory: sensory, continuous: continuous)
+        send("wind", strength: strength, durationMs: durationMs, directionDeg: directionDeg,
+             physical: physical, sensory: sensory, continuous: false)
         recorder.mark(kind: physical ? "physical" : "sensory_model",
-                      detail: "wind strength=\(strength) dir=\(direction) physical=\(physical) sensory=\(sensory) continuous=\(continuous)")
+                      detail: "wind puff strength=\(strength) dir=\(directionDeg) duration_ms=\(durationMs) physical=\(physical) sensory=\(sensory)")
     }
 
     @objc private func stopWind() {
         coordinator.labStopWind()
         send("stop_wind")
         recorder.mark(kind: "stimulus_off", detail: "wind")
+    }
+
+    @objc private func placeFoodInFront() {
+        guard let body = bridge?.latestBody() else {
+            foodStatusLabel.stringValue = L("No fresh body data — start the physics simulator first", "새 몸 데이터 없음 — 물리 시뮬레이터를 먼저 실행하세요")
+            foodStatusLabel.textColor = .systemOrange
+            foodStatusLabel.isHidden = false
+            return
+        }
+        let variant = selectedValue(foodVariant, fallback: "apple")
+        var command = LabCommand(id: 0, action: "spawn_food")
+        command.x = body.positionXmm + 15 * cos(body.headingRad)
+        command.y = body.positionYmm + 15 * sin(body.headingRad)
+        command.z = 1.5
+        command.variant = variant
+        lastFoodCommandID = sendCommand(command)
+        foodStatusLabel.stringValue = lastFoodCommandID == nil ? L("Command not sent", "명령 전송 실패")
+            : L("Placing ", "놓는 중: ") + LabToy.foodName(variant) + "…"
+        foodStatusLabel.textColor = .secondaryLabelColor
+        foodStatusLabel.isHidden = false
     }
 
     @objc private func applyTouch() {
@@ -2235,25 +2303,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         recorder.mark(kind: "physical+sensory_model", detail: "touch target=\(bodyTarget) strength=\(strength) duration_ms=\(duration)")
     }
 
-    @objc private func setTemperature() {
-        let c = max(10, min(40, d(temperature, fallback: 25)))
-        temperature.doubleValue = c
-        let mode = selectedValue(temperatureMode, fallback: "flywire_sensory")
-        updateTemperatureModeStatus()
-        coordinator.labSetTemperature(celsius: c,
-                                      modeledPhysiology: mode == "modeled_physiology",
-                                      flywireSensory: mode == "flywire_sensory")
-        send("temperature", value: c, mode: mode)
-        recorder.mark(kind: mode == "environment_only" ? "environment_record_only" : "sensory_model",
-                      detail: "temperature_c=\(c) mode=\(mode)")
-    }
-
     @objc private func resetSenses() {
         coordinator.labResetModeledStimuli()
         clearEyePending()
-        windStrength.stringValue = "0.7"; temperature.stringValue = "25"
-        selectPopupValue(temperatureMode, "environment_only")
-        updateTemperatureModeStatus()
         send("stop_wind")
         send("restore_eyes")
         send("temperature", value: 25, mode: "environment_only")
@@ -2305,9 +2357,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             send("reset_world"); send("reset_body")
             runLoomPresetAfterReset(name)
         case "wind_puff":
-            windStrength.stringValue = "0.7"; windDirection.stringValue = "0"; windDuration.stringValue = "500"
-            windPhysical.state = .on; windSensory.state = .on; windContinuous.state = .off
-            applyWind()
+            sendWindPuff(strength: 0.7, directionDeg: 0, durationMs: 500, physical: true, sensory: true)
         case "thorax_touch":
             selectPopupValue(touchTarget, "thorax")
             touchStrength.stringValue = "0.55"; touchDuration.stringValue = "150"
@@ -2349,9 +2399,6 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
 
     private func runLoomPresetAfterReset(_ name: String) {
         clearEyePending()
-        temperature.stringValue = "25"
-        selectPopupValue(temperatureMode, "environment_only")
-        updateTemperatureModeStatus()
         if name == "left_eye_covered_loom" { eye("left", covered: true) }
         let y: Double = name == "left_loom" ? 22 : (name == "right_loom" ? -22 : 0)
         let id = "preset_loom"
@@ -2582,12 +2629,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         // with lab_state, so it is joined by id for the map label alone.
         let labObjects = bridge?.latestLabState()?.authoritativeObjects ?? []
         arenaPlacement.worldObjects = snapshot.objects.map { object in
-            let lab = labObjects.first { $0.id == object.id }
-            return LabWorldObjectRemote(id: object.id, shape: object.shape,
-                                        positionMM: object.positionMM, sizeMM: object.sizeMM,
-                                        yawDeg: yawRadians(quaternion: object.orientationQuatXYZW) * 180 / .pi,
-                                        trapState: object.trapState ?? lab?.trapState,
-                                        foodVariant: lab?.foodVariant, revision: object.revision)
+            LabWorldObjectRemote(render: object, lab: labObjects.first { $0.id == object.id })
         }
         if let fly = snapshot.fly {
             arenaPlacement.flyPose = (fly.positionMM[0], fly.positionMM[1],
@@ -2617,6 +2659,15 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     /// recorded, so the repeated `ack` field of lab_state never double-counts.
     private func handle(ack: LabAck) {
         worldEditor.accept(ack)
+        environmentPanel.accept(ack)
+        if ack.id == lastFoodCommandID {
+            lastFoodCommandID = nil
+            foodStatusLabel.stringValue = ack.ok ? L("Placed", "놓았습니다")
+                : L("Not placed — ", "놓지 못함 — ") + ((ack.status == "rejected_capacity" || ack.message.hasPrefix("no free "))
+                    ? Self.slotBudgetText(shape: "food", total: bridge?.latestLabState()?.authoritativeSlotCapacity?["food"])
+                    : ack.message)
+            foodStatusLabel.textColor = ack.ok ? .systemGreen : .systemRed
+        }
         coordinator.noteLabAck(ack)
         interactionPresentation.accept(ack: ack)
         guard timeline.apply(ack: ack) else { return }
@@ -2642,7 +2693,11 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                     viewState.selectObject(lastObjectCommandTarget)
                 }
             } else {
-                let message = ack.message.isEmpty ? L("command rejected", "명령 거절됨") : ack.message
+                var message = ack.message.isEmpty ? L("command rejected", "명령 거절됨") : ack.message
+                if ack.status == "rejected_capacity" || ack.message.hasPrefix("no free ") {
+                    let shape = ack.message.split(separator: " ").dropFirst(2).first.map(String.init) ?? ""
+                    message = Self.slotBudgetText(shape: shape, total: bridge?.latestLabState()?.authoritativeSlotCapacity?[shape])
+                }
                 worldObjectStatusLabel.stringValue = L("Object status — ERROR · ", "물체 상태 — 오류 · ") + message
                 worldObjectStatusLabel.textColor = .systemRed
             }
@@ -2732,6 +2787,23 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         canvasBadge.stringValue = badge ?? ""
         canvasStatusHUD?.isHidden = badge == nil && service?.canRestart != true
         worldViewer.setAccessibilityValue(badge ?? L("Live", "실시간"))
+    }
+
+    /// With a physics backend attached, the temperature the brain uses follows
+    /// the backend's applied value (lab_state) instead of being set locally
+    /// before the ACK. Re-sent at most once a second while the two disagree.
+    private func adoptBackendTemperature(_ applied: LabRemoteTemperature?, local t: LabTelemetry, now: Date) {
+        guard let applied, bridge?.connected == true, bridge?.labStateFreshness().isFresh == true else { return }
+        let celsius = min(40, max(10, applied.celsius))
+        guard abs(celsius - t.temperatureC) > 1e-9 || applied.mode != t.temperatureMode else { return }
+        if let last = adoptedTemperature, last.celsius == celsius, last.mode == applied.mode,
+           now.timeIntervalSince(last.at) < 1 { return }
+        adoptedTemperature = (celsius, applied.mode, now)
+        coordinator.labSetTemperature(celsius: applied.celsius,
+                                      modeledPhysiology: applied.mode == "modeled_physiology",
+                                      flywireSensory: applied.mode == "flywire_sensory")
+        recorder.mark(kind: applied.mode == "environment_only" ? "environment_record_only" : "sensory_model",
+                      detail: "temperature_c=\(applied.celsius) mode=\(applied.mode) adopted_from_backend")
     }
 
     private func refresh() {
@@ -2848,7 +2920,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             }
             if let capacity = state?.authoritativeSlotCapacity {
                 let free = state?.authoritativeSlotFree ?? [:]
-                let order = ["box", "sphere", "wall", "food", "car", "trap"]
+                let order = ["box", "sphere", "wall", "ramp", "food", "car", "trap"]
                 let parts = order.compactMap { shape -> String? in
                     guard let total = capacity[shape] else { return nil }
                     let remain = free[shape] ?? max(0, total - (state?.authoritativeObjects?.filter { $0.shape == shape }.count ?? 0))
@@ -2898,6 +2970,13 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             }
         }
 
+        environmentPanel.update(
+            state: state, telemetry: t, body: bridge?.latestBody(),
+            identity: bridge.map { WorldEditorIdentity(generation: $0.connectionGeneration,
+                                                       sessionID: session.sessionID, epoch: session.epoch) },
+            backendConnected: bridge?.connected == true,
+            available: workspace?.acceptsBackendCommands == true, now: now)
+        adoptBackendTemperature(state?.worldState?.temperature, local: t, now: now)
         refreshWorkspace()
         renderViewState()
         refreshGunStatus()
@@ -3159,5 +3238,55 @@ extension LabWindowController: NSToolbarDelegate {
             return nil
         }
         return item
+    }
+}
+
+extension LabWindowController {
+    /// `--envpanelshot`: draws the real environment page offscreen with a given
+    /// owner state. Layout evidence only — not a GUI acceptance test.
+    func renderEnvironmentPage(state: LabRemoteState, body: FlyGymBodyFeedback?,
+                               dark: Bool, to url: URL) -> Bool {
+        let page = sensesPage()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 900),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentViewController = page
+        window.setContentSize(NSSize(width: 380, height: 900))
+        var telemetry = LabTelemetry()
+        telemetry.temperatureC = 31.5; telemetry.temperatureMode = "flywire_sensory"
+        telemetry.thermoWarmDrive = 0.039; telemetry.windCDrive = 0.012; telemetry.windEDrive = 0.043
+        telemetry.bodyBrightnessL = 0.0; telemetry.bodyBrightnessR = 0.27; telemetry.bodyEyeSampleSimTick = 12_400
+        telemetry.bodyOdorL = 0.31; telemetry.bodyOdorR = 0.12; telemetry.bodyNearestFoodDistanceMm = 20.1
+        telemetry.bodyPacketAgeS = 0.03
+        let identity = WorldEditorIdentity(generation: 1, sessionID: "shot", epoch: 1)
+        environmentPanel.update(state: state, telemetry: telemetry, body: body, identity: identity,
+                                backendConnected: true, available: true)
+        environmentPanel.update(state: state, telemetry: telemetry, body: body, identity: identity,
+                                backendConnected: true, available: true, now: Date().addingTimeInterval(2))
+        let p = environmentPanel
+        print(String(format: "slider values: temperature %.2f wind %.2f dial %.0f left-mask %.2f right-mask %.2f",
+                     p.temperatureSlider.doubleValue, p.windStrengthSlider.doubleValue,
+                     p.windDirectionDial.doubleValue, p.leftMaskSlider.doubleValue, p.rightMaskSlider.doubleValue))
+        guard let document = (page.view as? NSScrollView)?.documentView else { return false }
+        window.layoutIfNeeded()
+        document.layoutSubtreeIfNeeded()
+        let bounds = document.bounds
+        guard bounds.height > 0, let rep = document.bitmapImageRepForCachingDisplay(in: bounds) else { return false }
+        document.cacheDisplay(in: bounds, to: rep)
+        // The cached view is transparent; flatten it onto the window background.
+        guard let flat = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: rep.pixelsWide, pixelsHigh: rep.pixelsHigh,
+                                          bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                          colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: flat) else { return false }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        // Fixed stand-ins for the window background (dynamic colors don't resolve here).
+        NSColor(deviceWhite: dark ? 0.16 : 0.93, alpha: 1).setFill()
+        NSRect(x: 0, y: 0, width: rep.pixelsWide, height: rep.pixelsHigh).fill()
+        rep.draw(in: NSRect(x: 0, y: 0, width: rep.pixelsWide, height: rep.pixelsHigh), from: .zero,
+                 operation: .sourceOver, fraction: 1, respectFlipped: false, hints: nil)
+        NSGraphicsContext.restoreGraphicsState()
+        guard let png = flat.representation(using: .png, properties: [:]) else { return false }
+        return (try? png.write(to: url)) != nil
     }
 }

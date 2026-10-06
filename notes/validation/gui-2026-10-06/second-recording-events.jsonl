@@ -1,0 +1,6 @@
+{"detail":"Virtual Fly Lab V4","kind":"recording_started","wall_time":1791287747.343715}
+{"command_id":13,"detail":"edit_property target=-","epoch":1,"kind":"lab_command","requested_tick":37785,"session_id":"F3AE963C-B26B-4095-8093-78BE2646F7EF","sim_tick":37785,"wall_time":1791287755.796895}
+{"applied_epoch":1,"applied_tick":37805,"command_id":13,"detail":"edit_property OK ok","epoch":1,"kind":"lab_command_result","requested_tick":37785,"session_id":"F3AE963C-B26B-4095-8093-78BE2646F7EF","sim_tick":37825,"status":"applied","wall_time":1791287757.4204559}
+{"command_id":14,"detail":"edit_property target=-","epoch":1,"kind":"lab_command","requested_tick":44605,"session_id":"F3AE963C-B26B-4095-8093-78BE2646F7EF","sim_tick":44605,"wall_time":1791287787.066946}
+{"applied_epoch":1,"applied_tick":44625,"command_id":14,"detail":"edit_property OK ok","epoch":1,"kind":"lab_command_result","requested_tick":44605,"session_id":"F3AE963C-B26B-4095-8093-78BE2646F7EF","sim_tick":44645,"status":"applied","wall_time":1791287787.319277}
+{"detail":"user stop","kind":"recording_stopped","wall_time":1791287803.5976958}

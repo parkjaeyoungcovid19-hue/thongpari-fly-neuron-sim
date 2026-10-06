@@ -35,15 +35,22 @@ DIRECT_NEURAL = "DIRECT-NEURAL"
 FAR_POS = (0.0, 0.0, -500.0)
 MAX_OBJECT_ID_LEN = 64
 MAX_EVENTS = 64
-# Calibrated after restoring near-realtime MuJoCo throughput. 2500 mm/s² produced
-# only ~0.035 mm extra thorax displacement over a 0.5 s strength-0.7 puff on the
-# shipped NeuroMechFly, effectively invisible next to normal passive drift.
-# 10000 mm/s² yields ~0.18 mm extra displacement in the same smoke test: clearly
-# measurable but still well below the destabilizing regime seen at much larger
-# forces. This remains an engineering lab-force scale, not a biological wind law.
-WIND_ACCEL_MAX_MM_S2 = 10000.0
+# Engineering lab-force scale, not a biological wind law. Leg adhesion holds a
+# standing fly, so the old 10000 mm/s² moved it only ~0.08 mm/s at strength 1.
+# V6.5 (user request "강화"): 60000 mm/s² on the thorax, fading to zero as the
+# thorax reaches WIND_SPEED_MAX_MM_S × strength along the wind, so a fly that
+# loses its footing drifts with the wind instead of being flung away. Measured
+# on the shipped NeuroMechFly (2 s, standing): strength .25 → 0.8 mm, .5 → 5 mm,
+# 1 → 18 mm; side and tail winds stay upright, a strong head-on wind tips the
+# fly over (accepted by the user), and no run raised a MuJoCo instability warning.
+WIND_ACCEL_MAX_MM_S2 = 60000.0
+WIND_SPEED_MAX_MM_S = 30.0
 TOUCH_ACCEL_MAX_MM_S2 = 16000.0
 FOOD_ODOR_DECAY_MM = 30.0
+# V6.5 continuous-wind edit properties -> the _wind_state() key holding the
+# applied value. wind.continuous/duration_ms describe puffs and have no applier.
+WIND_EDIT_FIELDS = {"wind.strength": "strength", "wind.direction_deg": "direction_deg",
+                    "wind.physical": "physical_enabled", "wind.sensory": "sensory_enabled"}
 # V5.6.2 feeding (engineering rule, not a feeding motor program: the proboscis
 # is not actuated). While the haustellum geom is within FEED_CONTACT_MM of a
 # food model's surface, the food shrinks at FEED_SHRINK_MM_S (diameter) and a
@@ -84,9 +91,21 @@ DEFAULT_SLOT_COUNTS = {
     # Toy slots are multi-part too; 8 cars + 4 traps cost ~10% idle, 4 + 2 ~3%.
     "car": 4,
     "trap": 2,
+    # V6.4 walkable terrain: unlike the obstacle pools, every ramp slot carries
+    # explicit pairs with the fly's tibiae, tarsi and body (43 geoms), so its
+    # pool stays small.
+    "ramp": 4,
 }
 
 MAX_SLOT_COUNT_PER_SHAPE = 256
+
+# V6.4 ramp: a fixed (never carried/approached) box tilted by pitch_deg about
+# its own Y axis after yaw, raising its +X end. Pitch and size edits pivot about
+# the middle of the low top edge, so a ramp laid flush with the lawn stays flush.
+RAMP_PITCH_MAX_DEG = 45.0
+RAMP_DEFAULT_SIZE_MM = (40.0, 20.0, 1.0)
+RAMP_DEFAULT_PITCH_DEG = 15.0
+RAMP_SIZE_RANGE_MM = ((5.0, 200.0), (2.0, 200.0), (0.2, 20.0))
 
 DEFAULT_COLORS = {
     # Match VisionLoomDetector's configured magenta target for ordinary lab
@@ -100,11 +119,24 @@ DEFAULT_COLORS = {
     "food": (0.18, 0.82, 0.22, 1.0),
     "car": (1.0, 1.0, 1.0, 0.0),
     "trap": (1.0, 1.0, 1.0, 0.0),
+    # Terrain, not a looming target: kept off the configured magenta.
+    "ramp": (0.62, 0.52, 0.38, 1.0),
 }
 
 
 class LabError(ValueError):
     pass
+
+
+class CapacityError(LabError):
+    """A shape's fixed slot pool is full; the world is unchanged."""
+    status = "rejected_capacity"
+
+
+def ramp_flush_center_z(size_mm, pitch_deg):
+    """Center height that puts a ramp's low top edge on the lawn (z = 0)."""
+    p = math.radians(pitch_deg)
+    return 0.5 * size_mm[0] * math.sin(p) - 0.5 * size_mm[2] * math.cos(p)
 
 
 def _finite(value, default=0.0):
@@ -120,7 +152,13 @@ def _clamp(value, lo, hi, default=0.0):
 
 
 def _vec3(value, default):
-    if not isinstance(value, (list, tuple)) or len(value) < 3:
+    # Any 3+ sequence, including the NumPy arrays MuJoCo poses arrive as;
+    # strings and mappings fall back to the default.
+    try:
+        if isinstance(value, (str, bytes)) or len(value) < 3:
+            raise TypeError
+        value = [value[i] for i in range(3)]
+    except (TypeError, KeyError, IndexError):
         value = default
     return [_finite(value[i], default[i]) for i in range(3)]
 
@@ -198,6 +236,25 @@ class LabObject:
     revision: int = 0
     variant: str | None = None
     trap_state: str | None = None
+    pitch_deg: float = 0.0
+
+    def quat_wxyz(self):
+        """Yaw about world Z, then (ramps) pitch about the local Y axis."""
+        cy, sy = math.cos(math.radians(self.yaw_deg) * 0.5), math.sin(math.radians(self.yaw_deg) * 0.5)
+        cp, sp = math.cos(math.radians(self.pitch_deg) * 0.5), math.sin(math.radians(self.pitch_deg) * 0.5)
+        return [cy * cp, sy * sp, -cy * sp, sy * cp]
+
+    def local_to_world(self, local):
+        y, p = math.radians(self.yaw_deg), math.radians(self.pitch_deg)
+        x = math.cos(p) * local[0] - math.sin(p) * local[2]
+        z = math.sin(p) * local[0] + math.cos(p) * local[2]
+        return [self.position_mm[0] + math.cos(y) * x - math.sin(y) * local[1],
+                self.position_mm[1] + math.sin(y) * x + math.cos(y) * local[1],
+                self.position_mm[2] + z]
+
+    def ramp_anchor(self):
+        """World point at the middle of the low top edge."""
+        return self.local_to_world((-0.5 * self.size_mm[0], 0.0, 0.5 * self.size_mm[2]))
 
     def state(self):
         food = self.shape == "food"
@@ -231,6 +288,9 @@ class LabObject:
             )
         if self.shape == "trap":
             out["trap_state"] = self.trap_state
+        if self.shape == "ramp":
+            out.update(pitch_deg=float(self.pitch_deg), fixed_terrain=True,
+                       fly_leg_contact=True)
         return out
 
 
@@ -328,6 +388,8 @@ class LabWorld:
         self._interaction_tick_ms = 0
         self._fly_contact_geoms = {}
         self._installed_fly_geom_names = {}
+        self._terrain_pair_count = 0
+        self._terrain_template_count = 0
         self._ground_geom_names = []
         self._ground_geom_ids = []
         self.wind = {
@@ -371,7 +433,7 @@ class LabWorld:
             # Mocap bodies are kinematic runtime objects: MuJoCo keeps them in
             # the compiled model and exposes data.mocap_pos/quat for safe motion.
             body = world.mjcf_root.worldbody.add_body(name=slot, pos=FAR_POS, mocap=True)
-            if shape in ("box", "wall"):
+            if shape in ("box", "wall", "ramp"):
                 geom_type = mujoco.mjtGeom.mjGEOM_BOX
                 # Compile broad-phase bounds at the maximum runtime half-size.
                 # MuJoCo keeps `geom_rbound`/BVH bounds as model constants even
@@ -432,7 +494,8 @@ class LabWorld:
                 continue
             self._installed_fly_geom_names[segment] = [geom.name for geom in matches[0][1]]
             for slot, shape in self._slot_shape.items():
-                if shape == "food":
+                # Ramps get the full ground-contact set in install_terrain_contact_pairs.
+                if shape in ("food", "ramp"):
                     continue
                 if shape in ("car", "trap"):
                     parts = sm.CAR_PARTS if shape == "car" else sm.TRAP_PARTS
@@ -464,6 +527,41 @@ class LabWorld:
         self._mouth_geom_names = [geom.name for key, geoms in fly.bodyseg_to_mjcfgeom.items()
                                   if getattr(key, "name", str(key)) == MOUTH_SEGMENT
                                   for geom in geoms]
+
+    # Walking touches a ramp through tibiae and tarsi (FlyGym's own
+    # "tibia_tarsus_only" contact preset); the body segments catch a fall.
+    # Coxae and femora are left out: fly geoms are meshes, and box/mesh
+    # contact is GJK, not the plane's closed form (2026-10-06 measurement).
+    TERRAIN_FLY_LINKS = ("tibia", "tarsus", "thorax", "head", "abdomen")
+
+    def install_terrain_contact_pairs(self, world, fly):
+        """Give each ramp slot copies of the fly's own lawn contact pairs.
+
+        FlyGym's fly geoms are contype 0 and touch the lawn only through
+        explicit pairs, so a ramp needs the same pairs (and the same friction
+        and solver parameters) for legs to stand on it. Leg adhesion acts on any
+        contact of tarsus5, so it grips a ramp as it grips the lawn.
+        """
+        ground = set(self._ground_geom_names)
+        fly_geoms = {geom.name for key, geoms in fly.bodyseg_to_mjcfgeom.items()
+                     if getattr(key, "name", str(key)).split("_")[-1].startswith(self.TERRAIN_FLY_LINKS)
+                     for geom in geoms}
+        templates = [pair for pair in world.mjcf_root.pairs
+                     if pair.geomname2 in ground and pair.geomname1 in fly_geoms]
+        if not templates:
+            raise RuntimeError("no fly/ground contact pairs to copy for ramps")
+        self._terrain_pair_count = 0
+        for slot, shape in self._slot_shape.items():
+            if shape != "ramp":
+                continue
+            for index, pair in enumerate(templates):
+                world.mjcf_root.add_pair(
+                    geomname1=pair.geomname1, geomname2=f"{slot}_geom",
+                    name=f"v64-{slot}-{index}", condim=pair.condim,
+                    friction=list(pair.friction), solref=list(pair.solref),
+                    solimp=list(pair.solimp), margin=pair.margin, gap=pair.gap)
+                self._terrain_pair_count += 1
+        self._terrain_template_count = len(templates)
 
     def bind(self, sim, force_body_ids=None):
         """Resolve slot/body ids after Simulation construction."""
@@ -657,6 +755,10 @@ class LabWorld:
             else:
                 diameter = 3.0 if shape == "food" else 5.0
             return [diameter, diameter, diameter]
+        if shape == "ramp":
+            raw = _vec3(size_mm, RAMP_DEFAULT_SIZE_MM)
+            return [_clamp(v, lo, hi, RAMP_DEFAULT_SIZE_MM[i])
+                    for i, (v, (lo, hi)) in enumerate(zip(raw, RAMP_SIZE_RANGE_MM))]
         default = [10.0, 10.0, 10.0] if shape == "box" else [2.0, 30.0, 15.0]
         raw = _vec3(size_mm, default)
         return [_clamp(v, 0.2, 200.0, default[i]) for i, v in enumerate(raw)]
@@ -673,17 +775,25 @@ class LabWorld:
         return name
 
     def spawn_object(self, *, shape="box", object_id=None, position_mm=None,
-                     size_mm=None, yaw_deg=0.0, variant=None):
+                     size_mm=None, yaw_deg=0.0, variant=None, pitch_deg=None):
         shape = self._shape(shape)
         if variant is not None and shape != "food":
             raise LabError("variant applies only to food")
+        if pitch_deg is not None and shape != "ramp":
+            raise LabError("pitch_deg applies only to ramp")
         if not self._free_slots[shape]:
-            raise LabError(f"no free {shape} slots")
+            raise CapacityError(f"no free {shape} slots")
         object_id = self._object_id(object_id, shape)
         size = self._sanitize_size(shape, size_mm)
+        pitch = 0.0
+        if shape == "ramp":
+            pitch = _clamp(RAMP_DEFAULT_PITCH_DEG if pitch_deg is None else pitch_deg,
+                           0.0, RAMP_PITCH_MAX_DEG, RAMP_DEFAULT_PITCH_DEG)
         slot = self._free_slots[shape].popleft()
         pos_default = [40.0, 0.0, 5.0]
-        if shape == "wall":
+        if shape == "ramp":
+            pos_default = [40.0, 0.0, ramp_flush_center_z(size, pitch)]
+        elif shape == "wall":
             pos_default = [40.0, 0.0, 7.5]
         elif shape == "food":
             pos_default = [20.0, 0.0, 1.5]
@@ -707,6 +817,7 @@ class LabWorld:
             yaw_deg=_clamp(yaw_deg, -36000.0, 36000.0, 0.0) % 360.0,
             variant=food_variant,
             trap_state="armed" if shape == "trap" else None,
+            pitch_deg=pitch,
         )
         self.objects[object_id] = obj
         self._bump_revision(obj, structural=True)
@@ -733,11 +844,32 @@ class LabWorld:
         obj = self._require_object(object_id)
         self.drives.pop(object_id, None)
         self._trap_blocked.discard(object_id)
+        anchor = obj.ramp_anchor() if obj.shape == "ramp" else None
         obj.size_mm = self._sanitize_size(obj.shape, size_mm)
+        if anchor is not None:
+            self._pin_ramp_anchor(obj, anchor)
         self._bump_revision(obj, structural=True)
         self._sync_object(obj)
         self.interaction.previous_distances = None
         return obj.state()
+
+    def set_ramp_pitch(self, object_id, *, pitch_deg):
+        obj = self._require_object(object_id)
+        if obj.shape != "ramp":
+            raise LabError("pitch_deg applies only to ramp")
+        anchor = obj.ramp_anchor()
+        obj.pitch_deg = _clamp(pitch_deg, 0.0, RAMP_PITCH_MAX_DEG, obj.pitch_deg)
+        self._pin_ramp_anchor(obj, anchor)
+        self._bump_revision(obj)
+        self._sync_object(obj)
+        return obj.state()
+
+    @staticmethod
+    def _pin_ramp_anchor(obj, anchor):
+        """Shift the center so the low top edge returns to `anchor`."""
+        moved = obj.ramp_anchor()
+        obj.position_mm = [_clamp(c + a - m, -1000.0, 1000.0, c)
+                           for c, a, m in zip(obj.position_mm, anchor, moved)]
 
     def remove_object(self, object_id):
         obj = self._require_object(object_id)
@@ -874,6 +1006,8 @@ class LabWorld:
                 raise InteractionError("target_mismatch")
             if object_id not in self.objects:
                 raise InteractionError("ray_miss")
+            if self.objects[object_id].shape == "ramp":
+                raise InteractionError("fixed_terrain")
             self.approaches.pop(object_id, None)
             self.drives.pop(object_id, None)
             self.interaction.held_object_id = object_id
@@ -1129,6 +1263,8 @@ class LabWorld:
     def start_approach(self, object_id, *, fly_position_mm, end_distance_mm=8.0,
                        speed_mm_s=80.0):
         obj = self._require_object(object_id)
+        if obj.shape == "ramp":
+            raise LabError("ramp is fixed terrain")
         target = _vec3(fly_position_mm, [0.0, 0.0, 0.0])
         motion = ApproachMotion(
             object_id=obj.object_id,
@@ -1250,9 +1386,11 @@ class LabWorld:
         Every check (schema, bounds, target, applier, revision) runs before the
         first setter. Legacy setters then apply an already in-range value, so
         their clamps are no-ops; yaw keeps its documented modulo-360 normalization.
-        Object properties use the object's revision, temperature/eyes use
-        environment_revision. Wind is not editable here: a single wind field has
-        no defined meaning yet against active puff timers (V6.5 panel).
+        Object properties use the object's revision, temperature/eyes/wind use
+        environment_revision. A wind edit configures the continuous wind only
+        (V6.5): strength > 0 turns it on, 0 turns it off, and direction or the
+        physical/sensory flags change while the strength is kept. A timed puff
+        is an action, not a setting, so an edit never overwrites a running one.
         """
         d, value = validate_edit(edit, EDIT_DESCRIPTORS)
         pid, target, field = d["property_id"], edit["target_id"], d["legacy_field"]
@@ -1269,6 +1407,12 @@ class LabWorld:
             current = obj.revision
         elif pid.startswith(("temperature.", "eyes.")):
             current = self.environment_revision
+        elif pid in WIND_EDIT_FIELDS:
+            if self.wind["strength"] > 0.0 and not self.wind["continuous"]:
+                raise EditError("edit.property_id",
+                                "a timed wind puff is running; wait for it to end or stop it",
+                                status="rejected_busy")
+            current = self.environment_revision
         else:
             raise EditError("edit.property_id", "no V6.2 edit applier for this property",
                             status="rejected_unsupported")
@@ -1277,6 +1421,8 @@ class LabWorld:
                             status="rejected_stale_revision", current_revision=current)
         if field == "position_mm":
             actual = self.move_object(target, position_mm=value)["position_mm"]
+        elif field == "pitch_deg":
+            actual = self.set_ramp_pitch(target, pitch_deg=value)["pitch_deg"]
         elif field == "yaw_deg":
             actual = self.move_object(target, yaw_deg=value)["yaw_deg"]
         elif field == "size_mm":
@@ -1285,6 +1431,12 @@ class LabWorld:
         elif pid.startswith("temperature."):
             settings = {"celsius": self.temperature["celsius"], "mode": self.temperature["mode"]}
             actual = self.set_temperature(**{**settings, field: value})[field]
+        elif pid in WIND_EDIT_FIELDS:
+            w = self.wind
+            settings = {"strength": w["strength"], "direction_deg": w["direction_deg"],
+                        "physical": w["physical_enabled"], "sensory": w["sensory_enabled"]}
+            state = self.set_wind(**{**settings, field: value}, continuous=True)
+            actual = state[WIND_EDIT_FIELDS[pid]]
         else:
             actual = self.set_eye_state(**{field: value})[field]
         revision = obj.revision if pid.startswith("object.") else self.environment_revision
@@ -1327,11 +1479,13 @@ class LabWorld:
             reject("object_edit.target_id", "held object cannot be edited", status="rejected_target")
         if operation == "duplicate":
             if not self._free_slots[obj.shape]:
-                reject("object_edit.operation", "no free shape slots", status="rejected_capacity")
+                reject("object_edit.operation", "no free shape slots", status="rejected_capacity",
+                       shape=obj.shape, capacity=int(self.slot_counts[obj.shape]))
             # No authored-data coercion here: the source is already an owner object.
             result = self.spawn_object(shape=obj.shape, position_mm=list(obj.position_mm),
                                        size_mm=list(obj.size_mm), yaw_deg=obj.yaw_deg,
-                                       variant=obj.variant)
+                                       variant=obj.variant,
+                                       pitch_deg=obj.pitch_deg if obj.shape == "ramp" else None)
             actual = result["id"]
         else:
             self.remove_object(target)
@@ -1389,7 +1543,7 @@ class LabWorld:
             return self.apply_interaction(command)
         if op == "edit_property":
             return self.apply_edit(a.get("edit"))
-        if op in ("spawn_object", "spawn_box", "spawn_sphere", "spawn_wall"):
+        if op in ("spawn_object", "spawn_box", "spawn_sphere", "spawn_wall", "spawn_ramp"):
             shape = a.get("shape", "box")
             if op.startswith("spawn_") and op != "spawn_object":
                 shape = op.removeprefix("spawn_")
@@ -1421,7 +1575,7 @@ class LabWorld:
             return self.spawn_object(
                 shape=shape, object_id=a.get("id"),
                 position_mm=a.get("position_mm"), size_mm=a.get("size_mm"),
-                yaw_deg=a.get("yaw_deg", 0.0))
+                yaw_deg=a.get("yaw_deg", 0.0), pitch_deg=a.get("pitch_deg"))
         if op in ("spawn_food", "spawn_food_marker"):
             return self.spawn_object(
                 shape="food", object_id=a.get("id"), position_mm=a.get("position_mm"),
@@ -1841,6 +1995,14 @@ class LabWorld:
                     self._append_event({
                         "event": "flash_complete", "classification": SENSORY_MODEL, "eye": eye})
 
+    def _body_speed_along(self, bid, direction):
+        """World horizontal speed of a free-jointed body along a unit XY direction."""
+        jnt = int(self.model.body_jntadr[bid])
+        if jnt < 0 or int(self.model.jnt_type[jnt]) != 0:  # 0 = mjJNT_FREE
+            return 0.0
+        dof = int(self.model.jnt_dofadr[jnt])
+        return float(self.data.qvel[dof]) * direction[0] + float(self.data.qvel[dof + 1]) * direction[1]
+
     def _apply_forces(self):
         # Remove only the force vectors previously contributed by this module so
         # another subsystem using xfrc_applied is not clobbered.
@@ -1853,8 +2015,14 @@ class LabWorld:
             bid = self.force_body_ids["thorax"]
             mass = max(0.0, float(self.model.body_mass[bid]))
             angle = math.radians(self.wind["direction_deg"])
+            direction = (math.cos(angle), math.sin(angle))
             mag = mass * WIND_ACCEL_MAX_MM_S2 * self.wind["strength"]
-            forces[bid] = [math.cos(angle) * mag, math.sin(angle) * mag, 0.0]
+            # The push fades as the thorax approaches the wind's own speed, so a
+            # fly that loses its footing drifts with the wind instead of being
+            # accelerated without bound (a constant force tumbled it away).
+            wind_speed = WIND_SPEED_MAX_MM_S * self.wind["strength"]
+            mag *= _clamp(1.0 - self._body_speed_along(bid, direction) / wind_speed, 0.0, 1.0, 0.0)
+            forces[bid] = [direction[0] * mag, direction[1] * mag, 0.0]
 
         if self.touch is not None and self.touch["strength"] > 0.0:
             bid = self.force_body_ids.get(self.touch["target"])
@@ -2100,7 +2268,7 @@ class LabWorld:
                     quat_wxyz = [float(v) for v in self.model.body_quat[bid]]
                 if obj.shape in ("car", "trap", "food"):
                     size = [float(v) for v in obj.size_mm]
-                elif obj.shape in ("box", "wall"):
+                elif obj.shape in ("box", "wall", "ramp"):
                     size = [float(v) * 2.0 for v in self.model.geom_size[gid][:3]]
                 else:
                     diameter = float(self.model.geom_size[gid][0]) * 2.0
@@ -2108,8 +2276,8 @@ class LabWorld:
                 quat = [quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]]
             else:
                 pos = [float(v) for v in obj.position_mm]
-                half_yaw = math.radians(obj.yaw_deg) * 0.5
-                quat = [0.0, 0.0, math.sin(half_yaw), math.cos(half_yaw)]
+                w, x, y, z = obj.quat_wxyz()
+                quat = [x, y, z, w]
                 size = [float(v) for v in obj.size_mm]
             rendered.append({
                 "id": obj.object_id,
@@ -2158,6 +2326,7 @@ class LabWorld:
             "interaction": self.interaction.state(),
             "slot_capacity": {shape: int(count) for shape, count in self.slot_counts.items()},
             "slot_free": {shape: len(slots) for shape, slots in self._free_slots.items()},
+            "terrain_contact_pairs": int(self._terrain_pair_count),
             "approaches": [
                 {
                     "id": m.object_id,
@@ -2212,16 +2381,23 @@ class LabWorld:
         if not self._bound:
             return
         bid, gid, mocap_id = self._slot_ids[obj.slot]
-        half_yaw = math.radians(obj.yaw_deg) * 0.5
-        quat = [math.cos(half_yaw), 0.0, 0.0, math.sin(half_yaw)]
+        quat = obj.quat_wxyz()
         if mocap_id >= 0:
             self.data.mocap_pos[mocap_id] = obj.position_mm
             self.data.mocap_quat[mocap_id] = quat
         else:
             self.model.body_pos[bid] = obj.position_mm
             self.model.body_quat[bid] = quat
-        if obj.shape in ("box", "wall"):
+        if obj.shape in ("box", "wall", "ramp"):
             self.model.geom_size[gid] = [max(0.1, v * 0.5) for v in obj.size_mm]
+            if obj.shape == "ramp":
+                # Every ramp/fly pair is explicit, and explicit pairs are culled
+                # only by these bounds. Left at the compiled maximum (rbound
+                # ~173 mm), every leg pair would reach narrow phase whenever
+                # the fly is anywhere near a ramp, not just on it.
+                half = self.model.geom_size[gid]
+                self.model.geom_aabb[gid] = [0.0, 0.0, 0.0, *half]
+                self.model.geom_rbound[gid] = math.sqrt(float(half @ half))
         else:
             radius = max(0.1, obj.size_mm[0] * 0.5)
             self.model.geom_size[gid] = [radius, 0.0, 0.0]

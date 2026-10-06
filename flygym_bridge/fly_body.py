@@ -397,6 +397,9 @@ class RealFlyBody:
         self.lab_world.player.install_fly_contact_pairs(self.world, self.fly)
         pair_segments = cfg.get("object_fly_pair_segments", ("thorax", "head", "abdomen")) if isinstance(cfg, dict) else ("thorax", "head", "abdomen")
         self.lab_world.install_fly_contact_pairs(self.world, self.fly, segments=pair_segments)
+        # The off switch exists only as the V6.4 negative control (legs pass through).
+        if not (isinstance(cfg, dict) and cfg.get("terrain_leg_contact") is False):
+            self.lab_world.install_terrain_contact_pairs(self.world, self.fly)
         self.sim = Simulation(self.world)
         # FlyGym's mujoco_globals enable MuJoCo's energy bookkeeping. Nothing
         # reads mjData.energy and it never feeds the dynamics; it cost ~1.5% of

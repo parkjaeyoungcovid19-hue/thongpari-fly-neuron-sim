@@ -4,7 +4,7 @@ import Cocoa
 func runWorldEditorTest() {
     _ = NSApplication.shared
     var failures=0
-    func check(_ name:String,_ ok:Bool) { print((ok ? "PASS" : "FAIL")+"  V6.3 "+name); if !ok { failures += 1 } }
+    func check(_ name:String,_ ok:Bool) { print((ok ? "PASS" : "FAIL")+"  "+(name.hasPrefix("V6") ? "" : "V6.3 ")+name); if !ok { failures += 1 } }
     let root=URL(fileURLWithPath:CommandLine.arguments[0]).deletingLastPathComponent()
     guard let data=try? Data(contentsOf:root.appendingPathComponent("fixtures/environment_capabilities/valid.json")),
           let caps=try? JSONDecoder().decode(EnvironmentCapabilities.self,from:data) else { print("FAIL fixture capabilities"); exit(1) }
@@ -71,5 +71,105 @@ func runWorldEditorTest() {
     check("Return sends once while pending",submitted==1 && inspector.state.pending != nil)
     check("owner geometry never optimistic",inspector.overlay.selected?.positionMM==source.positionMM)
     runWorldEditorAppKitChecks(check)
+    runRampEditorChecks(check, caps: caps, identity: identity, schedule: schedule, camera: camera)
+    runEnvironmentPanelChecks(check, caps: caps)
     print("V6.3 editor diagnostics: \(failures) failures"); exit(failures==0 ? 0 : 1)
+}
+
+/// V6.4 ramp: decoding, tilt tool, the outline frame against the backend
+/// quaternion formula, the spawn_ramp wire shape and the slot-budget wording.
+private func runRampEditorChecks(_ check: (String, Bool) -> Void, caps: EnvironmentCapabilities,
+                                 identity: WorldEditorIdentity, schedule: LabCommandSchedule,
+                                 camera: WorldViewerMuJoCoCamera) {
+    func decode(_ json: String) -> LabWorldObjectRemote? {
+        try? JSONDecoder().decode(LabWorldObjectRemote.self, from: Data(json.utf8))
+    }
+    let ramp = decode(#"{"id":"r","shape":"ramp","position_mm":[10,-5,3],"size_mm":[30,12,2],"yaw_deg":40,"pitch_deg":25,"revision":2}"#)
+    let box = decode(#"{"id":"b","shape":"box","position_mm":[0,0,5],"size_mm":[6,8,10],"yaw_deg":30,"revision":2}"#)
+    check("ramp pitch decodes; other shapes have none", ramp?.pitchDeg == 25 && box != nil && box?.pitchDeg == nil)
+    guard let ramp, let box else { return }
+
+    // lab_world.LabObject.quat_wxyz, rotated independently of localAxes.
+    let (hy, hp) = (40.0 * .pi / 360, 25.0 * .pi / 360)
+    let (w, x, y, z) = (cos(hy) * cos(hp), sin(hy) * sin(hp), -cos(hy) * sin(hp), sin(hy) * cos(hp))
+    let matrix = [[1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+                  [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+                  [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)]]
+    let axes = ramp.localAxes
+    let worst = (0..<3).flatMap { axis in (0..<3).map { row in abs(axes[axis][row] - matrix[row][axis]) } }.max() ?? 1
+    check("outline axes equal the backend quaternion (yaw 40°, tilt 25°)", worst < 1e-12)
+
+    // The live editor reads poses from world_render_snapshot, not lab_state.
+    func render(_ shape: String, _ q: [Double]) -> WorldRenderObject? {
+        try? JSONDecoder().decode(WorldRenderObject.self, from: Data(
+            #"{"id":"r","shape":"\#(shape)","position_mm":[10,-5,3],"orientation_quat_xyzw":[\#(q.map { "\($0)" }.joined(separator: ","))],"size_mm":[30,12,2],"revision":2}"#.utf8))
+    }
+    let mappedRamp = render("ramp", [x, y, z, w]).map { LabWorldObjectRemote(render: $0, lab: nil) }
+    let mappedBox = render("box", [x, y, z, w]).map { LabWorldObjectRemote(render: $0, lab: nil) }
+    check("render snapshot → editor keeps ramp tilt 25° and yaw 40°",
+          abs((mappedRamp?.pitchDeg ?? 0) - 25) < 1e-9 && abs((mappedRamp?.yawDeg ?? 0) - 40) < 1e-9
+          && mappedBox != nil && mappedBox?.pitchDeg == nil)
+
+    check("tilt descriptor only for ramps",
+          caps.descriptor(WorldEditorTool.tilt.propertyID(shape: "ramp"))?.maximum == .number(45)
+          && caps.descriptor(WorldEditorTool.tilt.propertyID(shape: "box")) == nil)
+    let accepted = try? EnvironmentEdit.make(propertyID: "object.ramp.pitch_deg", targetID: "r",
+                                             expectedRevision: 2, value: .number(45), capabilities: caps)
+    let rejected = try? EnvironmentEdit.make(propertyID: "object.ramp.pitch_deg", targetID: "r",
+                                             expectedRevision: 2, value: .number(45.0001), capabilities: caps)
+    check("tilt 45° accepted, 45.0001° rejected before sending", accepted != nil && rejected == nil)
+
+    let inspector = WorldEditorInspector(frame: .zero)
+    var sent: [LabCommand] = []
+    inspector.onSubmit = { command, _ in sent.append(command); return (9, schedule) }
+    func show(_ object: LabWorldObjectRemote) {
+        inspector.update(objects: [object], selectedID: object.id, capabilities: caps, identity: identity,
+                         mode: .edit, available: true, heldID: nil, camera: camera)
+    }
+    show(box)
+    let tilt = WorldEditorTool.tilt.rawValue
+    check("tilt tool disabled for a box", !inspector.tools.isEnabled(forSegment: tilt))
+    show(ramp)
+    inspector.tools.selectedSegment = tilt
+    _ = inspector.tools.sendAction(inspector.tools.action, to: inspector.tools.target)
+    check("tilt tool enabled for a ramp and shows its tilt",
+          inspector.tools.isEnabled(forSegment: tilt) && inspector.fields[0].stringValue == "25")
+    inspector.fields[0].stringValue = "30"
+    inspector.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+    _ = inspector.control(inspector.fields[0], textView: NSTextView(), doCommandBy: #selector(NSResponder.insertNewline(_:)))
+    check("Return sends one pitch edit", sent.count == 1 && sent.first?.edit?.propertyID == "object.ramp.pitch_deg"
+          && sent.first?.edit?.value == .number(30))
+    inspector.fields[0].stringValue = "33"   // an unsent draft
+    inspector.controlTextDidChange(Notification(name: NSControl.textDidChangeNotification))
+    LabLanguage.pinForTests(.korean); inspector.relabel()
+    check("language change relabels the open editor and keeps an unsent draft (GUI F03)",
+          inspector.tools.label(forSegment: WorldEditorTool.move.rawValue) == "이동"
+          && inspector.tools.label(forSegment: tilt) == "기울기" && inspector.fields[0].stringValue == "33")
+    LabLanguage.pinForTests(.english); inspector.relabel()
+
+    let size = LabRamp.size(lengthMM: 40)
+    let flush = LabRamp.flushCenterZ(sizeMM: size, pitchDeg: 15)
+    check("flush spawn height matches lab_world (4.69342 mm)", size == [40, 20, 1] && abs(flush - 4.693419) < 1e-5)
+    let spawn = LabCommand.spawnRamp(target: "r", positionMM: [10, 0, flush], sizeMM: size, pitchDeg: 15)
+    let wire = spawn.flatMap { try? JSONEncoder().encode($0) }
+        .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    check("spawn_ramp wire: vector size_mm and pitch_deg, no legacy size",
+          wire?["action"] as? String == "spawn_ramp" && wire?["size_mm"] as? [Double] == [40, 20, 1]
+          && wire?["pitch_deg"] as? Double == 15 && wire?["size"] == nil)
+    check("spawn_ramp bounds checked before sending",
+          LabCommand.spawnRamp(target: "r", positionMM: [0, 0, 0], sizeMM: [40, 20, 21], pitchDeg: 15) == nil
+          && LabCommand.spawnRamp(target: "r", positionMM: [0, 0, 0], sizeMM: size, pitchDeg: 46) == nil)
+
+    var state = WorldEditorState()
+    state.begin(WorldEditorPending(commandID: 9, identity: identity, schedule: schedule, propertyID: "object.duplicate",
+                                   targetID: "r", expectedRevision: 2, proposedValue: nil, capabilities: caps,
+                                   startedAt: Date()))
+    var ack = LabAck(id: 9, ok: false, action: "edit_object", message: "no free shape slots",
+                     appliedTick: 40, appliedEpoch: 2, status: "rejected", sessionID: "editor", epoch: 2)
+    ack.connectionGeneration = identity.generation
+    ack.edit = try? JSONDecoder().decode(EnvironmentEditResult.self, from: Data(
+        #"{"ok":false,"status":"rejected_capacity","path":"object_edit.operation","reason":"no free shape slots"}"#.utf8))
+    _ = state.accept(ack)
+    check("full slot pool explained in words, not the raw backend reason",
+          state.isError && !state.message.contains("no free") && state.message.contains(L("slot", "자리")))
 }

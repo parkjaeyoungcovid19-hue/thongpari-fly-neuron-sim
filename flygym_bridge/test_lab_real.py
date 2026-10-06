@@ -64,7 +64,7 @@ try:
     # Assert the public defaults independently of the implementation constant.
     check("real default runtime slot capacity contract",
           capacity == {"box": 64, "sphere": 64, "wall": 64,
-                       "food": 8, "car": 4, "trap": 2},
+                       "food": 8, "car": 4, "trap": 2, "ramp": 4},
           repr(capacity))
 
     # The old real topology exhausted at 8 box/sphere/wall and 4 food objects.

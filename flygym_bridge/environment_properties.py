@@ -148,21 +148,23 @@ def _descriptor(property_id, label, kind, unit, lo, hi, default, commands, field
 def _registry():
     result = []
     add = lambda *args, **kwargs: result.append(_descriptor(*args, **kwargs))
-    shapes = ("box", "sphere", "wall", "food", "car", "trap")
+    shapes = ("box", "sphere", "wall", "food", "car", "trap", "ramp")
     add("object.shape", "Object shape", "enum", "none", None, None, "box",
         ("spawn_object",), "shape", scope="local", mode="spawn_only", choices=shapes,
         effects=("PHYSICAL", "VISUAL", "SENSORY-MODEL"),
-        notes="Spawn only; existing object shape is immutable. food_marker/food_source alias food. Food has modeled odor/contact, no collision; toys use collidable palettes.")
+        notes="Spawn only; existing object shape is immutable. food_marker/food_source alias food. Food has modeled odor/contact, no collision; toys use collidable palettes. Ramp is fixed walkable terrain (fly legs contact it; never grabbed/approached).")
     for shape in shapes:
         commands = (("spawn_object", "spawn_food", "spawn_food_marker") if shape == "food" else
                     ("spawn_object",) if shape in ("car", "trap") else
                     ("spawn_object", "spawn_" + shape))
         effects = ("VISUAL", "SENSORY-MODEL") if shape == "food" else ("PHYSICAL", "VISUAL")
         position = {"box": [40, 0, 5], "sphere": [40, 0, 5], "wall": [40, 0, 7.5],
-                    "food": [20, 0, 1.5]}.get(shape)
+                    "food": [20, 0, 1.5], "ramp": [40, 0, 4.69]}.get(shape)
         position_notes = ("World XYZ mm, not a floor snap. Supplied pose can intersect ground. Move preserves omitted coordinates; resize does not adjust Z.")
         if shape in ("car", "trap"):
             position_notes += (" Absent spawn pose is [40,0,.205*length] for car; [40,0,.3*side+4] for trap. UI toy spawn computes Z; backend accepts explicit Z.")
+        if shape == "ramp":
+            position_notes = ("World XYZ mm of the box center. Absent spawn Z puts the low top edge on the lawn (z=.5*L*sin(pitch)-.5*T*cos(pitch)). Size and pitch edits pivot about the middle of the low top edge, so they also move the center.")
         add(f"object.{shape}.position_mm", f"{shape.title()} position", "vector", "mm",
             [-1000] * 3, [1000] * 3, position, commands + ("move_object",), "position_mm",
             scope="local", effects=effects, notes=position_notes)
@@ -170,6 +172,9 @@ def _registry():
             kind, lo, hi = "vector", [.2] * 3, [200] * 3
             default = [10, 10, 10] if shape == "box" else [2, 30, 15]
             notes = "Full XYZ lengths; Swift common size form sends equal components, so anisotropy is backend-only. UI min .1 differs from backend .2."
+        elif shape == "ramp":
+            kind, lo, hi, default = "vector", [5, 2, .2], [200, 200, 20], [40, 20, 1]
+            notes = "Full [length X, width Y, thickness Z] in the ramp's own frame. Resize keeps the low top edge fixed."
         else:
             kind = "number"
             lo, hi, default = {"sphere": (.2, 100, 5), "food": (.2, 100, 3),
@@ -180,9 +185,12 @@ def _registry():
             default, commands + ("resize_object",), "size_mm", scope="local",
             effects=effects, notes=notes)
     add("object.yaw_deg", "Object yaw", "number", "deg", -36000, 36000, 0,
-        ("spawn_object", "spawn_box", "spawn_sphere", "spawn_wall", "spawn_food", "spawn_food_marker", "move_object"),
+        ("spawn_object", "spawn_box", "spawn_sphere", "spawn_wall", "spawn_ramp", "spawn_food", "spawn_food_marker", "move_object"),
         "yaw_deg", scope="local", effects=("PHYSICAL", "VISUAL"),
-        notes="REQUEST bounds: clamp to [-36000,36000], then modulo360. APPLIED range [0,360). All shapes; rotation around Z only, no tilt. Swift command/form has no yaw field; food rotates visually, is noncollidable.")
+        notes="REQUEST bounds: clamp to [-36000,36000], then modulo360. APPLIED range [0,360). All shapes; rotation around world Z. Only ramps tilt (object.ramp.pitch_deg). Food rotates visually, is noncollidable.")
+    add("object.ramp.pitch_deg", "Ramp tilt", "number", "deg", 0, 45, 15,
+        ("spawn_object", "spawn_ramp"), "pitch_deg", scope="local", effects=("PHYSICAL", "VISUAL"),
+        notes="Rotation about the ramp's own Y axis after yaw; positive raises the +X end. Pivots about the middle of the low top edge. Ramp only.")
     add("object.food.variant", "Food variant", "enum", "none", None, None, None,
         ("spawn_food", "spawn_food_marker"), "variant", scope="local", mode="spawn_only",
         effects=("VISUAL", "SENSORY-MODEL"),
@@ -196,7 +204,7 @@ def _registry():
         choices=("environment_only", "modeled_physiology", "flywire_sensory"), notes=temp_notes)
     wind = ("wind", "wind_puff")
     add("wind.strength", "Wind strength", "number", "normalized", 0, 1, 0, wind, "strength",
-        effects=("PHYSICAL", "SENSORY-MODEL"), notes="Dimensionless, not m/s. Flags independently gate thorax mass*10000mm/s2*strength force and modeled JO-C/E current. Initial off; UI form .7. Zero stops timer/continuous. Scene candidate only for authored continuous wind, not active puff.")
+        effects=("PHYSICAL", "SENSORY-MODEL"), notes="Dimensionless, not m/s. Flags independently gate thorax mass*60000mm/s2*strength force (fading to 0 as the thorax reaches 30mm/s*strength along the wind) and modeled JO-C/E current. Initial off; UI form .7. Zero stops timer/continuous. Scene candidate only for authored continuous wind, not active puff.")
     add("wind.direction_deg", "Wind direction", "number", "deg", -36000, 36000, 0, wind, "direction_deg",
         effects=("PHYSICAL", "SENSORY-MODEL"), notes="REQUEST clamp [-36000,36000], then modulo360; APPLIED [0,360). 0 points +X,90 +Y; world horizontal force direction, not meteorological wind-from. UI remainder may be negative. Neural model uses body-relative direction; no food odor advection.")
     add("wind.continuous", "Continuous wind", "boolean", "none", None, None, None, wind, "continuous",

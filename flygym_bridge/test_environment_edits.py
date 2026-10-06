@@ -30,6 +30,7 @@ def world_with_targets():
     world.spawn_object(shape="wall", object_id="wall_1", position_mm=[-40, 0, 7.5])
     world.spawn_object(shape="sphere", object_id="sphere_1", position_mm=[0, 40, 5])
     world.spawn_object(shape="car", object_id="car_1", position_mm=[0, -40, 3])
+    world.spawn_object(shape="ramp", object_id="ramp_1", position_mm=[-40, 40, 4])
     world.drain_events()
     return world
 
@@ -82,7 +83,7 @@ class EnvironmentEditTests(unittest.TestCase):
     def test_valid_fixtures_apply_exact_value_and_advance_revision(self):
         expected_actual = {"valid-yaw-request-bound.json": 0.0}
         for name, doc, _ in fixtures():
-            if doc["expect"] != "accept" or name == "valid-wind-validator-only.json":
+            if doc["expect"] != "accept":
                 continue
             with self.subTest(fixture=name):
                 world = world_with_targets()
@@ -128,16 +129,55 @@ class EnvironmentEditTests(unittest.TestCase):
                  "edit.target_id", "rejected_target"),
                 ({**base, "expected_revision": base["expected_revision"] + 1},
                  "edit.expected_revision", "rejected_stale_revision"),
-                (dict(schema_version=1, property_id="wind.strength", target_id=None,
-                      expected_revision=world.environment_revision, unit="normalized", value=.5),
-                 "edit.property_id", "rejected_unsupported"),
-                (dict(schema_version=1, property_id="wind.physical", target_id=None,
-                      expected_revision=world.environment_revision, unit="none", value=False),
+                # Puff timing is an action, not a continuous-wind setting.
+                (dict(schema_version=1, property_id="wind.continuous", target_id=None,
+                      expected_revision=world.environment_revision, unit="none", value=True),
                  "edit.property_id", "rejected_unsupported")):
             with self.subTest(edit=edit):
                 self.assert_rejected_untouched(world, edit_line(5, edit), path, status)
         self.assert_rejected_untouched(world, LabCommand.from_dict(
             {"type": "lab_command", "id": 6, "action": "edit_property"}), "edit")
+
+    def wind_edit(self, world, prop, value):
+        unit = {"wind.strength": "normalized", "wind.direction_deg": "deg"}.get(prop, "none")
+        return dict(schema_version=1, property_id=prop, target_id=None,
+                    expected_revision=world.environment_revision, unit=unit, value=value)
+
+    def test_wind_edits_configure_continuous_wind_only(self):
+        world = LabWorld()
+        # Direction while off: stays off, direction is kept for the next turn-on.
+        self.assertEqual(world.apply_edit(self.wind_edit(world, "wind.direction_deg", -90))["actual_value"], 270.0)
+        self.assertEqual((world.wind["strength"], world.wind["continuous"]), (0.0, False))
+        on = world.apply_edit(self.wind_edit(world, "wind.strength", 0.4))
+        self.assertEqual(on["actual_value"], 0.4)
+        wind = world.state()["wind"]
+        self.assertEqual((wind["strength"], wind["direction_deg"], wind["continuous"], wind["remaining_ms"]),
+                         (0.4, 270.0, True, None))
+        # Flags and direction change without touching strength or continuity.
+        self.assertIs(world.apply_edit(self.wind_edit(world, "wind.physical", False))["actual_value"], False)
+        world.apply_edit(self.wind_edit(world, "wind.direction_deg", 45))
+        wind = world.state()["wind"]
+        self.assertEqual((wind["strength"], wind["direction_deg"], wind["continuous"],
+                          wind["physical_enabled"], wind["sensory_enabled"]), (0.4, 45.0, True, False, True))
+        # A continuous wind survives simulated time; strength 0 turns it off.
+        for _ in range(100):
+            world.pre_step(0.01)
+        self.assertEqual(world.wind["strength"], 0.4)
+        off = world.apply_edit(self.wind_edit(world, "wind.strength", 0))
+        self.assertEqual((off["actual_value"], world.wind["continuous"], world.wind["direction_deg"]), (0.0, False, 45.0))
+
+    def test_wind_edit_never_overwrites_running_puff(self):
+        world = LabWorld()
+        world.apply_command(LabCommand.from_dict({"type": "lab_command", "id": 1, "action": "wind_puff",
+                                                  "strength": .7, "duration_ms": 300}))
+        for prop, value in (("wind.strength", .2), ("wind.direction_deg", 90), ("wind.sensory", False)):
+            with self.subTest(prop=prop):
+                self.assert_rejected_untouched(world, edit_line(2, self.wind_edit(world, prop, value)),
+                                               "edit.property_id", "rejected_busy")
+        for _ in range(31):
+            world.pre_step(0.01)
+        self.assertEqual(world.wind["strength"], 0.0)
+        self.assertEqual(world.apply_edit(self.wind_edit(world, "wind.strength", .2))["actual_value"], .2)
 
     def test_held_object_is_not_editable(self):
         world = world_with_targets()

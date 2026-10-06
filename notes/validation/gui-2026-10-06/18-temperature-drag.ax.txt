@@ -1,0 +1,18 @@
+The following is a diff from the previous accessibility tree for Window: "Virtual Fly Lab" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~		28 텍스트 3D 화면 — 시각 17845 ms · 물체 1개
+~			30 text 🥶 슬픔 — 추워요 14 °C는 너무 추워요 감각·행동 신호로 만든 추정
+~		31 text 타임라인 — 최근 명령과 반응 t17485  #2 edit_property — 적용됨 @t17505
+t17605  #3 edit_property — 적용됨 @t17625
+t17645  #4 edit_property — 적용됨 @t17665
+t17805  #5 edit_property — 적용됨 @t17825
+t17845  #6 edit_property — 적용됨 @t17865 몸 데이터 41 ms 전 · 속도 0.0025 m/s · 발 닿음 1.00 · 눈 샘플 t17825 · 다가옴 감지 L/R 0.048/0.046 · 뇌 활동 1.8 Hz 실시간 — 시뮬레이터(headless) :63243 · 몸 데이터 초당 13회 · 실시간 대비 0.40배 · 느림: 몸 데이터가 초당 30회 미만 기록 안 함
+~			119 text 지금 파리 위치의 값 파리 위치  x 2.6 · y -39.0 mm · 바라보는 방향 291° · 몸 시각 17.885 s (41 ms 전)
+온도  13.5 °C (기록만) · 감각 전류 따뜻 0.000 / 차가 0.000 · 온도 뉴런 0.0 / 0.0 Hz
+바람  파리 위치에 없음 · 더듬이 전류 C 0.000 / E 0.000
+빛  눈 밝기 왼 0.55 / 오 0.56 (눈 영상 t17825) · 번쩍임 0.00 / 0.00
+먹이  냄새 왼 0.000 / 오 0.000 · 가장 가까운 먹이 먹이 없음 · 맛(당) 0.00 · 후각 뉴런 0.0 / 0.0 Hz
+~			122 슬라이더 (settable, float) 33.86861313868613
+~				123 값 표시기 (settable, float) 33.86861313868613
+~			124 텍스트 필드 (settable) 34
+~			127 text 적용됨: 34.0 °C · 기록만 적용됨 (시각 17865 ms)
+The focused UI element is 0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise

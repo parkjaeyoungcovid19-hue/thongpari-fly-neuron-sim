@@ -1,0 +1,14 @@
+{
+  "description": "Ramp tilt above 45 degrees is rejected, not clamped",
+  "manifest": "../environment_capabilities/valid.json",
+  "edit": {
+    "schema_version": 1,
+    "expected_revision": 0,
+    "property_id": "object.ramp.pitch_deg",
+    "target_id": "ramp_1",
+    "unit": "deg",
+    "value": 45.0001
+  },
+  "expect": "reject",
+  "path": "edit.value"
+}

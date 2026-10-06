@@ -567,6 +567,7 @@ final class WorldViewer: SCNView {
         case "player": material.diffuse.contents = NSColor.systemPurple
         case "car": material.diffuse.contents = NSColor.systemRed
         case "trap": material.diffuse.contents = NSColor.systemCyan
+        case "ramp": material.diffuse.contents = NSColor.systemBrown
         default: material.diffuse.contents = NSColor.systemTeal
         }
         material.roughness.contents = 0.65

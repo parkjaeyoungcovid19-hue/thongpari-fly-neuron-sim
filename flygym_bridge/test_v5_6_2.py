@@ -29,7 +29,7 @@ def check(name, ok, detail=""):
 world = LabWorld()
 check("default runtime slot capacity contract",
       world.state()["slot_capacity"] ==
-      {"box": 64, "sphere": 64, "wall": 64, "food": 8, "car": 4, "trap": 2},
+      {"box": 64, "sphere": 64, "wall": 64, "food": 8, "car": 4, "trap": 2, "ramp": 4},
       repr(world.state()["slot_capacity"]))
 order = [world.spawn_object(shape="food", position_mm=[40 + 5 * i, 0, 1.5])["food_variant"]
          for i in range(7)]

@@ -1,0 +1,14 @@
+The following is a diff from the previous accessibility tree for Window: "Virtual Fly Lab" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~		28 텍스트 3D 화면 — 시각 51265 ms · 물체 1개
+~		31 text 타임라인 — 최근 명령과 반응 t48285  recording stop requested — 앱 안에서 처리
+t48285  recording saved — 앱 안에서 처리
+t48645  #15 edit_property — 적용됨 @t48665
+t48685  #16 wind — 적용됨
+t51205  #17 stop_wind — 적용됨 몸 데이터 50 ms 전 · 속도 0.0038 m/s · 발 닿음 0.83 · 눈 샘플 t51265 · 다가옴 감지 L/R 0.303/0.091 · 뇌 활동 1.8 Hz 실시간 — 시뮬레이터(headless) :63243 · 몸 데이터 초당 18회 · 실시간 대비 0.40배 · 느림: 몸 데이터가 초당 30회 미만 저장됨 experiment-20261006-205547
+~			34 text 지금 파리 위치의 값 파리 위치  x 55.1 · y -93.0 mm · 바라보는 방향 346° · 몸 시각 51.285 s (50 ms 전)
+온도  34.0 °C (기록만) · 감각 전류 따뜻 0.000 / 차가 0.000 · 온도 뉴런 0.0 / 0.0 Hz
+바람  파리 위치에 없음 · 더듬이 전류 C 0.000 / E 0.000
+빛  눈 밝기 왼 0.56 / 오 0.56 (눈 영상 t51265) · 번쩍임 0.00 / 0.00
+먹이  냄새 왼 0.000 / 오 0.000 · 가장 가까운 먹이 먹이 없음 · 맛(당) 0.00 · 후각 뉴런 0.0 / 0.0 Hz
+~			56 text 적용됨: 세기 0.00 · 방향 0° · 꺼짐 · 더듬이 감각 적용됨 (시각 48665 ms) 한 번 (ms)
+The focused UI element is 57 텍스트 필드 (settable) 5000

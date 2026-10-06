@@ -1,6 +1,9 @@
 {
+  "object_operations": [
+    "duplicate",
+    "delete"
+  ],
   "schema_version": 1,
-  "object_operations": ["duplicate", "delete"],
   "descriptors": [
     {
       "property_id": "object.shape",
@@ -16,7 +19,8 @@
         "wall",
         "food",
         "car",
-        "trap"
+        "trap",
+        "ramp"
       ],
       "scope": "local",
       "apply_mode": "spawn_only",
@@ -30,7 +34,7 @@
         "spawn_object"
       ],
       "legacy_field": "shape",
-      "notes": "Spawn only; existing object shape is immutable. food_marker/food_source alias food. Food has modeled odor/contact, no collision; toys use collidable palettes."
+      "notes": "Spawn only; existing object shape is immutable. food_marker/food_source alias food. Food has modeled odor/contact, no collision; toys use collidable palettes. Ramp is fixed walkable terrain (fly legs contact it; never grabbed/approached)."
     },
     {
       "property_id": "object.box.position_mm",
@@ -407,6 +411,78 @@
       "notes": "Scalar length/side. Applied car dimensions [L,.44L,.41L], trap [L,L,.6L]. Spawn is strict scalar or len1; resize legacy clamps/uses first vector component. No Z adjustment on resize."
     },
     {
+      "property_id": "object.ramp.position_mm",
+      "label": "Ramp position",
+      "value_type": "vector",
+      "unit": "mm",
+      "min": [
+        -1000,
+        -1000,
+        -1000
+      ],
+      "max": [
+        1000,
+        1000,
+        1000
+      ],
+      "default": [
+        40,
+        0,
+        4.69
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_ramp",
+        "move_object"
+      ],
+      "legacy_field": "position_mm",
+      "notes": "World XYZ mm of the box center. Absent spawn Z puts the low top edge on the lawn (z=.5*L*sin(pitch)-.5*T*cos(pitch)). Size and pitch edits pivot about the middle of the low top edge, so they also move the center."
+    },
+    {
+      "property_id": "object.ramp.size_mm",
+      "label": "Ramp size",
+      "value_type": "vector",
+      "unit": "mm",
+      "min": [
+        5,
+        2,
+        0.2
+      ],
+      "max": [
+        200,
+        200,
+        20
+      ],
+      "default": [
+        40,
+        20,
+        1
+      ],
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_ramp",
+        "resize_object"
+      ],
+      "legacy_field": "size_mm",
+      "notes": "Full [length X, width Y, thickness Z] in the ramp's own frame. Resize keeps the low top edge fixed."
+    },
+    {
       "property_id": "object.yaw_deg",
       "label": "Object yaw",
       "value_type": "number",
@@ -427,12 +503,36 @@
         "spawn_box",
         "spawn_sphere",
         "spawn_wall",
+        "spawn_ramp",
         "spawn_food",
         "spawn_food_marker",
         "move_object"
       ],
       "legacy_field": "yaw_deg",
-      "notes": "REQUEST bounds: clamp to [-36000,36000], then modulo360. APPLIED range [0,360). All shapes; rotation around Z only, no tilt. Swift command/form has no yaw field; food rotates visually, is noncollidable."
+      "notes": "REQUEST bounds: clamp to [-36000,36000], then modulo360. APPLIED range [0,360). All shapes; rotation around world Z. Only ramps tilt (object.ramp.pitch_deg). Food rotates visually, is noncollidable."
+    },
+    {
+      "property_id": "object.ramp.pitch_deg",
+      "label": "Ramp tilt",
+      "value_type": "number",
+      "unit": "deg",
+      "min": 0,
+      "max": 45,
+      "default": 15,
+      "choices": [],
+      "scope": "local",
+      "apply_mode": "live",
+      "supported_effects": [
+        "PHYSICAL",
+        "VISUAL"
+      ],
+      "persistence": "scene_candidate",
+      "legacy_commands": [
+        "spawn_object",
+        "spawn_ramp"
+      ],
+      "legacy_field": "pitch_deg",
+      "notes": "Rotation about the ramp's own Y axis after yaw; positive raises the +X end. Pivots about the middle of the low top edge. Ramp only."
     },
     {
       "property_id": "object.food.variant",
@@ -533,7 +633,7 @@
         "wind_puff"
       ],
       "legacy_field": "strength",
-      "notes": "Dimensionless, not m/s. Flags independently gate thorax mass*10000mm/s2*strength force and modeled JO-C/E current. Initial off; UI form .7. Zero stops timer/continuous. Scene candidate only for authored continuous wind, not active puff."
+      "notes": "Dimensionless, not m/s. Flags independently gate thorax mass*60000mm/s2*strength force (fading to 0 as the thorax reaches 30mm/s*strength along the wind) and modeled JO-C/E current. Initial off; UI form .7. Zero stops timer/continuous. Scene candidate only for authored continuous wind, not active puff."
     },
     {
       "property_id": "wind.direction_deg",

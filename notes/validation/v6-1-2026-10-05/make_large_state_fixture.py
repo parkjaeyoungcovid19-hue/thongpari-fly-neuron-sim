@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(ROOT, "flygym_bridge"))
 import protocol  # noqa: E402
 from lab_world import LabWorld, MAX_OBJECT_ID_LEN  # noqa: E402
 
+# V6.4 ramps keep their default 4 (empty) slots; the 1536-object load is unchanged.
 SHAPES = ("box", "sphere", "wall", "food", "car", "trap")
 world = LabWorld(slot_counts={shape: 256 for shape in SHAPES})
 for shape in SHAPES:
@@ -23,7 +24,7 @@ for shape in SHAPES:
         world.spawn_object(shape=shape, object_id=prefix + "x" * (MAX_OBJECT_ID_LEN - len(prefix)),
                            position_mm=[float(i), -float(i), 5.0])
 state = world.state()
-assert len(state["objects"]) == 1536 and len(state["environment_capabilities"]["descriptors"]) == 39
+assert len(state["objects"]) == 1536 and len(state["environment_capabilities"]["descriptors"]) == 42
 
 def frame(s):
     return protocol.encode(protocol.LabStatePacket(
@@ -36,5 +37,5 @@ assert len(without) - 1 < 512 * 1024 < len(with_manifest) - 1 < 1024 * 1024, (le
 out = os.path.join(ROOT, "fixtures", "bridge", "v6-large-state.ndjson")
 with open(out, "wb") as f:
     f.write(with_manifest)
-print(f"objects=1536 descriptors=39 line_bytes_with_manifest={len(with_manifest) - 1} "
+print(f"objects=1536 descriptors=42 line_bytes_with_manifest={len(with_manifest) - 1} "
       f"without_manifest={len(without) - 1} old_cap={512 * 1024} new_cap={1024 * 1024}")

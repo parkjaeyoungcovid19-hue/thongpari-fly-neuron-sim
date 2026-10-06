@@ -1,0 +1,553 @@
+Window: "Virtual Fly Lab", App: Thongpari Virtual Fly Lab.
+0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise
+	1 자르기 그룹
+		2 스크롤 영역
+			3 표 실험실 메뉴
+				4 row (selected)
+					5 셀 (selected)
+						6 이미지
+						7 텍스트 세계
+				8 row (selectable)
+					9 셀
+						10 이미지 미풍
+						11 텍스트 자극
+				12 row (selectable)
+					13 셀
+						14 이미지
+						15 텍스트 뇌
+				16 row (selectable)
+					17 셀
+						18 이미지
+						19 텍스트 데이터
+				20 row (selectable)
+					21 셀
+						22 이미지
+						23 텍스트 실험
+		24 자르기 도구 (disabled, settable, float) 168
+		25 텍스트 시점
+		26 팝업 버튼 경기장 둘러보기
+		27 버튼 카메라 초기화
+		28 텍스트 3D 화면 — 시각 43945 ms · 물체 1개
+		29 알 수 없음 Description: 파리 기분 (추정), Help: 실제 감정을 잰 것이 아니라 정해진 규칙으로 만든 단순 표시입니다. 먹이가 가까우면 행복, 춥거나 덥거나 세게 맞으면 슬픔, 맞으면 화남, 무언가 다가오거나 도망 신호가 켜지면 겁남.
+			30 text 🙂 평온 특별한 일 없어요 감각·행동 신호로 만든 추정
+		31 text 타임라인 — 최근 명령과 반응 t171065  #54 reset_world — 적용됨
+t171065  #55 reset_body — 적용됨
+t171065  #56 restore_eyes — 적용됨
+t171065  session resume requested — 앱 안에서 처리
+t36365  #57 spawn_sphere gui_sphere — 적용됨 몸 데이터 10 ms 전 · 속도 0.0025 m/s · 발 닿음 1.00 · 눈 샘플 t43785 · 다가옴 감지 L/R 0.010/0.055 · 뇌 활동 1.9 Hz 실시간 — 시뮬레이터(headless) :59916 · 몸 데이터 초당 23회 · 실시간 대비 0.41배 · 느림: 몸 데이터가 초당 30회 미만 기록 안 함
+		32 자르기 도구 (disabled, settable, float) 836
+		33 스크롤 영역 Secondary Actions: Scroll Up, Scroll Down
+			34 text 선택한 대상 보기 — 편집 · 파리 fly · 참여자 없음 · 물체 gui_sphere · 시뮬레이션 시각 43965 ms · 실행 중
+			35 버튼 설명, Description: 앞으로, Value: 접힘
+			36 text 선택 물체 편집 물리
+			37 팝업 버튼 Description: Simulator objects, Value: gui_sphere · 공
+			38 버튼 Show in view
+			39 라디오 버튼 Description: Move, Value: 0
+			40 라디오 버튼 Description: Rotate Z, Value: 0
+			41 라디오 버튼 Description: Size, Value: 0
+			42 라디오 버튼 (disabled) Description: Tilt, Value: 1
+			43 텍스트 기울기 (°)
+			44 텍스트 필드 (disabled) Description: 기울기 기울기 (°), Value: 0
+			45 버튼 (disabled) Apply
+			46 버튼 Duplicate
+			47 버튼 Delete
+			48 text 현재 — 위치 60.0, 0.0, 3.0 mm · 회전 0.0° · 크기 5.0 × 5.0 × 5.0 mm Position and size are in mm, rotation in degrees around the vertical axis. Only ramps tilt (0–45°); tilting or resizing a ramp keeps its low edge in place. Press Return to apply typed values, or drag a colored handle in the 3D view; Esc cancels a drag. A duplicate appears on top of the original — move it next. There is no undo yet. 적용 안 됨 — 이 종류의 물체 자리가 모두 찼습니다. 하나를 지운 뒤 다시 하세요 물체 놓기 물리 종류
+			49 팝업 버튼 공
+			50 텍스트 이름
+			51 텍스트 필드 (settable) Value: gui_sphere, Placeholder: 자동
+			52 체크상자 지도를 클릭하면 바로 만들기, Value: 0
+			53 텍스트 X (mm)
+			54 텍스트 필드 (settable) 60
+			55 텍스트 Y (mm)
+			56 텍스트 필드 (settable) 0
+			57 텍스트 Z (mm)
+			58 텍스트 필드 (settable) 3
+			59 텍스트 크기 (mm)
+			60 텍스트 필드 (settable) 5
+			61 버튼 만들기
+			62 버튼 옮기기
+			63 버튼 크기 바꾸기
+			64 버튼 지우기
+			65 text 물체 상태 — 완료 · ‘gui_sphere’ 만들기 물체 수 (사용/최대) — box 0/64 · sphere 1/64 · wall 0/64 · ramp 0/4 · food 0/8 · car 0/4 · trap 0/2 gui_sphere · 공
+			66 버튼 설명, Description: 앞으로, Value: 접힘
+			67 text 장난감 물리 선택한 물체 — gui_sphere · 공 속도 (mm/s)
+			68 텍스트 필드 (settable) 20
+			69 텍스트 거리 (mm)
+			70 텍스트 필드 (settable) 80
+			71 버튼 (disabled) 주행
+			72 버튼 (disabled) 다시 설치
+			73 버튼 설명, Description: 앞으로, Value: 접힘
+			74 text 물체를 파리에게 다가가게 하기 물리 속도 (mm/s)
+			75 텍스트 필드 (settable) 12
+			76 텍스트 멈출 거리 (mm)
+			77 텍스트 필드 (settable) 8
+			78 버튼 다가가기 시작
+			79 버튼 설명, Description: 앞으로, Value: 접힘
+			80 text 참여 물리 앞으로
+			81 팝업 버튼 Value: W, ID: forward
+			82 텍스트 뒤로
+			83 팝업 버튼 Value: S, ID: backward
+			84 텍스트 왼쪽
+			85 팝업 버튼 Value: A, ID: left
+			86 텍스트 오른쪽
+			87 팝업 버튼 Value: D, ID: right
+			88 텍스트 상호작용
+			89 팝업 버튼 Value: E, ID: interact
+			90 텍스트 비비탄총
+			91 팝업 버튼 Value: G, ID: gun
+			92 텍스트 발사
+			93 팝업 버튼 Value: F, ID: fire
+			94 text 해제 Esc (고정) 시점 감도
+			95 슬라이더 (settable, float) Help: 참여 조작 중 마우스로 둘러보는 속도, Value: 0.0015
+				96 값 표시기 (settable, float) 0.0015
+			97 text 참여 조작 — 관찰 모드입니다. 카메라는 보는 방향만 바꾸고 세계에는 영향을 주지 않습니다 E: 조준한 물체 집기 비비탄총 — 참여 모드에서 사용
+			98 버튼 설명, Description: 앞으로, Value: 접힘
+			99 텍스트 초기화
+			100 버튼 세계
+			101 버튼 몸
+			102 버튼 뇌
+			103 버튼 전부
+			104 버튼 설명, Description: 앞으로, Value: 접힘
+			105 스크롤 막대 (settable, float) 0.4049558723693144
+				106 값 표시기 (settable, float) 0.4049558723693144
+				107 화살표 증가 버튼
+				108 화살표 감소 버튼
+				109 페이지 증가 버튼
+				110 페이지 감소 버튼
+	111 도구 막대
+		112 버튼 Description: 사이드바, Help: 사이드바 가리기, Secondary Actions: 다음으로 이동
+		113 Mode
+			114 라디오 버튼 Description: 관찰, Value: 0
+			115 라디오 버튼 Description: 참여, Value: 0
+			116 라디오 버튼 Description: 편집, Value: 1
+		117 버튼 Description: 일시 정지 / 재개, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		118 버튼 Description: 기록, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		119 팝업 버튼 Description: 언어, Help: 화면 언어 — 영어 또는 한국어, Value: 한국어, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		120 버튼 Description: 인스펙터, Help: 인스펙터 가리기, Secondary Actions: 이전으로 이동, 도구 막대에서 제거
+	121 닫기 버튼
+	122 전체 화면 버튼 Help: 이 버튼을 누르면 윈도우를 확대/축소합니다., Secondary Actions: 윈도우 확대/축소
+	123 최소화 버튼
+	124 text Virtual Fly Lab 실시간 · 실행 중
+125 menu bar
+	126 Thongpari Virtual Fly Lab
+	127 편집
+	128 언어
+	129 윈도우
+
+The focused UI element is 60 텍스트 필드 (settable) 5
+
+Window: "Virtual Fly Lab", App: Thongpari Virtual Fly Lab.
+0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise
+	1 자르기 그룹
+		2 스크롤 영역
+			3 표 실험실 메뉴
+				4 row (selected)
+					5 셀 (selected)
+						6 이미지
+						7 텍스트 세계
+				8 row (selectable)
+					9 셀
+						10 이미지 미풍
+						11 텍스트 자극
+				12 row (selectable)
+					13 셀
+						14 이미지
+						15 텍스트 뇌
+				16 row (selectable)
+					17 셀
+						18 이미지
+						19 텍스트 데이터
+				20 row (selectable)
+					21 셀
+						22 이미지
+						23 텍스트 실험
+		24 자르기 도구 (disabled, settable, float) 168
+		25 텍스트 시점
+		26 팝업 버튼 경기장 둘러보기
+		27 버튼 카메라 초기화
+		28 텍스트 3D 화면 — 시각 44285 ms · 물체 2개
+		29 알 수 없음 Description: 파리 기분 (추정), Help: 실제 감정을 잰 것이 아니라 정해진 규칙으로 만든 단순 표시입니다. 먹이가 가까우면 행복, 춥거나 덥거나 세게 맞으면 슬픔, 맞으면 화남, 무언가 다가오거나 도망 신호가 켜지면 겁남.
+			30 text 🙂 평온 특별한 일 없어요 감각·행동 신호로 만든 추정
+		31 text 타임라인 — 최근 명령과 반응 t171065  #55 reset_body — 적용됨
+t171065  #56 restore_eyes — 적용됨
+t171065  session resume requested — 앱 안에서 처리
+t36365  #57 spawn_sphere gui_sphere — 적용됨
+t44145  #58 edit_object gui_sphere — 적용됨 @t44165 몸 데이터 39 ms 전 · 속도 0.0019 m/s · 발 닿음 0.83 · 눈 샘플 t44225 · 다가옴 감지 L/R 0.165/0.143 · 뇌 활동 2.0 Hz 실시간 — 시뮬레이터(headless) :59916 · 몸 데이터 초당 22회 · 실시간 대비 0.40배 · 느림: 몸 데이터가 초당 30회 미만 기록 안 함
+		32 자르기 도구 (disabled, settable, float) 836
+		33 스크롤 영역 Secondary Actions: Scroll Up, Scroll Down
+			34 text 선택한 대상 보기 — 편집 · 파리 fly · 참여자 없음 · 물체 sphere_1 · 시뮬레이션 시각 44305 ms · 실행 중
+			35 버튼 설명, Description: 앞으로, Value: 접힘
+			36 text 선택 물체 편집 물리
+			37 팝업 버튼 Description: Simulator objects, Value: sphere_1 · 공
+			38 버튼 Show in view
+			39 라디오 버튼 Description: Move, Value: 0
+			40 라디오 버튼 Description: Rotate Z, Value: 0
+			41 라디오 버튼 Description: Size, Value: 0
+			42 라디오 버튼 (disabled) Description: Tilt, Value: 1
+			43 텍스트 기울기 (°)
+			44 텍스트 필드 (disabled) Description: 기울기 기울기 (°), Value: 0
+			45 버튼 (disabled) Apply
+			46 버튼 Duplicate
+			47 버튼 Delete
+			48 text 현재 — 위치 60.0, 0.0, 3.0 mm · 회전 0.0° · 크기 5.0 × 5.0 × 5.0 mm Position and size are in mm, rotation in degrees around the vertical axis. Only ramps tilt (0–45°); tilting or resizing a ramp keeps its low edge in place. Press Return to apply typed values, or drag a colored handle in the 3D view; Esc cancels a drag. A duplicate appears on top of the original — move it next. There is no undo yet. 적용됨 · 새 물체 sphere_1 물체 놓기 물리 종류
+			49 팝업 버튼 공
+			50 텍스트 이름
+			51 텍스트 필드 (settable) Value: gui_sphere, Placeholder: 자동
+			52 체크상자 지도를 클릭하면 바로 만들기, Value: 0
+			53 텍스트 X (mm)
+			54 텍스트 필드 (settable) 60
+			55 텍스트 Y (mm)
+			56 텍스트 필드 (settable) 0
+			57 텍스트 Z (mm)
+			58 텍스트 필드 (settable) 3
+			59 텍스트 크기 (mm)
+			60 텍스트 필드 (settable) 5
+			61 버튼 만들기
+			62 버튼 옮기기
+			63 버튼 크기 바꾸기
+			64 버튼 지우기
+			65 text 물체 상태 — 완료 · ‘gui_sphere’ 만들기 물체 수 (사용/최대) — box 0/64 · sphere 2/64 · wall 0/64 · ramp 0/4 · food 0/8 · car 0/4 · trap 0/2 gui_sphere · 공
+sphere_1 · 공
+			66 버튼 설명, Description: 앞으로, Value: 접힘
+			67 text 장난감 물리 선택한 물체 — gui_sphere · 공 속도 (mm/s)
+			68 텍스트 필드 (settable) 20
+			69 텍스트 거리 (mm)
+			70 텍스트 필드 (settable) 80
+			71 버튼 (disabled) 주행
+			72 버튼 (disabled) 다시 설치
+			73 버튼 설명, Description: 앞으로, Value: 접힘
+			74 text 물체를 파리에게 다가가게 하기 물리 속도 (mm/s)
+			75 텍스트 필드 (settable) 12
+			76 텍스트 멈출 거리 (mm)
+			77 텍스트 필드 (settable) 8
+			78 버튼 다가가기 시작
+			79 버튼 설명, Description: 앞으로, Value: 접힘
+			80 text 참여 물리 앞으로
+			81 팝업 버튼 Value: W, ID: forward
+			82 텍스트 뒤로
+			83 팝업 버튼 Value: S, ID: backward
+			84 텍스트 왼쪽
+			85 팝업 버튼 Value: A, ID: left
+			86 텍스트 오른쪽
+			87 팝업 버튼 Value: D, ID: right
+			88 텍스트 상호작용
+			89 팝업 버튼 Value: E, ID: interact
+			90 텍스트 비비탄총
+			91 팝업 버튼 Value: G, ID: gun
+			92 텍스트 발사
+			93 팝업 버튼 Value: F, ID: fire
+			94 text 해제 Esc (고정) 시점 감도
+			95 슬라이더 (settable, float) Help: 참여 조작 중 마우스로 둘러보는 속도, Value: 0.0015
+				96 값 표시기 (settable, float) 0.0015
+			97 text 참여 조작 — 관찰 모드입니다. 카메라는 보는 방향만 바꾸고 세계에는 영향을 주지 않습니다 E: 조준한 물체 집기 비비탄총 — 참여 모드에서 사용
+			98 버튼 설명, Description: 앞으로, Value: 접힘
+			99 텍스트 초기화
+			100 버튼 세계
+			101 버튼 몸
+			102 버튼 뇌
+			103 버튼 전부
+			104 버튼 설명, Description: 앞으로, Value: 접힘
+			105 스크롤 막대 (settable, float) 0
+				106 값 표시기 (settable, float) 0
+				107 화살표 증가 버튼
+				108 화살표 감소 버튼
+				109 페이지 증가 버튼
+				110 페이지 감소 버튼
+	111 도구 막대
+		112 버튼 Description: 사이드바, Help: 사이드바 가리기, Secondary Actions: 다음으로 이동
+		113 Mode
+			114 라디오 버튼 Description: 관찰, Value: 0
+			115 라디오 버튼 Description: 참여, Value: 0
+			116 라디오 버튼 Description: 편집, Value: 1
+		117 버튼 Description: 일시 정지 / 재개, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		118 버튼 Description: 기록, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		119 팝업 버튼 Description: 언어, Help: 화면 언어 — 영어 또는 한국어, Value: 한국어, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		120 버튼 Description: 인스펙터, Help: 인스펙터 가리기, Secondary Actions: 이전으로 이동, 도구 막대에서 제거
+	121 닫기 버튼
+	122 전체 화면 버튼 Help: 이 버튼을 누르면 윈도우를 확대/축소합니다., Secondary Actions: 윈도우 확대/축소
+	123 최소화 버튼
+	124 text Virtual Fly Lab 실시간 · 실행 중
+125 menu bar
+	126 Thongpari Virtual Fly Lab
+	127 편집
+	128 언어
+	129 윈도우
+
+The focused UI element is 60 텍스트 필드 (settable) 5
+
+Window: "Virtual Fly Lab", App: Thongpari Virtual Fly Lab.
+0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise
+	1 자르기 그룹
+		2 스크롤 영역
+			3 표 실험실 메뉴
+				4 row (selected)
+					5 셀 (selected)
+						6 이미지
+						7 텍스트 세계
+				8 row (selectable)
+					9 셀
+						10 이미지 미풍
+						11 텍스트 자극
+				12 row (selectable)
+					13 셀
+						14 이미지
+						15 텍스트 뇌
+				16 row (selectable)
+					17 셀
+						18 이미지
+						19 텍스트 데이터
+				20 row (selectable)
+					21 셀
+						22 이미지
+						23 텍스트 실험
+		24 자르기 도구 (disabled, settable, float) 168
+		25 텍스트 시점
+		26 팝업 버튼 경기장 둘러보기
+		27 버튼 카메라 초기화
+		28 텍스트 3D 화면 — 시각 44325 ms · 물체 2개
+		29 알 수 없음 Description: 파리 기분 (추정), Help: 실제 감정을 잰 것이 아니라 정해진 규칙으로 만든 단순 표시입니다. 먹이가 가까우면 행복, 춥거나 덥거나 세게 맞으면 슬픔, 맞으면 화남, 무언가 다가오거나 도망 신호가 켜지면 겁남.
+			30 text 🙂 평온 특별한 일 없어요 감각·행동 신호로 만든 추정
+		31 text 타임라인 — 최근 명령과 반응 t171065  #55 reset_body — 적용됨
+t171065  #56 restore_eyes — 적용됨
+t171065  session resume requested — 앱 안에서 처리
+t36365  #57 spawn_sphere gui_sphere — 적용됨
+t44145  #58 edit_object gui_sphere — 적용됨 @t44165 몸 데이터 13 ms 전 · 속도 0.0023 m/s · 발 닿음 1.00 · 눈 샘플 t44225 · 다가옴 감지 L/R 0.122/0.106 · 뇌 활동 2.0 Hz 실시간 — 시뮬레이터(headless) :59916 · 몸 데이터 초당 22회 · 실시간 대비 0.45배 · 느림: 몸 데이터가 초당 30회 미만 기록 안 함
+		32 자르기 도구 (disabled, settable, float) 836
+		33 스크롤 영역 Secondary Actions: Scroll Up, Scroll Down
+			34 text 선택한 대상 보기 — 편집 · 파리 fly · 참여자 없음 · 물체 sphere_1 · 시뮬레이션 시각 44385 ms · 실행 중
+			35 버튼 설명, Description: 앞으로, Value: 접힘
+			36 text 선택 물체 편집 물리
+			37 팝업 버튼 Description: Simulator objects, Value: sphere_1 · 공
+			38 버튼 Show in view
+			39 라디오 버튼 Description: Move, Value: 0
+			40 라디오 버튼 Description: Rotate Z, Value: 0
+			41 라디오 버튼 Description: Size, Value: 0
+			42 라디오 버튼 (disabled) Description: Tilt, Value: 1
+			43 텍스트 기울기 (°)
+			44 텍스트 필드 (disabled) Description: 기울기 기울기 (°), Value: 0
+			45 버튼 (disabled) Apply
+			46 버튼 Duplicate
+			47 버튼 Delete
+			48 text 현재 — 위치 60.0, 0.0, 3.0 mm · 회전 0.0° · 크기 5.0 × 5.0 × 5.0 mm Position and size are in mm, rotation in degrees around the vertical axis. Only ramps tilt (0–45°); tilting or resizing a ramp keeps its low edge in place. Press Return to apply typed values, or drag a colored handle in the 3D view; Esc cancels a drag. A duplicate appears on top of the original — move it next. There is no undo yet. 적용됨 · 새 물체 sphere_1 물체 놓기 물리 종류
+			49 팝업 버튼 공
+			50 텍스트 이름
+			51 텍스트 필드 (settable) Value: gui_sphere, Placeholder: 자동
+			52 체크상자 지도를 클릭하면 바로 만들기, Value: 0
+			53 텍스트 X (mm)
+			54 텍스트 필드 (settable) 60
+			55 텍스트 Y (mm)
+			56 텍스트 필드 (settable) 0
+			57 텍스트 Z (mm)
+			58 텍스트 필드 (settable) 3
+			59 텍스트 크기 (mm)
+			60 텍스트 필드 (settable) 5
+			61 버튼 만들기
+			62 버튼 옮기기
+			63 버튼 크기 바꾸기
+			64 버튼 지우기
+			65 text 물체 상태 — 완료 · ‘gui_sphere’ 만들기 물체 수 (사용/최대) — box 0/64 · sphere 2/64 · wall 0/64 · ramp 0/4 · food 0/8 · car 0/4 · trap 0/2 gui_sphere · 공
+sphere_1 · 공
+			66 버튼 설명, Description: 앞으로, Value: 접힘
+			67 text 장난감 물리 선택한 물체 — gui_sphere · 공 속도 (mm/s)
+			68 텍스트 필드 (settable) 20
+			69 텍스트 거리 (mm)
+			70 텍스트 필드 (settable) 80
+			71 버튼 (disabled) 주행
+			72 버튼 (disabled) 다시 설치
+			73 버튼 설명, Description: 앞으로, Value: 접힘
+			74 text 물체를 파리에게 다가가게 하기 물리 속도 (mm/s)
+			75 텍스트 필드 (settable) 12
+			76 텍스트 멈출 거리 (mm)
+			77 텍스트 필드 (settable) 8
+			78 버튼 다가가기 시작
+			79 버튼 설명, Description: 앞으로, Value: 접힘
+			80 text 참여 물리 앞으로
+			81 팝업 버튼 Value: W, ID: forward
+			82 텍스트 뒤로
+			83 팝업 버튼 Value: S, ID: backward
+			84 텍스트 왼쪽
+			85 팝업 버튼 Value: A, ID: left
+			86 텍스트 오른쪽
+			87 팝업 버튼 Value: D, ID: right
+			88 텍스트 상호작용
+			89 팝업 버튼 Value: E, ID: interact
+			90 텍스트 비비탄총
+			91 팝업 버튼 Value: G, ID: gun
+			92 텍스트 발사
+			93 팝업 버튼 Value: F, ID: fire
+			94 text 해제 Esc (고정) 시점 감도
+			95 슬라이더 (settable, float) Help: 참여 조작 중 마우스로 둘러보는 속도, Value: 0.0015
+				96 값 표시기 (settable, float) 0.0015
+			97 text 참여 조작 — 관찰 모드입니다. 카메라는 보는 방향만 바꾸고 세계에는 영향을 주지 않습니다 E: 조준한 물체 집기 비비탄총 — 참여 모드에서 사용
+			98 버튼 설명, Description: 앞으로, Value: 접힘
+			99 텍스트 초기화
+			100 버튼 세계
+			101 버튼 몸
+			102 버튼 뇌
+			103 버튼 전부
+			104 버튼 설명, Description: 앞으로, Value: 접힘
+			105 스크롤 막대 (settable, float) 0
+				106 값 표시기 (settable, float) 0
+				107 화살표 증가 버튼
+				108 화살표 감소 버튼
+				109 페이지 증가 버튼
+				110 페이지 감소 버튼
+	111 도구 막대
+		112 버튼 Description: 사이드바, Help: 사이드바 가리기, Secondary Actions: 다음으로 이동
+		113 Mode
+			114 라디오 버튼 Description: 관찰, Value: 0
+			115 라디오 버튼 Description: 참여, Value: 0
+			116 라디오 버튼 Description: 편집, Value: 1
+		117 버튼 Description: 일시 정지 / 재개, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		118 버튼 Description: 기록, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		119 팝업 버튼 Description: 언어, Help: 화면 언어 — 영어 또는 한국어, Value: 한국어, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		120 버튼 Description: 인스펙터, Help: 인스펙터 가리기, Secondary Actions: 이전으로 이동, 도구 막대에서 제거
+	121 닫기 버튼
+	122 전체 화면 버튼 Help: 이 버튼을 누르면 윈도우를 확대/축소합니다., Secondary Actions: 윈도우 확대/축소
+	123 최소화 버튼
+	124 text Virtual Fly Lab 실시간 · 실행 중
+125 menu bar
+	126 Thongpari Virtual Fly Lab
+	127 편집
+	128 언어
+	129 윈도우
+
+The focused UI element is 60 텍스트 필드 (settable) 5
+
+Window: "Virtual Fly Lab", App: Thongpari Virtual Fly Lab.
+0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise
+	1 자르기 그룹
+		2 스크롤 영역
+			3 표 실험실 메뉴
+				4 row (selected)
+					5 셀 (selected)
+						6 이미지
+						7 텍스트 세계
+				8 row (selectable)
+					9 셀
+						10 이미지 미풍
+						11 텍스트 자극
+				12 row (selectable)
+					13 셀
+						14 이미지
+						15 텍스트 뇌
+				16 row (selectable)
+					17 셀
+						18 이미지
+						19 텍스트 데이터
+				20 row (selectable)
+					21 셀
+						22 이미지
+						23 텍스트 실험
+		24 자르기 도구 (disabled, settable, float) 168
+		25 텍스트 시점
+		26 팝업 버튼 경기장 둘러보기
+		27 버튼 카메라 초기화
+		28 텍스트 3D 화면 — 시각 44765 ms · 물체 1개
+		29 알 수 없음 Description: 파리 기분 (추정), Help: 실제 감정을 잰 것이 아니라 정해진 규칙으로 만든 단순 표시입니다. 먹이가 가까우면 행복, 춥거나 덥거나 세게 맞으면 슬픔, 맞으면 화남, 무언가 다가오거나 도망 신호가 켜지면 겁남.
+			30 text 😌 느긋함 — 몸 손질 중 몸 손질하고 싶어 해요 감각·행동 신호로 만든 추정
+		31 text 타임라인 — 최근 명령과 반응 t171065  #56 restore_eyes — 적용됨
+t171065  session resume requested — 앱 안에서 처리
+t36365  #57 spawn_sphere gui_sphere — 적용됨
+t44145  #58 edit_object gui_sphere — 적용됨 @t44165
+t44565  #59 edit_object sphere_1 — 적용됨 @t44585 몸 데이터 35 ms 전 · 속도 0.0027 m/s · 발 닿음 1.00 · 눈 샘플 t44665 · 다가옴 감지 L/R 0.019/0.022 · 뇌 활동 2.0 Hz 실시간 — 시뮬레이터(headless) :59916 · 몸 데이터 초당 22회 · 실시간 대비 0.45배 · 느림: 몸 데이터가 초당 30회 미만 기록 안 함
+		32 자르기 도구 (disabled, settable, float) 836
+		33 스크롤 영역 Secondary Actions: Scroll Up, Scroll Down
+			34 text 선택한 대상 보기 — 편집 · 파리 fly · 참여자 없음 · 물체 없음 · 시뮬레이션 시각 44785 ms · 실행 중
+			35 버튼 설명, Description: 앞으로, Value: 접힘
+			36 text 선택 물체 편집 물리
+			37 팝업 버튼 Description: Simulator objects, Value: 물체 선택…
+			38 버튼 (disabled) Show in view
+			39 라디오 버튼 (disabled) Description: Move, Value: 0
+			40 라디오 버튼 (disabled) Description: Rotate Z, Value: 0
+			41 라디오 버튼 (disabled) Description: Size, Value: 0
+			42 라디오 버튼 (disabled) Description: Tilt, Value: 1
+			43 텍스트 기울기 (°)
+			44 텍스트 필드 (disabled) 기울기 기울기 (°)
+			45 버튼 (disabled) Apply
+			46 버튼 (disabled) Duplicate
+			47 버튼 (disabled) Delete
+			48 text Position and size are in mm, rotation in degrees around the vertical axis. Only ramps tilt (0–45°); tilting or resizing a ramp keeps its low edge in place. Press Return to apply typed values, or drag a colored handle in the 3D view; Esc cancels a drag. A duplicate appears on top of the original — move it next. There is no undo yet. 적용됨 · sphere_1 물체 놓기 물리 종류
+			49 팝업 버튼 공
+			50 텍스트 이름
+			51 텍스트 필드 (settable) Value: gui_sphere, Placeholder: 자동
+			52 체크상자 지도를 클릭하면 바로 만들기, Value: 0
+			53 텍스트 X (mm)
+			54 텍스트 필드 (settable) 60
+			55 텍스트 Y (mm)
+			56 텍스트 필드 (settable) 0
+			57 텍스트 Z (mm)
+			58 텍스트 필드 (settable) 3
+			59 텍스트 크기 (mm)
+			60 텍스트 필드 (settable) 5
+			61 버튼 만들기
+			62 버튼 옮기기
+			63 버튼 크기 바꾸기
+			64 버튼 지우기
+			65 text 물체 상태 — 완료 · ‘gui_sphere’ 만들기 물체 수 (사용/최대) — box 0/64 · sphere 1/64 · wall 0/64 · ramp 0/4 · food 0/8 · car 0/4 · trap 0/2 gui_sphere · 공
+			66 버튼 설명, Description: 앞으로, Value: 접힘
+			67 text 장난감 물리 선택한 물체 — gui_sphere · 공 속도 (mm/s)
+			68 텍스트 필드 (settable) 20
+			69 텍스트 거리 (mm)
+			70 텍스트 필드 (settable) 80
+			71 버튼 (disabled) 주행
+			72 버튼 (disabled) 다시 설치
+			73 버튼 설명, Description: 앞으로, Value: 접힘
+			74 text 물체를 파리에게 다가가게 하기 물리 속도 (mm/s)
+			75 텍스트 필드 (settable) 12
+			76 텍스트 멈출 거리 (mm)
+			77 텍스트 필드 (settable) 8
+			78 버튼 다가가기 시작
+			79 버튼 설명, Description: 앞으로, Value: 접힘
+			80 text 참여 물리 앞으로
+			81 팝업 버튼 Value: W, ID: forward
+			82 텍스트 뒤로
+			83 팝업 버튼 Value: S, ID: backward
+			84 텍스트 왼쪽
+			85 팝업 버튼 Value: A, ID: left
+			86 텍스트 오른쪽
+			87 팝업 버튼 Value: D, ID: right
+			88 텍스트 상호작용
+			89 팝업 버튼 Value: E, ID: interact
+			90 텍스트 비비탄총
+			91 팝업 버튼 Value: G, ID: gun
+			92 텍스트 발사
+			93 팝업 버튼 Value: F, ID: fire
+			94 text 해제 Esc (고정) 시점 감도
+			95 슬라이더 (settable, float) Help: 참여 조작 중 마우스로 둘러보는 속도, Value: 0.0015
+				96 값 표시기 (settable, float) 0.0015
+			97 text 참여 조작 — 관찰 모드입니다. 카메라는 보는 방향만 바꾸고 세계에는 영향을 주지 않습니다 E: 조준한 물체 집기 비비탄총 — 참여 모드에서 사용
+			98 버튼 설명, Description: 앞으로, Value: 접힘
+			99 텍스트 초기화
+			100 버튼 세계
+			101 버튼 몸
+			102 버튼 뇌
+			103 버튼 전부
+			104 버튼 설명, Description: 앞으로, Value: 접힘
+			105 스크롤 막대 (settable, float) 0
+				106 값 표시기 (settable, float) 0
+				107 화살표 증가 버튼
+				108 화살표 감소 버튼
+				109 페이지 증가 버튼
+				110 페이지 감소 버튼
+	111 도구 막대
+		112 버튼 Description: 사이드바, Help: 사이드바 가리기, Secondary Actions: 다음으로 이동
+		113 Mode
+			114 라디오 버튼 Description: 관찰, Value: 0
+			115 라디오 버튼 Description: 참여, Value: 0
+			116 라디오 버튼 Description: 편집, Value: 1
+		117 버튼 Description: 일시 정지 / 재개, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		118 버튼 Description: 기록, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		119 팝업 버튼 Description: 언어, Help: 화면 언어 — 영어 또는 한국어, Value: 한국어, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		120 버튼 Description: 인스펙터, Help: 인스펙터 가리기, Secondary Actions: 이전으로 이동, 도구 막대에서 제거
+	121 닫기 버튼
+	122 전체 화면 버튼 Help: 이 버튼을 누르면 윈도우를 확대/축소합니다., Secondary Actions: 윈도우 확대/축소
+	123 최소화 버튼
+	124 text Virtual Fly Lab 실시간 · 실행 중
+125 menu bar
+	126 Thongpari Virtual Fly Lab
+	127 편집
+	128 언어
+	129 윈도우
+
+The focused UI element is 60 텍스트 필드 (settable) 5

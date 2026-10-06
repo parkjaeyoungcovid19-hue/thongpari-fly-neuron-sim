@@ -1,6 +1,6 @@
 # Virtual Fly Lab — V4부터 V14까지 순차 구현 로드맵
 
-수정: 2026-10-05 · 정본: 이 파일과 같은 폴더의 버전별 구현 계획.
+수정: 2026-10-06 · 정본: 이 파일과 같은 폴더의 버전별 구현 계획.
 
 **반드시 V4 → V5 → V6 → V7 → V8 → V9 → V10 → V11 → V12 → V13 → V14 순서로 구현한다.** 궁극적 목표를 한 번에 구현하거나 별도의 P 단계로 재배열하지 않는다. 각 버전 안의 세부 작업도 상세 문서에 적힌 순서를 따른다.
 
@@ -23,7 +23,7 @@
 - V4: **COMPLETE in the current local working tree.** fixed tick/lockstep, 양쪽 pause barrier, session/epoch, authoritative applied tick, stale/duplicate safety를 fresh 자동·real TCP·real MuJoCo·real Viewer GUI로 검증했다. 완료 근거는 [V4 완료 보고서](../reports/V4_COMPLETION_REPORT.md)에 있다.
 - V4 최종 GUI smoke에서 persistent `session_state` 중복 처리 결함을 발견해 `LabSession`의 lifecycle control sequence 소비를 idempotent하게 수정했고, 회귀를 추가한 뒤 전체 suite와 real Viewer를 다시 통과했다.
 - V5: **V5.6.2·V5.7까지 구현, 전체 마감 미완료.** [2026-09-29 독립 검증](../../notes/validation/v5-independent-2026-09-29/README.md)의 A-1~A-4는 수정·자동 재검증했고, [2026-10-05 fresh real-headless TCP 검사](../../notes/validation/v5-next-2026-10-05/README.md)는 body 38.1 Hz로 통과했다. 다음 작업은 도구·섭식·카드·통합 GUI 및 렌더링 중 live 성능 gate다. 현재 상태와 새 증거는 [V5 진행표](../reports/V5_PROGRESS.md)를 따른다.
-- V6: **V6.1 착수** — 2026-10-05 사용자 요청으로 V5 GUI·live 성능 검증을 보류하는 예외를 기록했다. V5 전체는 미완료이며 세부 단계는 [V6 진행표](../reports/V6_PROGRESS.md)를 따른다. V7–V14는 계획으로 유지한다.
+- V6: **V6.5까지 구현(GUI 미확인)** — 2026-10-05 사용자 요청으로 V5 GUI·live 성능 검증을, 2026-10-06 “다음단계 개시”로 V6.3 편집기·V6.4 경사로 GUI 수용을 보류하는 예외를 기록했다. V5·V6 전체는 미완료이며 세부 단계는 [V6 진행표](../reports/V6_PROGRESS.md)를 따른다. V7–V14는 계획으로 유지한다.
 
 **2026-10-05: V5.5.1~V5.6.1 완료 기록은 유지하되 V5 전체 완료로 확대하지 않는다. V5 통합 GUI와 live 성능 검증은 사용자 요청으로 보류했다. 현재 다음 실행은 V6.1 기존 제어 inventory·descriptor 계약이다.** 이 예외는 GUI 통과나 V5 완료 판정이 아니다.
 

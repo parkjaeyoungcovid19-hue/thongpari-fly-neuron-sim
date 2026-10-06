@@ -532,7 +532,7 @@
         "wind_puff"
       ],
       "legacy_field": "strength",
-      "notes": "Dimensionless, not m/s. Flags independently gate thorax mass*10000mm/s2*strength force and modeled JO-C/E current. Initial off; UI form .7. Zero stops timer/continuous. Scene candidate only for authored continuous wind, not active puff."
+      "notes": "Dimensionless, not m/s. Flags independently gate thorax mass*60000mm/s2*strength force (fading to 0 as the thorax reaches 30mm/s*strength along the wind) and modeled JO-C/E current. Initial off; UI form .7. Zero stops timer/continuous. Scene candidate only for authored continuous wind, not active puff."
     },
     {
       "property_id": "wind.direction_deg",

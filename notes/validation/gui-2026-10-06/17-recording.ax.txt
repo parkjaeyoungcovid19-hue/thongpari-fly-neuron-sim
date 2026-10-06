@@ -1,0 +1,52 @@
+The following is a diff from the previous accessibility tree for Window: "Virtual Fly Lab" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~		28 텍스트 3D 화면 — 시각 182045 ms · 물체 5개 · 선택: gui_sphere · 거리 27.7 mm
+~			30 text 😊 행복 먹이 냄새가 나요 감각·행동 신호로 만든 추정
+~		31 text 타임라인 — 최근 명령과 반응 t68445  #68 edit_object trap_4 — 적용됨 @t68465
+t71405  #69 spawn_food gui_food — 적용됨
+t71785  #70 edit_object gui_food — 적용됨 @t71805
+t72145  #71 edit_object food_5 — 적용됨 @t72165
+t84445  #72 edit_property — 적용됨 @t84485 몸 데이터 33 ms 전 · 속도 0.0015 m/s · 발 닿음 1.00 · 눈 샘플 t181945 · 다가옴 감지 L/R 0.135/0.069 · 뇌 활동 2.0 Hz 실시간 — 시뮬레이터(headless) :59916 · 몸 데이터 초당 22회 · 실시간 대비 0.50배 · 느림: 몸 데이터가 초당 30회 미만 기록 안 함
+~			35 버튼 Description: 각성 지표, Value: 0.20 0–1, 모델 지표, Help: BrainSignals.arousal — 뇌 전체 평균 발화율을 SignalBuilder가 0–1로 줄인 값
+전체 뉴런 활동 수준입니다. 시뮬레이션의 모델 지표이며 파리의 감정이나 생각을 읽은 값이 아닙니다.
+~			37 버튼 Description: 다가옴(위협) 감지, Value: 0.09 0–1, 모델 지표, Help: BrainSignals.nervous — LC4/LPLC2 다가옴 감지 뉴런 발화율을 0–1로 줄인 값
+시각 위협 관련 활동이며 공포를 느낀다는 뜻이 아닙니다. 시뮬레이션의 모델 지표이며 파리의 감정이나 생각을 읽은 값이 아닙니다.
+~			39 버튼 Description: 걷기 명령, Value: 0.60 0–1.3, 모델 지표, Help: BrainSignals.walkDrive — DNp09 발화율에서 계산
+몸에 보낸 앞으로 걷기 명령이며, 몸이 실제로 움직였다는 증거는 아닙니다. 시뮬레이션의 모델 지표이며 파리의 감정이나 생각을 읽은 값이 아닙니다.
+~			41 버튼 Description: 방향 전환 명령, Value: 0.24 −1…1, 모델 지표, Help: BrainSignals.turnBias — DNa01/02 왼쪽−오른쪽 발화율 차이에서 느린 기준값을 뺀 값
+몸에 보낸 방향 전환 명령입니다. 시뮬레이션의 모델 지표이며 파리의 감정이나 생각을 읽은 값이 아닙니다.
+~			43 버튼 Description: 몸 손질 명령, Value: 1.19 0–1.5, 모델 지표, Help: BrainSignals.groomDrive — DNg11 발화율에서 계산
+몸에 보낸 몸 손질 명령입니다. 시뮬레이션의 모델 지표이며 파리의 감정이나 생각을 읽은 값이 아닙니다.
+~			49 버튼 Description: 뇌 전체 평균 발화율, Value: 1.95 Hz/뉴런, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.ratePop — MetalSim 전체 평균 발화율
+시뮬레이션한 FlyWire 뉴런 그룹의 발화율(이동 평균)이며 실제 파리에서 잰 값이 아닙니다.
+~			51 버튼 Description: LC4/LPLC2 (다가옴), Value: 10.6 Hz, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateLoom — MetalSim LC4/LPLC2 발화율
+시뮬레이션한 FlyWire 뉴런 그룹의 발화율(이동 평균)이며 실제 파리에서 잰 값이 아닙니다.
+~			53 버튼 Description: DNa01/02 왼쪽, Value: 58.8 Hz, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateDNaL — MetalSim DNa 왼쪽 발화율
+시뮬레이션한 FlyWire 뉴런 그룹의 발화율(이동 평균)이며 실제 파리에서 잰 값이 아닙니다.
+~			55 버튼 Description: DNa01/02 오른쪽, Value: 51.9 Hz, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateDNaR — MetalSim DNa 오른쪽 발화율
+시뮬레이션한 FlyWire 뉴런 그룹의 발화율(이동 평균)이며 실제 파리에서 잰 값이 아닙니다.
+~			57 버튼 Description: MDN (뒤로 걷기), Value: 19.7 Hz, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateMDN — MetalSim MDN 발화율
+시뮬레이션한 FlyWire 뉴런 그룹의 발화율(이동 평균)이며 실제 파리에서 잰 값이 아닙니다.
+~			59 버튼 Description: 먹이 냄새 후각 뉴런 왼쪽, Value: 1.6 Hz, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateFoodOdorL — FlyWire 먹이 냄새 후각 뉴런(ORN) 그룹 발화율
+시뮬레이션한 FlyWire 뉴런 그룹의 발화율(이동 평균)이며 실제 파리에서 잰 값이 아닙니다. 냄새를 맡는 것은 감각 입력이며 배고픔이 아닙니다.
+~			61 버튼 Description: 먹이 냄새 후각 뉴런 오른쪽, Value: 0.0 Hz, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateFoodOdorR — FlyWire 먹이 냄새 후각 뉴런(ORN) 그룹 발화율
+시뮬레이션한 FlyWire 뉴런 그룹의 발화율(이동 평균)이며 실제 파리에서 잰 값이 아닙니다. 냄새를 맡는 것은 감각 입력이며 배고픔이 아닙니다.
+~			65 버튼 Description: MN9 (주둥이 운동 뉴런), Value: 24.0 Hz, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateMN9 — v783 MN9 2개, 읽기 전용
+시뮬레이션한 FlyWire 뉴런 그룹의 발화율(이동 평균)이며 실제 파리에서 잰 값이 아닙니다. 몸에는 주둥이 구동이 없어 네트워크 반응만 보여 줍니다.
+~			71 text 신호 경로 — 감각에서 몸까지 1  바깥 자극 → 감각기관    먹이 60.0 mm → 냄새 0.115/0.028  |  눈에 보이는 커짐 0.048/0.019 → 다가옴 0.100/0.051  |  바람 0.00  |  닿음 0.00  |  온도 25.0°C
+2  감각기관 → 신호 세기    먹이 냄새 0.035/0.024  |  따뜻함/차가움 0.000/0.000  |  더듬이 바람 C/E 0.000/0.000  (시뮬레이션 단위)
+3  감각 뉴런 → 뇌    후각 L/R 1.4/0.1 Hz  |  따뜻함/차가움 0.0/0.0  |  바람 C/E 0.0/0.0  |  다가옴 감지 5.3  |  왼쪽/오른쪽 돌기 41.5/31.7  |  앞으로 걷기 16.1
+4  뇌 → 몸에 내린 명령    걷기 0.18  |  돌기 0.34  |  도망 끔  |  뒤로 끔  |  손질 0.31  |  날개 0.75  |  흥분도 0.17  |  긴장 0.05  |  활동 속도 1.00  |  잠 끔  |  왼쪽/오른쪽 출력 0.000/0.368
+5  실제로 측정한 움직임    앞으로 0.0019 m/s  |  회전 0.22 rad/s  |  발 닿음 1.00  |  몸 데이터 47 ms 전 · 물리 시각 182.145 s · 실시간 대비 0.46배
+~			79 text 감각 뉴런 그룹에 들어가는 신호 먹이 냄새 — 왼쪽 0.117 · 오른쪽 0.025 · 가장 가까운 먹이: 60.0 mm · 후각 뉴런 1.6/0.0 Hz
+맛 — 먹지 않음 · 당 미각 뉴런 0.0 Hz · MN9 24.0 Hz
+~			81 text 몸 움직임 — 속도 0.0015 m/s · 회전 0.06 rad/s · 발 닿음 1.00
+~			83 text 파리 눈에 보이는 것 시각 — 커짐 L/R 0.108/0.042 · 밝기 L/R 0.881/0.877 · 눈 화면 100 ms 전
+~			85 text 연결 상태 환경 — 181.9 s · 물체 5개 · 바람 0.00 · 25.0°C · 왼눈 뜸 · 오른눈 뜸 · 최근 알림: touch_complete 데이터 — 몸 최신 6 ms · 환경 최신 263 ms 뇌 상태 — 잠 끔 · 감각 통과율 ×1.00
+보낸 명령 #72 edit_property
+확인 #72 성공 · 오래됨 · edit_property · ok · 239.1 s 전
+시뮬레이터 마지막 동작: edit_property
+대기열 0
+~		100 팝업 버튼 Description: 추가 도구 막대 항목, Value: 기록
+~				111 일시 정지 / 재개
+~				112 (selected) 기록
+The focused UI element is 0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise

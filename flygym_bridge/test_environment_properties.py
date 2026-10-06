@@ -43,7 +43,7 @@ class EnvironmentPropertiesTests(unittest.TestCase):
     def test_nominal_fixture_exactly_matches_unbound_state(self):
         fixture = json.loads((FIXTURES / "valid.json").read_text())
         self.assertEqual(LabWorld().state()["environment_capabilities"], fixture)
-        self.assertEqual(len(fixture["descriptors"]), 39)
+        self.assertEqual(len(fixture["descriptors"]), 42)
 
     def test_version_and_manifest_structure(self):
         for version in (True, False, 0, 2, 1.1, "1", None, [], float("nan")):

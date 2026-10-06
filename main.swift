@@ -799,6 +799,8 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         t.sessionPaused = session.isPaused
         t.bodyResultTick = session.lastBodyResultTick ?? -1
         t.temperatureC = labTemperatureC
+        t.temperatureMode = labThermosensoryEnabled ? "flywire_sensory"
+            : (labTempoOverride != nil ? "modeled_physiology" : "environment_only")
         if let sim {
             t.simMs = sim.simMs
             t.ratePop = Double(sim.ratePop); t.rateLoom = Double(sim.rateLoom)
@@ -1505,6 +1507,9 @@ if args.contains("--bridgetest") {
 }
 if args.contains("--worldeditortest") {
     runWorldEditorTest()
+}
+if let i = args.firstIndex(of: "--envpanelshot"), i + 1 < args.count {
+    runEnvironmentPanelShot(directory: args[i + 1])
 }
 if args.contains("--labtest") {
     runLabTest()

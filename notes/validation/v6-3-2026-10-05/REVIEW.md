@@ -20,4 +20,4 @@
 
 - 기존 JPEG stream은 frame stamps/depth mask가 없어 camera/overlay와 순간적인 불일치 및 가림 없는 outline이 가능하다. V6.3은 backend snapshot 기반 geometry 편집이며 시각 픽셀 depth 일치를 보장하지 않는다. UI/evidence에 기록하고 후속 렌더 계약으로 넘긴다.
 - authored object revision은 기존처럼 사용자 속성 변경을 추적한다. 매 tick dynamic pose 이동은 전부 새 authored revision을 만들지 않는다. V6.3의 captured authored revision 계약을 바꾸지 않는다.
-- 현재 tool host Accessibility=false이고 input routes가 거부된다. 화면 capture는 GUI 상호작용 검증을 대체하지 않는다. 권한 우회나 foreground retry를 하지 않는다.
+- 최초 permission preflight는 Accessibility=false였지만, 후속 exact-window AX 입력으로 편집 모드와 물체 선택 전환을 실제 확인했다. 전체 입력 차단으로 일반화하지 않는다. [후보별 GUI 인계](<GUI_PARENT_HANDOFF.md>)와 [23:08 자동 결과](<RESULTS.md>)를 구분해서 읽는다. 위 표의 증거 대기 문구는 초기 review 시점 기록이며, 현재 외부 세션의 새 수정에 대한 완료 판정이 아니다. 화면 capture/hidden fixture는 전체 GUI 수용을 대체하지 않는다. 권한 우회나 foreground retry를 하지 않는다.

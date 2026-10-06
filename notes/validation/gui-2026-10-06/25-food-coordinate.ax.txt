@@ -1,0 +1,142 @@
+Window: "Virtual Fly Lab", App: Thongpari Virtual Fly Lab.
+0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise
+	1 자르기 그룹
+		2 스크롤 영역
+			3 표 실험실 메뉴
+				4 row (selected)
+					5 셀 (selected)
+						6 이미지
+						7 텍스트 세계
+				8 row (selectable)
+					9 셀
+						10 이미지 미풍
+						11 텍스트 자극
+				12 row (selectable)
+					13 셀
+						14 이미지
+						15 텍스트 뇌
+				16 row (selectable)
+					17 셀
+						18 이미지
+						19 텍스트 데이터
+				20 row (selectable)
+					21 셀
+						22 이미지
+						23 텍스트 실험
+		24 자르기 도구 (disabled, settable, float) 168
+		25 텍스트 시점
+		26 팝업 버튼 경기장 둘러보기
+		27 버튼 카메라 초기화
+		28 텍스트 3D 화면 — 시각 78945 ms · 물체 2개
+		29 알 수 없음 Description: 파리 기분 (추정), Help: 실제 감정을 잰 것이 아니라 정해진 규칙으로 만든 단순 표시입니다. 먹이가 가까우면 행복, 춥거나 덥거나 세게 맞으면 슬픔, 맞으면 화남, 무언가 다가오거나 도망 신호가 켜지면 겁남.
+			30 text 🥵 슬픔 — 더워요 34 °C는 너무 더워요 감각·행동 신호로 만든 추정
+		31 text 타임라인 — 최근 명령과 반응 t64885  event 파리 입이 food_1에서 떨어짐 · 입 접촉 0.04초 — 시뮬레이터 알림
+t64905  event 파리 입이 사과 food_1에 닿음 — 시뮬레이터 알림
+t65225  event 파리 입이 food_1에서 떨어짐 · 입 접촉 0.32초 — 시뮬레이터 알림
+t65245  event 파리 입이 사과 food_1에 닿음 — 시뮬레이터 알림
+t65285  event 파리 입이 food_1에서 떨어짐 · 입 접촉 0.04초 — 시뮬레이터 알림 몸 데이터 84 ms 전 · 속도 0.0019 m/s · 발 닿음 1.00 · 눈 샘플 t78765 · 다가옴 감지 L/R 0.036/0.051 · 뇌 활동 1.9 Hz 실시간 — 시뮬레이터(headless) :63243 · 몸 데이터 초당 8회 · 실시간 대비 0.40배 · 느림: 몸 데이터가 초당 30회 미만 저장됨 experiment-20261006-205547
+		32 자르기 도구 (disabled, settable, float) 777
+		33 스크롤 영역 Secondary Actions: Scroll Up, Scroll Down
+			34 text 선택한 대상 보기 — 편집 · 파리 fly · 참여자 없음 · 물체 food_1 · 시뮬레이션 시각 78965 ms · 실행 중
+			35 버튼 설명, Description: 앞으로, Value: 접힘
+			36 text 선택 물체 편집 물리
+			37 팝업 버튼 Description: 시뮬레이터 물체 목록, Value: food_1 · 먹이
+			38 버튼 선택 물체 보기
+			39 라디오 버튼 Description: 이동, Value: 1
+			40 라디오 버튼 Description: Z 회전, Value: 0
+			41 라디오 버튼 Description: 크기, Value: 0
+			42 라디오 버튼 (disabled) Description: 기울기, Value: 0
+			43 텍스트 X (mm)
+			44 텍스트 필드 (settable) Description: 이동 X (mm), Value: 87.315
+			45 텍스트 Y (mm)
+			46 텍스트 필드 (settable) Description: 이동 Y (mm), Value: -111.141
+			47 텍스트 Z (mm)
+			48 텍스트 필드 (settable) Description: 이동 Z (mm), Value: 1.248
+			49 버튼 적용
+			50 버튼 복제
+			51 버튼 삭제
+			52 text 현재 — 위치 87.3, -111.1, 1.2 mm · 회전 0.0° · 크기 2.5 × 2.5 × 2.5 mm 위치·크기는 mm, 회전은 수직축 기준 도(°) 단위입니다. 기울기는 경사로만 바꿀 수 있고(0–45°), 경사로의 기울기·크기를 바꿔도 낮은 쪽 모서리는 제자리에 있습니다. 값을 입력하고 Return을 누르거나 3D 화면의 색깔 핸들을 끌어 바꾸고, 끄는 중 Esc를 누르면 취소됩니다. 복제본은 원본과 같은 자리에 생기니 바로 옮기세요. 되돌리기는 아직 없습니다. 값을 입력하고 Return을 누르거나, 3D 화면의 색깔 핸들을 끌어 바꾸세요. 물체 놓기 물리 종류
+			53 팝업 버튼 상자
+			54 텍스트 이름
+			55 텍스트 필드 (settable) 자동
+			56 체크상자 지도를 클릭하면 바로 만들기, Value: 0
+			57 텍스트 X (mm)
+			58 텍스트 필드 (settable) 60
+			59 텍스트 Y (mm)
+			60 텍스트 필드 (settable) 0
+			61 텍스트 Z (mm)
+			62 텍스트 필드 (settable) 5
+			63 텍스트 크기 (mm)
+			64 텍스트 필드 (settable) 5
+			65 버튼 만들기
+			66 버튼 옮기기
+			67 버튼 크기 바꾸기
+			68 버튼 지우기
+			69 text 물체 상태 — 준비됨 물체 수 (사용/최대) — box 1/64 · sphere 0/64 · wall 0/64 · ramp 0/4 · food 1/8 · car 0/4 · trap 0/2 food_1 · 먹이 · 사과
+obstacle_box · 상자
+			70 버튼 설명, Description: 앞으로, Value: 접힘
+			71 text 장난감 물리 선택한 물체 — 위 ‘이름’ 칸에 자동차나 함정 이름을 적거나 3D 화면에서 고르세요 속도 (mm/s)
+			72 텍스트 필드 (settable) 20
+			73 텍스트 거리 (mm)
+			74 텍스트 필드 (settable) 80
+			75 버튼 (disabled) 주행
+			76 버튼 (disabled) 다시 설치
+			77 버튼 설명, Description: 앞으로, Value: 접힘
+			78 text 물체를 파리에게 다가가게 하기 물리 속도 (mm/s)
+			79 텍스트 필드 (settable) 12
+			80 텍스트 멈출 거리 (mm)
+			81 텍스트 필드 (settable) 8
+			82 버튼 다가가기 시작
+			83 버튼 설명, Description: 앞으로, Value: 접힘
+			84 text 참여 물리 앞으로
+			85 팝업 버튼 Value: W, ID: forward
+			86 텍스트 뒤로
+			87 팝업 버튼 Value: S, ID: backward
+			88 텍스트 왼쪽
+			89 팝업 버튼 Value: A, ID: left
+			90 텍스트 오른쪽
+			91 팝업 버튼 Value: D, ID: right
+			92 텍스트 상호작용
+			93 팝업 버튼 Value: E, ID: interact
+			94 텍스트 비비탄총
+			95 팝업 버튼 Value: G, ID: gun
+			96 텍스트 발사
+			97 팝업 버튼 Value: F, ID: fire
+			98 text 해제 Esc (고정) 시점 감도
+			99 슬라이더 (settable, float) Help: 참여 조작 중 마우스로 둘러보는 속도, Value: 0.0015
+				100 값 표시기 (settable, float) 0.0015
+			101 text 참여 조작 — 입력 거절됨: participant is not active E: 조준한 물체 집기 비비탄총 — 참여 모드에서 사용
+			102 버튼 설명, Description: 앞으로, Value: 접힘
+			103 텍스트 초기화
+			104 버튼 세계
+			105 버튼 몸
+			106 버튼 뇌
+			107 버튼 전부
+			108 버튼 설명, Description: 앞으로, Value: 접힘
+			109 스크롤 막대 (settable, float) 0
+				110 값 표시기 (settable, float) 0
+				111 화살표 증가 버튼
+				112 화살표 감소 버튼
+				113 페이지 증가 버튼
+				114 페이지 감소 버튼
+	115 도구 막대
+		116 버튼 Description: 사이드바, Help: 사이드바 가리기, Secondary Actions: 다음으로 이동
+		117 방식
+			118 라디오 버튼 Description: 관찰, Value: 0
+			119 라디오 버튼 Description: 참여, Value: 0
+			120 라디오 버튼 Description: 편집, Value: 1
+		121 버튼 Description: 일시 정지 / 재개, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		122 버튼 Description: 기록, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		123 팝업 버튼 Description: 언어, Help: 화면 언어 — 영어 또는 한국어, Value: 한국어, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		124 버튼 Description: 인스펙터, Help: 인스펙터 가리기, Secondary Actions: 이전으로 이동, 도구 막대에서 제거
+	125 닫기 버튼
+	126 전체 화면 버튼 Help: 이 버튼을 누르면 윈도우를 확대/축소합니다., Secondary Actions: 윈도우 확대/축소
+	127 최소화 버튼
+	128 text Virtual Fly Lab 실시간 · 실행 중
+129 menu bar
+	130 Thongpari Virtual Fly Lab
+	131 편집
+	132 언어
+	133 윈도우
+
+The focused UI element is 0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise

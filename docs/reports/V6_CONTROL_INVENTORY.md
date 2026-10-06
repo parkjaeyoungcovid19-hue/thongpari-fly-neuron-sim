@@ -49,7 +49,7 @@ Evidence: [backend setters](../../flygym_bridge/lab_world.py#L1144-L1237), [Swif
 
 Temperature environment_only records only; modeled_physiology sends controller tempo through Swift BrainPacket (1+.03*(T−25), Swift T10..40 → .55..1.45; no TRN current); flywire_sensory uses modeled warm TRN_VP2/cool TRN_VP3a+VP3b current, neutral25°C, deviation saturates at10°C, gain.060. Backend mode-derived neural_connected is intent, not proof of actual Swift target availability. Current Swift activates temperature **locally before backend ACK**, consumes local scalar, and does not reconcile backend nested temperature. This authority mismatch is documented, not silently changed by V6.1.
 
-Wind is an engineering force, thorax mass*10000mm/s²*strength along [cosθ,sinθ,0], plus body-relative JO-C/E modeled sensory drive if sensory enabled. stop_wind zeros strength/timer/continuous but retains direction/options. Active remaining_ms is simulation time, **not** saved request duration. Eyes disabled or mask1 black actual vision frames; partial mask scales by1-mask. Observer lighting is separate from fly-eye frames.
+Wind is an engineering force, thorax mass*10000mm/s²*strength along [cosθ,sinθ,0] (V6.5: 60000mm/s², fading to 0 as the thorax reaches 30mm/s×strength along the wind), plus body-relative JO-C/E modeled sensory drive if sensory enabled. stop_wind zeros strength/timer/continuous but retains direction/options. Active remaining_ms is simulation time, **not** saved request duration. Eyes disabled or mask1 black actual vision frames; partial mask scales by1-mask. Observer lighting is separate from fly-eye frames.
 
 ## Transient action parameters (not scene settings)
 

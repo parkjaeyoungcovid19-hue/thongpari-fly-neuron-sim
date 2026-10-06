@@ -1,5 +1,5 @@
 {
-  "description": "Validator accepts; backend has no V6.2 wind applier and rejects it",
+  "description": "V6.5 continuous-wind strength edit: validator accepts and the backend applies it",
   "manifest": "../environment_capabilities/valid.json",
   "edit": {
     "schema_version": 1,

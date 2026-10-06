@@ -1,0 +1,9 @@
+The following is a diff from the previous accessibility tree for Window: "Virtual Fly Lab" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~		28 텍스트 3D 화면 — 시각 154125 ms · 물체 10개
+~		31 text 타임라인 — 최근 명령과 반응 t60925  #41 edit_property — 적용됨 @t60945
+t61125  #42 edit_object obstacle_box — 적용됨 @t61145
+t63365  #43 edit_object box_9 — 적용됨 @t63385
+t67645  #44 spawn_ramp ramp_1 — 적용됨
+t77425  #45 edit_property — 적용됨 @t77445 몸 데이터 105 ms 전 · 속도 0.0056 m/s · 발 닿음 1.00 · 눈 샘플 t154005 · 다가옴 감지 L/R 0.000/0.004 · 뇌 활동 2.2 Hz 실시간 — 시뮬레이터(headless) :59916 · 몸 데이터 초당 15회 · 실시간 대비 0.40배 · 느림: 몸 데이터가 초당 30회 미만 기록 안 함
+~			135 text 선택한 대상 보기 — 편집 · 파리 fly · 참여자 없음 · 물체 ramp_1 · 시뮬레이션 시각 154145 ms · 실행 중
+The focused UI element is 0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise

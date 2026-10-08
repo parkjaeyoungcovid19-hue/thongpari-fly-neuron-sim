@@ -11,7 +11,7 @@ Branch: `refactor/pre-v7.2`, baseline `973945a`. P0–P4 are inherited commits; 
 | P2 | e25a711 | Deterministic timer lifecycle, cached language, CSV formatting on writer queue, guarded label writes, batched/fixed-order sensory input, prebuilt sugar/MN9 GPU group buffers, linear inbound framing, encoder/input caching, connection manifest caching, single snapshot validation, cached timestep/lazy trap position, graph cleanup and view-stream geom lookup caching. |
 | P3 | 4447162 | Independent brain spike consumers and scheduled stimuli; CSV column/value table including sugar GRN/MN9; event/session and ACK/generation boundaries; timeout, constraints, aim fallback and pending timeline fixes; interactive session locks; common schedule/neural recording; deterministic exception containment; input cap; log handle cleanup; CLI usage guard; fixture FAIL and actual outgoing card-click instrumentation. |
 | P4 | 65361ec | Population metadata/resolution table, bit-preserving GroupSpec/rates table and reset, Lab telemetry moved out of protocol, BrainPick and stimulation separated, ACK/event dropped counters. No V7.2 observation primitive. |
-| P5 | this report's commit (see final response / git log) | Main/Coordinator/AppDelegate/CLI/overlay/snapshot/menu splits; Lab arena/pages/actions/toolbar/participant state/status text splits; shared session/reset/getter/parser/wire helpers; WorldEdits co-location and boundary/timeout/rejection helpers; localization folded into chrome; typed environment property moved to Bridge; node/vector/orbit helpers; diagnostic Suite/makeDiagSim; Python V4/bridge/body helpers, tool/carry/type splits and command dispatch; separated unittest unit/real/perf trees and test support; single fast unit runner; docs updated. |
+| P5 | c70ab04 (plus final process-audit documentation commit) | Main/Coordinator/AppDelegate/CLI/overlay/snapshot/menu splits; Lab arena/pages/actions/toolbar/participant state/status text splits; shared session/reset/getter/parser/wire helpers; WorldEdits co-location and boundary/timeout/rejection helpers; localization folded into chrome; typed environment property moved to Bridge; node/vector/orbit helpers; diagnostic Suite/makeDiagSim; Python V4/bridge/body helpers, tool/carry/type splits and command dispatch; separated unittest unit/real/perf trees and test support; single fast unit runner; docs updated. |
 
 ### Skips, partial items and retained semantics
 
@@ -56,7 +56,7 @@ RESUME.md additionally records an earlier 99 µs sample, simultaneous original 1
 | __DATA | 147456 | 131072 | 131072 |
 | __LINKEDIT | 1785856 | 1130496 | 98304 |
 
-`git diff --stat 973945a` including this report: 513 files changed, 12481 insertions(+), 53716 deletions(-). LOC baseline is counted from git blobs at 973945a; final LOC is wc -l over the source trees.
+`git diff --stat 973945a` including this report: 513 files changed, 12479 insertions(+), 53716 deletions(-). LOC baseline is counted from git blobs at 973945a; final LOC is wc -l over the source trees.
 
 ## Final P5 verification
 
@@ -127,8 +127,6 @@ P5's initial Python failures came from extraction/import boundaries, including o
 
 ## Process confirmation
 
-`pgrep -fl ThongpariFlyNeuronSim`: no output, exit 1.
+Before the implementation commit, both `pgrep -fl ThongpariFlyNeuronSim` and `pgrep -fl bridge.py` returned no output, exit 1; all processes started by this continuation had ended.
 
-`pgrep -fl bridge.py`: no output, exit 1.
-
-No matching processes remain.
+The final post-commit audit found a separately started external validation build: `pgrep -fl ThongpariFlyNeuronSim` returned exit 0 because shell PID 27279, swift-driver PID 27284 and swift-frontend PID 27285 included the binary name in command arguments. `ps` executable-name filtering found no running ThongpariFlyNeuronSim executable at that instant. `pgrep -fl bridge.py` still returned no output, exit 1. These external processes were not started or terminated by this continuation; no claim is made that the separate validator has finished.

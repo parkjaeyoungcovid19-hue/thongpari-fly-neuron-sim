@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tests._support import ROOT, REPO
 """V6.4 ramp terrain semantics and slot-budget rejection; mock only, no listeners.
 
-Run: PYTHONDONTWRITEBYTECODE=1 flygym-venv/bin/python flygym_bridge/test_v6_4_terrain.py
+Run: PYTHONDONTWRITEBYTECODE=1 flygym-venv/bin/python flygym_bridge/tests/unit/test_terrain.py
 """
 from copy import deepcopy
 import json

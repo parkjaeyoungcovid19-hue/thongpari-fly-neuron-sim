@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tests._support import ROOT, REPO
 """V6.2 strict edit tests; no real simulation, sockets, listeners or GPU.
 
-Run: PYTHONDONTWRITEBYTECODE=1 flygym-venv/bin/python flygym_bridge/test_environment_edits.py
+Run: PYTHONDONTWRITEBYTECODE=1 flygym-venv/bin/python flygym_bridge/tests/unit/test_environment_edits.py
 """
 from copy import deepcopy
 import json

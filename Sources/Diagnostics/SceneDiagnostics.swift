@@ -49,8 +49,8 @@ func runSceneLoopTest() {
             check("invalid scene rejected unchanged", reject?.ok == false && before == bridge.latestLabState()?.authoritativeObjects?.map(\.id))
             let again = send(LabCommand(id: 0, action: "export_scene"))
             check("same settings after rejected load", again?.scene?.documentText == text)
-        } catch { print("FAIL scene file \(error)"); suite.failures += 1 }
-    } else { suite.failures += 1 }
+        } catch { suite.check("scene file", false, "\(error)") }
+    } else { check("export has text and canonical scene", false) }
     bridge.stop()
     print("SCENELOOP \(suite.failures == 0 ? "PASS" : "FAIL") (\(suite.failures) failures)")
     suite.finish()

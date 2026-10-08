@@ -130,3 +130,25 @@ P5's initial Python failures came from extraction/import boundaries, including o
 Before the implementation commit, both `pgrep -fl ThongpariFlyNeuronSim` and `pgrep -fl bridge.py` returned no output, exit 1; all processes started by this continuation had ended.
 
 The final post-commit audit found a separately started external validation build: `pgrep -fl ThongpariFlyNeuronSim` returned exit 0 because shell PID 27279, swift-driver PID 27284 and swift-frontend PID 27285 included the binary name in command arguments. `ps` executable-name filtering found no running ThongpariFlyNeuronSim executable at that instant. `pgrep -fl bridge.py` still returned no output, exit 1. These external processes were not started or terminated by this continuation; no claim is made that the separate validator has finished.
+
+## Post-review verification and fixes (2026-10-09, Claude)
+
+Run at `fdcb14b`, then again after the fixes below.
+
+| check | result |
+|---|---|
+| Swift headless suites (9) | all exit 0; `--gpucheck` lines identical to the saved baseline, including E 5.96e-08 and the two FMA probe FAILs |
+| Python unit runner | `Ran 95 tests`, OK |
+| `tests/real/*_real.py` (10) + `tests/perf` | all pass after fix 2 |
+| `--v4loop`, `--sceneloop`, `--interactionloop`, `--inputprobe` (real bridge) | pass |
+| `--labloop` (mock and real) | `CHECKS 12; FAILURES 0` after fix 1 |
+| `--bridgeloop` | mock PASS. Real FAIL on the body-rate gate (5 Hz < 30 Hz under load): pre-existing, see the 2026-09-29 run |
+| `--snapshot`, `--brainshot`, `--envpanelshot` | render; `--envpanelshot` without a directory exits 2 |
+| `package_app.sh` | exit 0, release 1,760,864 B, release `--simtest` exits 2. A later `codesign --verify --strict` on `dist/` fails on a `com.apple.FinderInfo` xattr that the ~/Documents File Provider adds after packaging (environmental) |
+
+Fixes:
+1. **P2 regression: Edit ▸ Undo/Redo read the manifest from the latest `lab_state`.** Since P2 sends the manifest once per connection, it is nil there, so undoing a property edit dropped the step ("the simulator no longer accepts this value"). `LabWindow.stepEditHistory` and `--labloop` now use `FlyGymBridge.environmentCapabilities()`. `--bridgetest` checks that the cache survives a manifest-less `lab_state` and clears on reconnect.
+2. **P5 test regression:** `tests/real/test_interaction_real.py` kept module-level `global` statements inside the new test method (NameError); they are now `nonlocal`.
+3. `--labloop`/`--sceneloop` checks go through `Suite.check`, so the printed counts are real; two new unused-value warnings were removed; stale `Run:` paths in moved tests and a trailing blank line were fixed.
+
+The GUI pass was stopped early: launch, toolbar mode switching, Pause/Resume, record start, stimuli wind/eye cover, and brain views were checked on the packaged app (`notes/validation/pre-v7.2-refactor-gui-2026-10-09/`, local). The remaining GUI flows (Data, Experiment, world objects/resets, Edit mode including Undo/Redo, Participate, cameras, overlay mode, language toggling, restart fd count) are not verified.

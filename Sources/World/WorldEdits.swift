@@ -301,7 +301,7 @@ struct EnvironmentSettingQueue {
             return prefix + L("a timed wind puff is running; wait for it to end or press Stop",
                               "시간 제한 바람이 부는 중입니다. 끝나거나 ‘끄기’를 누른 뒤 다시 하세요")
         default:
-            guard let edit = ack.edit else { return prefix + ack.message }
+            guard ack.edit != nil else { return prefix + ack.message }
             return prefix + WorldEdits.rejectionDetail(ack)
         }
     }

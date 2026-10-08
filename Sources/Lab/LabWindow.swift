@@ -1234,7 +1234,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         editHistory.observe(identity: identity)
         let owner = WorldEditOwnerState(objects: arenaPlacement.worldObjects, world: bridge.latestLabState()?.worldState)
         guard let command = editHistory.command(direction, owner: owner,
-                                                capabilities: owner.world?.environmentCapabilities) else {
+                                                capabilities: bridge.environmentCapabilities()) else {
             presentEditHistory(); return
         }
         let targetsObject = command.objectEdit != nil || command.edit?.targetID != nil

@@ -9,7 +9,7 @@ class FeatureTests(unittest.TestCase):
     def test_contract(self):
         """V5.6 MuJoCo interaction acceptance; local process, no TCP listener.
 
-        Run: NUMBA_DISABLE_JIT=1 ./flygym-venv/bin/python flygym_bridge/test_interaction_real.py
+        Run: NUMBA_DISABLE_JIT=1 ./flygym-venv/bin/python flygym_bridge/tests/real/test_interaction_real.py
         """
         import math
         import os
@@ -40,7 +40,7 @@ class FeatureTests(unittest.TestCase):
 
 
         def cmd(tool, **args):
-            global sequence
+            nonlocal sequence
             sequence += 1
             return LabCommand(seq=sequence, op="interaction", args={
                 "tool_id": tool, "actor_id": "player", **args})
@@ -89,7 +89,7 @@ class FeatureTests(unittest.TestCase):
 
 
         def sampled_step(*args, **kwargs):
-            global previous_position
+            nonlocal previous_position
             out = original_step(*args, **kwargs)
             after = tuple(world.objects["grabbed"].position_mm)
             movement.append(math.dist(previous_position, after))
@@ -362,7 +362,7 @@ class FeatureTests(unittest.TestCase):
 
 
         def turn_look(turn_deg):
-            global look_seq
+            nonlocal look_seq
             packets = math.ceil(abs(turn_deg) / 45.0)  # look deltas are bounded to pi/4 per packet
             for _ in range(packets):
                 look_seq += 1

@@ -948,6 +948,30 @@ func runBridgeTest() {
               && bridge.latestLabState()?.authoritativeObjects?.count == 1536)
     }
 
+    // P2 sends the manifest once per connection, so later lab_state packets
+    // omit it. Readers (undo/redo, labloop) must use the per-connection cache.
+    if let manifest {
+        let bridge = FlyGymBridge(port: 17899)
+        _ = bridge.beginConnectionForTesting()
+        var buffer = Data()
+        func feed(_ state: [String: Any], ack: Int) {
+            let packet: [String: Any] = ["type": "lab_state", "ack": ack, "ok": true,
+                                         "session_id": "manifest-cache", "epoch": 1, "sim_tick": ack, "state": state]
+            guard var line = try? JSONSerialization.data(withJSONObject: packet) else { return }
+            line.append(0x0A)
+            bridge.receiveBytesForTesting(line, buffer: &buffer, at: recvNow)
+        }
+        feed(["objects": [], "environment_capabilities": manifest], ack: 1)
+        feed(["objects": []], ack: 2)
+        check("manifest cache survives lab_state without manifest",
+              bridge.latestLabState()?.ack == 2
+              && bridge.latestLabState()?.worldState?.environmentCapabilities == nil
+              && bridge.environmentCapabilities()?.descriptors.count == 42)
+        bridge.disconnectForTesting()
+        _ = bridge.beginConnectionForTesting()
+        check("manifest cache clears on reconnect", bridge.environmentCapabilities() == nil)
+    }
+
     // The larger legitimate limit must still be a real bound. An unterminated
     // line over 1 MiB is discarded and counted instead of growing forever.
     let malformedBeforeFlood = largeStateBridge.malformedCount
@@ -1379,9 +1403,8 @@ func runLabLoopTest() {
         let ok = ack?.ok == true
         let fresh = fg.labAckFreshness()
         let ageMs = fresh.ageSeconds.map { String(format: "%.0f", $0 * 1000) } ?? "n/a"
-        print("\(ok ? "PASS" : "FAIL")  labloop \(name) ack=\(ack?.id ?? -1) \(ack?.message ?? "timeout")"
+        suite.check("labloop \(name)", ok, "ack=\(ack?.id ?? -1) \(ack?.message ?? "timeout")"
               + " gen=\(fresh.packetGeneration.map(String.init) ?? "n/a")/\(fresh.currentGeneration) age=\(ageMs)ms")
-        if !ok { suite.failures += 1 }
     }
 
     func bodyDiagnostic(_ body: FlyGymBodyFeedback?) -> String {
@@ -1404,8 +1427,7 @@ func runLabLoopTest() {
         Thread.sleep(forTimeInterval: 0.15)
     }
     let stateOK = (fg.latestLabState()?.objectCount ?? 0) >= 1
-    print("\(stateOK ? "PASS" : "FAIL")  labloop state object_count=\(fg.latestLabState()?.objectCount ?? -1)")
-    if !stateOK { suite.failures += 1 }
+    suite.check("labloop state", stateOK, "object_count=\(fg.latestLabState()?.objectCount ?? -1)")
 
     // V6.2 edit_property over the real socket: applied value/revision in the
     // ACK, then stale and out-of-range edits rejected without changing state.
@@ -1413,10 +1435,9 @@ func runLabLoopTest() {
         fg.latestLabState()?.authoritativeObjects?.first { $0.id == objectID }
     }
     func editCheck(_ name: String, _ ok: Bool, _ detail: String) {
-        print("\(ok ? "PASS" : "FAIL")  labloop \(name) \(detail)")
-        if !ok { suite.failures += 1 }
+        suite.check("labloop \(name)", ok, detail)
     }
-    if let caps = fg.latestLabState()?.worldState?.environmentCapabilities,
+    if let caps = fg.environmentCapabilities(),
        let before = remoteObject(), let revision = before.revision,
        let edit = try? EnvironmentEdit.make(propertyID: "object.sphere.position_mm", targetID: objectID,
                                             expectedRevision: revision, value: .vector([22, -6, 3]),
@@ -1461,8 +1482,7 @@ func runLabLoopTest() {
         }
         Thread.sleep(forTimeInterval: 0.01)
     }
-    print("\(sourceOK ? "PASS" : "FAIL")  labloop body packet is wind/touch source-of-truth — \(bodyDiagnostic(sourceBody ?? fg.latestBody()))")
-    if !sourceOK { suite.failures += 1 }
+    suite.check("labloop body packet is wind/touch source-of-truth", sourceOK, bodyDiagnostic(sourceBody ?? fg.latestBody()))
 
     // The backend timer is expressed in MuJoCo simulation time, not wall time.
     // A slow real backend may need much more than 300 ms of wall time to advance
@@ -1504,16 +1524,12 @@ func runLabLoopTest() {
         Thread.sleep(forTimeInterval: 0.01)
     }
     let expiredOK = expiredInWindow && !expiredTooEarly && !expiredTooLate
-    print("\(expiredOK ? "PASS" : "FAIL")  labloop body source clears on simulation-time timer expiry"
-          + " target_t=\(String(format: "%.4f", expiryTargetSimTime))s"
+    suite.check("labloop body source clears on simulation-time timer expiry", expiredOK,
+          "target_t=\(String(format: "%.4f", expiryTargetSimTime))s"
           + " window=[\(String(format: "%.4f", expiryEarliestSimTime)),\(String(format: "%.4f", expiryLatestSimTime))]s"
           + " — \(bodyDiagnostic(expired))")
-    if !expiredOK { suite.failures += 1 }
-    if let event = fg.latestLabEvent() {
-        print("PASS  labloop event \(event.event)")
-    } else {
-        print("FAIL  labloop event missing"); suite.failures += 1
-    }
+    let event = fg.latestLabEvent()
+    suite.check("labloop event", event != nil, event?.event ?? "missing")
     // Clean up only the object this test created. Never reset an already-running
     // user's body/world merely because --labloop connected to that listener.
     let cleanup = fg.sendLab(action: "delete_object", target: objectID)

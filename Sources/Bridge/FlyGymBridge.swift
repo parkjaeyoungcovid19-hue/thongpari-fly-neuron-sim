@@ -611,7 +611,7 @@ final class FlyGymBridge {
             lookDelta[0] + pendingPlayerLookRemainder[0],
             lookDelta[1] + pendingPlayerLookRemainder[1],
         ]
-        if let pendingPlayerInput,
+        if pendingPlayerInput != nil,
            let previous = pendingPlayerInputPacket,
            previous.actorID == actorID,
            previous.sessionID == sessionID,

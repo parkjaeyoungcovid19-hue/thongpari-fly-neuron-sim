@@ -266,4 +266,3 @@ extension LabTelemetry {
     }
 
 }
-

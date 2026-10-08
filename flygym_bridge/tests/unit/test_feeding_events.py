@@ -5,7 +5,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tests._support import ROOT, REPO
 """Independent feeding-event lifecycle regressions; no MuJoCo or sockets.
 
-Run: PYTHONDONTWRITEBYTECODE=1 flygym-venv/bin/python flygym_bridge/test_feeding_events.py
+Run: PYTHONDONTWRITEBYTECODE=1 flygym-venv/bin/python flygym_bridge/tests/unit/test_feeding_events.py
 """
 import unittest
 

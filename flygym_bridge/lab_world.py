@@ -16,10 +16,13 @@ thread.
 from __future__ import annotations
 
 import math
+import copy
 from collections import deque
 from dataclasses import dataclass, field
 import sandbox_models as sm
 from player_body import PlayerBody
+from player_body import PLAYER_WORKSPACE_LIMIT_MM
+import scene_store as scenes
 from environment_properties import EDIT_DESCRIPTORS, MAX_REVISION, EditError, environment_capabilities, validate_edit
 from interaction import (InteractionState, InteractionError, parse_interaction_args,
                          participant_center,
@@ -411,6 +414,7 @@ class LabWorld:
             "celsius": 25.0,
             "mode": "environment_only",
             "neural_connected": False,
+            "neural_target": None,
             "controller_tempo_via_brain_packet": False,
         }
         self.flash = {
@@ -1419,6 +1423,7 @@ class LabWorld:
         if int(edit["expected_revision"]) != current:
             raise EditError("edit.expected_revision", "stale revision",
                             status="rejected_stale_revision", current_revision=current)
+        previous = self._edit_value(d, obj if pid.startswith("object.") else None)
         if field == "position_mm":
             actual = self.move_object(target, position_mm=value)["position_mm"]
         elif field == "pitch_deg":
@@ -1441,7 +1446,23 @@ class LabWorld:
             actual = self.set_eye_state(**{field: value})[field]
         revision = obj.revision if pid.startswith("object.") else self.environment_revision
         return {"ok": True, "status": "applied", "property_id": pid, "target_id": target,
-                "actual_value": actual, "revision": int(revision)}
+                "actual_value": actual, "previous_value": previous, "revision": int(revision)}
+
+    def _edit_value(self, d, obj):
+        """Owner value of an editable property, in its edit wire form. The V6.6
+        undo inverse is built from this, never from a client-side guess."""
+        pid, field = d["property_id"], d["legacy_field"]
+        if obj is not None:
+            value = getattr(obj, field)
+            if field in ("position_mm", "size_mm"):
+                value = [float(v) for v in value]
+                return value if d["value_type"] == "vector" else value[0]
+            return float(value)
+        if pid.startswith("temperature."):
+            return self.temperature[field]
+        if pid in WIND_EDIT_FIELDS:
+            return self.wind[WIND_EDIT_FIELDS[pid]]
+        return self.eyes[field]
 
     def edit_object(self, edit):
         """V6.3 discrete object mutation; validate completely before owner mutation."""
@@ -1493,10 +1514,106 @@ class LabWorld:
         return {"ok": True, "status": "applied", "property_id": "object." + operation,
                 "target_id": target, "actual_value": actual, "revision": self.revision}
 
+    def export_scene(self):
+        # Only persistent settings: a timed puff cannot become continuous wind.
+        objects = []
+        for key in sorted(self.objects):
+            obj = self.objects[key]
+            item = dict(id=key, shape=obj.shape, position_mm=list(obj.position_mm),
+                        size_mm=scenes.object_size_value(obj), yaw_deg=obj.yaw_deg)
+            if obj.shape == "ramp": item["pitch_deg"] = obj.pitch_deg
+            if obj.shape == "food": item["variant"] = obj.variant
+            objects.append(item)
+        scene = dict(objects=objects, environment=dict(
+            temperature=dict(celsius=float(self.temperature["celsius"]), mode=self.temperature["mode"]),
+            wind=dict(strength=float(self.wind["strength"]) if self.wind["continuous"] else 0.0,
+                      direction_deg=float(self.wind["direction_deg"]),
+                      physical=self.wind["physical_enabled"], sensory=self.wind["sensory_enabled"]),
+            eyes=dict(self.eyes)), player_spawn=dict(position_mm=list(self.player.spawn_position_mm)))
+        return scenes.build_document(scene)
+
+    def load_scene(self, text, *, fly_position_mm):
+        document = scenes.parse_document(text)
+        staged, mismatches = scenes.validate_document(document, slot_counts=self.slot_counts,
+            max_object_id_len=MAX_OBJECT_ID_LEN, player_limit_mm=PLAYER_WORKSPACE_LIMIT_MM)
+        if mismatches:
+            raise scenes.SceneError("document.assets", "asset hashes differ: " + ", ".join(mismatches),
+                                    status="rejected_assets")
+        overlap = scenes.first_overlap(staged, fly_point_mm=fly_position_mm,
+            player_spawn_mm=staged["player_spawn"], player_radius_mm=self.player.radius_mm,
+            toy_size=self._sanitize_size)
+        if overlap: raise scenes.SceneError(*overlap, status="rejected_overlap")
+        # Build every authored object in an unbound world before touching the owner.
+        candidate = LabWorld(slot_counts=self.slot_counts)
+        for item in staged["objects"]:
+            candidate.spawn_object(shape=item["shape"], object_id=item["id"],
+                position_mm=item["position_mm"], size_mm=item["size_mm"], yaw_deg=item["yaw_deg"],
+                variant=item.get("variant"), pitch_deg=item.get("pitch_deg"))
+        # Retain both owner state and compiled arrays until the swap completes.
+        fields = ("objects", "_free_slots", "_counter", "_food_spawn_count", "interaction", "events",
+                  "drives", "_trap_blocked", "projectiles", "_last_bb_fire_s", "_sim_time_s",
+                  "_previous_forces", "approaches", "feeding", "_eating_id", "touch", "flash",
+                  "temperature", "eyes", "wind", "revision", "structure_revision", "environment_revision",
+                  "_solid_by_slot")
+        backup = {key: copy.deepcopy(getattr(self, key)) for key in fields}
+        spawn_before = list(self.player.spawn_position_mm)
+        arrays = []
+        if self._bound:
+            for owner, names in ((self.model, ("body_pos", "body_quat", "body_gravcomp", "body_contype", "body_conaffinity", "geom_size",
+                   "geom_pos", "geom_quat", "geom_type", "geom_rgba", "geom_contype", "geom_conaffinity",
+                   "geom_aabb", "geom_rbound")),
+                   (self.data, ("mocap_pos", "mocap_quat", "qpos", "qvel", "xfrc_applied"))):
+                arrays.extend((getattr(owner, name), getattr(owner, name).copy()) for name in names)
+        try:
+            # Single owner boundary. Preserve body/neural tick and live participant pose.
+            self.release_interaction("scene_load")
+            owner_time = self._sim_time_s
+            self.reset_runtime_tools()
+            self._sim_time_s = owner_time
+            self._clear_applied_forces()
+            self.approaches.clear()
+            self.feeding.clear()
+            self._eating_id = None
+            self.touch = None
+            self.flash.update(intensity=0.0, remaining_s=0.0)
+            for obj in self.objects.values(): self._deactivate_slot(obj.slot)
+            self.objects, self._free_slots = candidate.objects, candidate._free_slots
+            self._counter, self._food_spawn_count = candidate._counter, candidate._food_spawn_count
+            for obj in self.objects.values():
+                self._bump_revision(obj, structural=True)
+                self._sync_object(obj)
+            env = staged["environment"]
+            self.temperature.update(env["temperature"])
+            self.eyes.update(env["eyes"])
+            wind = env["wind"]
+            self.wind.update(strength=wind["strength"], direction_deg=wind["direction_deg"],
+                physical_enabled=wind["physical"], sensory_enabled=wind["sensory"],
+                continuous=wind["strength"] > 0, remaining_s=0.0)
+            self.player.spawn_position_mm = staged["player_spawn"]
+            self.environment_revision += 1
+            self._bump_revision(structural=True)
+            self.refresh_poses()
+            self._append_event(dict(event="scene_loaded", classification=PHYSICAL,
+                                    content_sha256=document["content_sha256"]))
+        except Exception:
+            for key, value in backup.items(): setattr(self, key, value)
+            self.player.spawn_position_mm = spawn_before
+            for live, saved in arrays: live[:] = saved
+            self.refresh_poses()
+            raise
+        return dict(kind=scenes.SCENE_KIND, content_sha256=document["content_sha256"],
+                    world_revision=self.revision, environment_revision=self.environment_revision)
+
     def apply_command(self, command, *, fly_position_mm=(0.0, 0.0, 0.0)):
         """Apply one parsed LabCommand on the simulation-owner thread."""
         op = command.op
         a = command.args
+        if op == "export_scene":
+            document = self.export_scene()
+            return {"document_text": scenes.document_text(document), "kind": scenes.SCENE_KIND,
+                    "canonical_scene": scenes.canonical_bytes(document["scene"]).decode("utf-8")}
+        if op == "load_scene":
+            return self.load_scene(a.get("scene_document"), fly_position_mm=fly_position_mm)
         if op == "edit_object":
             return self.edit_object(a.get("object_edit"))
         if op == "drive_object":
@@ -2316,6 +2433,7 @@ class LabWorld:
     def state(self):
         return {
             "physical_backend": bool(self._bound),
+            "scene_capabilities": {"schema_version": 1, "kind": scenes.SCENE_KIND, "max_document_bytes": scenes.MAX_DOCUMENT_BYTES, "load_requires_pause": True},
             "environment_capabilities": environment_capabilities(
                 self.force_body_ids if self._bound else None),
             "world_revision": int(self.revision),
@@ -2415,6 +2533,13 @@ class LabWorld:
                     self.model, parts, scale=obj.size_mm[0], collidable=True)
         else:
             sm.set_geom_collidable(self.model, gid, True)
+
+    def refresh_poses(self):
+        """Recompute world poses after an edit applied while paused (V6.6), so
+        the view stream and ray picks see it. Kinematics only: no time step,
+        no contact or force computation."""
+        if self._bound:
+            self._mujoco.mj_kinematics(self.model, self.data)
 
     def _deactivate_slot(self, slot):
         if not self._bound:

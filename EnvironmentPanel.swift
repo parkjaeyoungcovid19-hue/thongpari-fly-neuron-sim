@@ -219,8 +219,9 @@ final class EnvironmentPanel: NSObject {
     let windStatus = NSTextField(wrappingLabelWithString: "")
     let lightStatus = NSTextField(wrappingLabelWithString: "")
     /// A refusal made here, before anything was sent (bad number, no
-    /// simulator). It covers its own section until that section is used again.
-    private var localStatus: (propertyID: String, text: String)?
+    /// simulator), or an undo/redo result. It covers its own section until
+    /// that section is used again.
+    private var localStatus: (propertyID: String, text: String, isError: Bool)?
 
     private var capabilities: EnvironmentCapabilities?
     private var backend = false
@@ -413,7 +414,10 @@ final class EnvironmentPanel: NSObject {
 
     // MARK: - Owner state
 
+    /// `bodyPaused`: the backend confirmed a pause, so `body` is the last packet
+    /// before it stopped rather than a live one.
     func update(state: LabRemoteState?, telemetry t: LabTelemetry, body: FlyGymBodyFeedback?,
+                bodyPaused: Bool = false,
                 identity: WorldEditorIdentity?, backendConnected: Bool, available: Bool, now: Date = Date()) {
         backend = backendConnected
         self.available = available
@@ -428,7 +432,7 @@ final class EnvironmentPanel: NSObject {
         localTemperature = (t.temperatureC, t.temperatureMode)
         pump()
         snapControls(now: now)
-        renderSample(t, body: body, state: state)
+        renderSample(t, body: body, paused: bodyPaused, state: state)
         render()
     }
 
@@ -532,7 +536,13 @@ final class EnvironmentPanel: NSObject {
     }
 
     private func refuse(_ propertyID: String, _ text: String) {
-        localStatus = (propertyID, text)
+        localStatus = (propertyID, text, true)
+        renderStatus()
+    }
+
+    /// V6.6 Edit ▸ Undo/Redo feedback about one of this panel's settings.
+    func showHistory(propertyID: String, text: String, isError: Bool) {
+        localStatus = (propertyID, text, isError)
         renderStatus()
     }
     private func clearRefusal(_ propertyID: String) {
@@ -547,7 +557,7 @@ final class EnvironmentPanel: NSObject {
         for (label, section) in [(temperatureStatus, "temperature"), (windStatus, "wind"), (lightStatus, "eyes")] {
             var text = "", error = false
             if let local = localStatus, Self.section(local.propertyID) == section {
-                (text, error) = (local.text, true)
+                (text, error) = (local.text, local.isError)
             } else if let pid = queue.messagePropertyID, Self.section(pid) == section {
                 (text, error) = (queue.message, queue.isError)
             }
@@ -557,9 +567,14 @@ final class EnvironmentPanel: NSObject {
         }
     }
 
-    private func renderSample(_ t: LabTelemetry, body: FlyGymBodyFeedback?, state: LabRemoteState?) {
+    private func renderSample(_ t: LabTelemetry, body: FlyGymBodyFeedback?, paused: Bool, state: LabRemoteState?) {
         var lines: [String] = []
-        if let body {
+        if let body, paused {
+            lines.append(String(format: L("At the fly  x %.1f · y %.1f mm · facing %.0f° · body t %.3f s (paused)",
+                                          "파리 위치  x %.1f · y %.1f mm · 바라보는 방향 %.0f° · 몸 시각 %.3f s (일시정지)"),
+                                body.positionXmm, body.positionYmm, Self.normalized(body.headingRad * 180 / .pi),
+                                body.simTime))
+        } else if let body {
             lines.append(String(format: L("At the fly  x %.1f · y %.1f mm · facing %.0f° · body t %.3f s (%.0f ms ago)",
                                           "파리 위치  x %.1f · y %.1f mm · 바라보는 방향 %.0f° · 몸 시각 %.3f s (%.0f ms 전)"),
                                 body.positionXmm, body.positionYmm, Self.normalized(body.headingRad * 180 / .pi),

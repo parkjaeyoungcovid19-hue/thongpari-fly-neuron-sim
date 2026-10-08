@@ -478,9 +478,13 @@ struct WorkspaceSnapshot: Equatable {
     var pendingCommands: Int
     var backendDetail: String
 
+    /// `pausedOwnerFresh`: the backend confirmed a pause and its lab_state is
+    /// still arriving. Body packets stop by design then (V6.6 edits still
+    /// apply), so an old body packet alone is not stale data.
     static func connection(bridgeEnabled: Bool, service: FlyGymServiceState?,
                            connected: Bool,
-                           bodyFresh: Bool, bodyAge: TimeInterval?) -> WorkspaceConnection {
+                           bodyFresh: Bool, bodyAge: TimeInterval?,
+                           pausedOwnerFresh: Bool = false) -> WorkspaceConnection {
         guard bridgeEnabled else { return .disabled }
         if let service {
             switch service {
@@ -490,7 +494,7 @@ struct WorkspaceSnapshot: Equatable {
             }
         }
         guard connected else { return .connecting }
-        return bodyFresh ? .live : .stale(bodyAge)
+        return bodyFresh || pausedOwnerFresh ? .live : .stale(bodyAge)
     }
 
     static func clock(_ seconds: TimeInterval) -> String {

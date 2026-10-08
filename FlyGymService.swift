@@ -62,13 +62,15 @@ final class FlyGymService {
     var lastOutputLine: String { lock.lock(); defer { lock.unlock() }; return _lastOutputLine }
     /// Set when the Python runtime has been evicted to iCloud (Optimize Mac
     /// Storage): every import then downloads on demand and startup takes minutes.
-    private(set) lazy var runtimeIsCloudEvicted: Bool = root.map(FlyGymService.hasCloudEvictedRuntime) ?? false
+    private var cloudEvicted = false
+    var runtimeIsCloudEvicted: Bool { lock.lock(); defer { lock.unlock() }; return cloudEvicted }
     var canRestart: Bool {
         if case .exited = state { return root != nil && port != 0 }
         return false
     }
 
-    init(mode: FlyGymServiceMode, root: URL? = FlyGymService.locateProjectRoot()) {
+    init(mode: FlyGymServiceMode, root: URL? = FlyGymService.locateProjectRoot(),
+         cloudEvictionProbe: @escaping (URL) -> Bool = FlyGymService.hasCloudEvictedRuntime) {
         self.mode = mode
         self.root = root
         self.port = FlyGymService.freeLoopbackPort() ?? 0
@@ -79,6 +81,15 @@ final class FlyGymService {
             _state = .unavailable("no free loopback port")
         } else {
             _state = .starting
+        }
+        // File Provider directory reads may block while materializing cloud
+        // files. Never make the UI refresh wait for this diagnostic probe.
+        if let root {
+            DispatchQueue.global(qos: .utility).async { [weak self] in
+                let evicted = cloudEvictionProbe(root)
+                guard let self else { return }
+                self.lock.lock(); self.cloudEvicted = evicted; self.lock.unlock()
+            }
         }
     }
 

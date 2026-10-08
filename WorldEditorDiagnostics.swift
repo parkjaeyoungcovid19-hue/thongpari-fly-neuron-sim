@@ -73,6 +73,7 @@ func runWorldEditorTest() {
     runWorldEditorAppKitChecks(check)
     runRampEditorChecks(check, caps: caps, identity: identity, schedule: schedule, camera: camera)
     runEnvironmentPanelChecks(check, caps: caps)
+    runWorldEditHistoryChecks(check, caps: caps)
     print("V6.3 editor diagnostics: \(failures) failures"); exit(failures==0 ? 0 : 1)
 }
 

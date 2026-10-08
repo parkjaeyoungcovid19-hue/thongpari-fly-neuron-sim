@@ -236,7 +236,8 @@ class EnvironmentEditTests(unittest.TestCase):
         self.assertTrue(ok["ok"])
         self.assertEqual(ok["edit"], {"ok": True, "status": "applied",
                                       "property_id": "temperature.celsius", "target_id": None,
-                                      "actual_value": 31.0, "revision": edit["expected_revision"] + 1})
+                                      "actual_value": 31.0, "previous_value": 25.0,
+                                      "revision": edit["expected_revision"] + 1})
         self.assertEqual(ok["state"]["environment_revision"], edit["expected_revision"] + 1)
         self.assertFalse(bad["ok"])
         self.assertEqual(bad["edit"]["path"], "edit.value")

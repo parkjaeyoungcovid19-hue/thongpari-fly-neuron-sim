@@ -5,9 +5,16 @@ set -eu
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="Thongpari Virtual Fly Lab"
 SOURCE_IMAGE="$ROOT/assets/ThongpariFlyIconSource.png"
-OUTPUT="$ROOT/dist/$APP_NAME.app"
-mkdir -p "$ROOT/dist"
-STAGE_ROOT="$(mktemp -d "$ROOT/dist/.package-XXXXXXXX")"
+OUTPUT="${THONGPARI_APP_OUTPUT:-$ROOT/dist/$APP_NAME.app}"
+if [[ "$OUTPUT" != /* || "$OUTPUT" != *.app ]]; then
+  print -u2 "THONGPARI_APP_OUTPUT must be an absolute .app path: $OUTPUT"
+  exit 2
+fi
+OUTPUT_PARENT="$(dirname "$OUTPUT")"
+mkdir -p "$OUTPUT_PARENT"
+# A caller can choose a non-File-Provider directory when iCloud reattaches
+# FinderInfo during signing. Staging stays beside the final artifact.
+STAGE_ROOT="$(mktemp -d "$OUTPUT_PARENT/.package-XXXXXXXX")"
 # Keep the staging directory's name extension-free so Finder does not attach
 # bundle FinderInfo until after codesign has sealed the contents.
 APP="$STAGE_ROOT/$APP_NAME.bundle-stage"
@@ -108,4 +115,9 @@ if [[ -e "$OUTPUT" || -L "$OUTPUT" ]]; then
   rm -rf -- "$OUTPUT"
 fi
 mv "$APP" "$OUTPUT"
+# File Provider may reattach metadata when the generated bundle moves into an
+# iCloud-managed dist directory. Apply the same generated-artifact cleanup at
+# its final path, then verify the signature again.
+xattr -cr "$OUTPUT"
+codesign --verify --deep --strict "$OUTPUT"
 print "Built $OUTPUT"

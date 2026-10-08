@@ -1,0 +1,32 @@
+Analysis of sampling ThongpariFlyNeuronSim (pid 64243) every 1 millisecond
+Process:         ThongpariFlyNeuronSim [64243]
+Path:            /Volumes/VOLUME/*/Thongpari Virtual Fly Lab.app/Contents/MacOS/ThongpariFlyNeuronSim
+Load Address:    0x100c64000
+Identifier:      ThongpariFlyNeuronSim
+Version:         ???
+Code Type:       ARM64
+Parent Process:  launchd [1]
+Target Type:     live task
+
+Date/Time:       2026-10-08 00:35:05.527 +0900
+Launch Time:     2026-10-08 00:33:51.283 +0900
+OS Version:      macOS 26.6.2 (25G83)
+Report Version:  7
+Analysis Tool:   /usr/bin/sample
+
+Physical footprint:         96K
+Physical footprint (peak):  96K
+Idle exit:                  untracked
+----
+
+Call graph:
+    877 Thread_14028454: Main Thread   DispatchQueue_<multiple>
+      877 _dyld_start  (in dyld) + 0  [0x1014309c0]
+
+Total number in stack (recursive counted multiple, when >=5):
+
+Sort by top of stack, same collapsed (when >= 5):
+        _dyld_start  (in dyld)        877
+
+Binary images description not available
+

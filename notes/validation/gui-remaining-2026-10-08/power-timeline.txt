@@ -1,0 +1,4 @@
+2026-10-08 19:01:11 +0900 Assertions          	Summary- [System: PrevIdle DeclUser IntPrevDisp kDisp] Using AC(Charge: 76)          
+2026-10-08 19:01:16 +0900 Assertions          	Summary- [System: PrevIdle PrevDisp PrevSleep DeclUser IntPrevDisp kCPU kDisp] Using AC(Charge: 76)          
+2026-10-08 19:19:46 +0900 Assertions          	Summary- [System: PrevIdle PrevDisp DeclUser SysAct IntPrevDisp kDisp] Using Batt(Charge: 79)          
+exit=0

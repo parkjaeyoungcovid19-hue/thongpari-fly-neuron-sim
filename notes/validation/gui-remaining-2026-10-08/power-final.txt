@@ -1,0 +1,4 @@
+Now drawing from 'Battery Power'
+ -InternalBattery-0 (id=22478947)	79%; discharging; 3:04 remaining present: true
+
+exit=0

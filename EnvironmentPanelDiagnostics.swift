@@ -230,6 +230,20 @@ private func runEnvironmentPanelAppKitChecks(
           && eyePanel.leftMaskValue.stringValue == "100%" && eyePanel.leftMaskSlider.isEnabled
           && !eyePanel.windStrengthSlider.isEnabled)
 
+    // Paused: the last body packet is shown as paused, not as missing data.
+    let pausedBody = FlyGymBodyFeedback(try! JSONDecoder().decode(FlyGymBodyPacket.self, from: Data("""
+        {"type": "body", "t": 7.25, "position_x_mm": 4.0, "position_y_mm": 2.0, "heading_rad": 0.0}
+        """.utf8)))
+    eyePanel.update(state: eyesOnly, telemetry: telemetry, body: pausedBody, bodyPaused: true,
+                    identity: identity, backendConnected: true, available: true)
+    let pausedText = eyePanel.sample.stringValue
+    eyePanel.update(state: eyesOnly, telemetry: telemetry, body: nil, identity: identity,
+                    backendConnected: true, available: true)
+    check("V6.6 paused body sample says paused, not missing",
+          pausedText.contains("7.250") && pausedText.contains(L("(paused)", "(일시정지)"))
+          && !pausedText.contains(L("no fresh body data", "새 몸 데이터 없음"))
+          && eyePanel.sample.stringValue.contains(L("no fresh body data", "새 몸 데이터 없음")))
+
     // Without a physics backend: temperature applies on the brain side only, wind/eyes are disabled.
     let noBackend = EnvironmentPanel()
     noBackend.configure()

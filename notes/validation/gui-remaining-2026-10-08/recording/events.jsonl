@@ -1,0 +1,116 @@
+{"detail":"Virtual Fly Lab V4","kind":"recording_started","wall_time":1791453625.1947021}
+{"command_id":1,"detail":"spawn_object target=gui_car","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":7405,"wall_time":1791453632.5310121}
+{"command_id":1,"detail":"spawn_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":7445,"status":"applied","wall_time":1791453632.7595701}
+{"command_id":2,"detail":"drive_object target=gui_car","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":8405,"wall_time":1791453637.586817}
+{"command_id":2,"detail":"drive_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":8445,"status":"applied","wall_time":1791453637.9600348}
+{"command_id":3,"detail":"reset_body target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":21425,"wall_time":1791453682.0405731}
+{"detail":"body","kind":"reset","wall_time":1791453682.0406079}
+{"detail":"interactive","epoch":1,"kind":"pause_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":21465,"status":"running","wall_time":1791453682.1595321}
+{"command_id":3,"detail":"reset_body OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"status":"applied","wall_time":1791453682.259588}
+{"command_id":4,"detail":"spawn_object target=gui_trap","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"wall_time":1791453682.5709782}
+{"detail":"interactive","epoch":1,"kind":"resume_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"status":"paused","wall_time":1791453686.45503}
+{"command_id":4,"detail":"spawn_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":25,"status":"applied","wall_time":1791453686.5592351}
+{"command_id":5,"detail":"arm_trap target=gui_trap","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":9565,"wall_time":1791453702.136534}
+{"command_id":5,"detail":"arm_trap OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":9645,"status":"applied","wall_time":1791453702.259973}
+{"command_id":6,"detail":"set_player_active target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":9965,"wall_time":1791453702.7581711}
+{"command_id":6,"detail":"set_player_active OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":10005,"status":"applied","wall_time":1791453702.8627839}
+{"command_id":7,"detail":"equip_gun target=player","epoch":1,"kind":"lab_command","requested_tick":23565,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":23605,"wall_time":1791453732.12395}
+{"applied_epoch":1,"applied_tick":23625,"command_id":7,"detail":"equip_gun OK ok","epoch":1,"kind":"lab_command_result","requested_tick":23565,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":23665,"status":"applied","wall_time":1791453732.2597299}
+{"command_id":8,"detail":"fire_bb target=player","epoch":1,"kind":"lab_command","requested_tick":32345,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":32385,"wall_time":1791453750.7332811}
+{"applied_epoch":1,"applied_tick":32405,"command_id":8,"detail":"fire_bb OK ok","epoch":1,"kind":"lab_command_result","requested_tick":32345,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":32445,"status":"applied","wall_time":1791453750.8597841}
+{"command_id":9,"detail":"set_player_active target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":61245,"wall_time":1791453808.7619491}
+{"command_id":9,"detail":"set_player_active OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":61305,"status":"applied","wall_time":1791453808.8595619}
+{"command_id":10,"detail":"delete_object target=gui_trap","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":61345,"wall_time":1791453808.9238701}
+{"command_id":10,"detail":"delete_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":61445,"status":"applied","wall_time":1791453809.061264}
+{"command_id":11,"detail":"reset_body target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":61445,"wall_time":1791453809.0701299}
+{"detail":"body","kind":"reset","wall_time":1791453809.0701551}
+{"detail":"interactive","epoch":1,"kind":"pause_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":61485,"status":"running","wall_time":1791453809.1867609}
+{"command_id":11,"detail":"reset_body OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"status":"applied","wall_time":1791453809.2599978}
+{"command_id":12,"detail":"spawn_food target=gui_snack","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"wall_time":1791453873.204488}
+{"detail":"interactive","epoch":1,"kind":"resume_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"status":"paused","wall_time":1791453881.1260772}
+{"command_id":12,"detail":"spawn_food OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":85,"status":"applied","wall_time":1791453881.267868}
+{"detail":"interactive","epoch":1,"kind":"pause_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45745,"status":"running","wall_time":1791453948.9883251}
+{"command_id":13,"detail":"spawn_food target=gui_capacity2","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45765,"wall_time":1791453949.2951601}
+{"command_id":14,"detail":"spawn_food target=gui_capacity3","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45765,"wall_time":1791453950.144413}
+{"command_id":15,"detail":"spawn_food target=gui_capacity4","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45765,"wall_time":1791453950.822571}
+{"command_id":16,"detail":"spawn_food target=gui_capacity5","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45765,"wall_time":1791453951.566144}
+{"command_id":17,"detail":"spawn_food target=gui_capacity6","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45765,"wall_time":1791453952.2598791}
+{"command_id":18,"detail":"spawn_food target=gui_capacity7","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45765,"wall_time":1791453952.9803481}
+{"command_id":19,"detail":"spawn_food target=gui_capacity8","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45765,"wall_time":1791453953.8118191}
+{"command_id":20,"detail":"spawn_food target=gui_capacity9","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45765,"wall_time":1791453954.546706}
+{"detail":"interactive","epoch":1,"kind":"resume_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45765,"status":"paused","wall_time":1791453961.706646}
+{"command_id":13,"detail":"spawn_food OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45770,"status":"applied","wall_time":1791453961.761373}
+{"command_id":14,"detail":"spawn_food OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45770,"status":"applied","wall_time":1791453961.7614231}
+{"command_id":15,"detail":"spawn_food OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45770,"status":"applied","wall_time":1791453961.7614479}
+{"command_id":16,"detail":"spawn_food OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45770,"status":"applied","wall_time":1791453961.761467}
+{"command_id":17,"detail":"spawn_food OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45770,"status":"applied","wall_time":1791453961.7614851}
+{"command_id":18,"detail":"spawn_food OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45770,"status":"applied","wall_time":1791453961.7615061}
+{"command_id":19,"detail":"spawn_food OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45770,"status":"applied","wall_time":1791453961.7615261}
+{"command_id":20,"detail":"spawn_food ERR no free food slots","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":45770,"status":"rejected","wall_time":1791453961.761544}
+{"command_id":21,"detail":"delete_object target=gui_capacity8","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":49750,"wall_time":1791453967.600045}
+{"command_id":21,"detail":"delete_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":49790,"status":"applied","wall_time":1791453967.661454}
+{"command_id":22,"detail":"spawn_food target=gui_capacity9","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":53930,"wall_time":1791453973.6291862}
+{"command_id":22,"detail":"spawn_food OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":54010,"status":"applied","wall_time":1791453973.7614169}
+{"command_id":23,"detail":"move_object target=gui_capacity6","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":54590,"wall_time":1791453974.6186981}
+{"command_id":23,"detail":"move_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":54690,"status":"applied","wall_time":1791453974.7616792}
+{"command_id":24,"detail":"delete_object target=gui_snack","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":61110,"wall_time":1791453984.05812}
+{"command_id":24,"detail":"delete_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":61170,"status":"applied","wall_time":1791453984.161392}
+{"command_id":25,"detail":"resize_object target=gui_capacity6","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":61230,"wall_time":1791453984.2679791}
+{"command_id":25,"detail":"resize_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":61310,"status":"applied","wall_time":1791453984.361547}
+{"command_id":26,"detail":"reset_body target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":61350,"wall_time":1791453984.4507809}
+{"detail":"body","kind":"reset","wall_time":1791453984.4508209}
+{"command_id":26,"detail":"reset_body OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":40,"status":"applied","wall_time":1791453984.6611872}
+{"command_id":27,"detail":"reset_body target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":21460,"wall_time":1791454017.756376}
+{"detail":"body","kind":"reset","wall_time":1791454017.7564158}
+{"command_id":27,"detail":"reset_body OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"status":"applied","wall_time":1791454017.9611239}
+{"detail":"interactive","epoch":1,"kind":"pause_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":340,"status":"running","wall_time":1791454018.5375051}
+{"command_id":28,"detail":"move_object target=gui_capacity6","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":360,"wall_time":1791454129.4281502}
+{"command_id":29,"detail":"resize_object target=gui_capacity6","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":360,"wall_time":1791454129.592829}
+{"detail":"interactive","epoch":1,"kind":"resume_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":360,"status":"paused","wall_time":1791454129.704819}
+{"command_id":28,"detail":"move_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":381,"status":"applied","wall_time":1791454129.763356}
+{"command_id":29,"detail":"resize_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":381,"status":"applied","wall_time":1791454129.763407}
+{"command_id":30,"detail":"reset_body target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":441,"wall_time":1791454129.8929601}
+{"detail":"body","kind":"reset","wall_time":1791454129.8929949}
+{"command_id":30,"detail":"reset_body OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"status":"applied","wall_time":1791454130.0611291}
+{"command_id":31,"detail":"spawn_food target=gui_capacity6","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":4480,"wall_time":1791454136.872247}
+{"command_id":31,"detail":"spawn_food OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":4540,"status":"applied","wall_time":1791454136.9612279}
+{"command_id":32,"detail":"reset_body target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":14080,"wall_time":1791454151.1699581}
+{"detail":"body","kind":"reset","wall_time":1791454151.170006}
+{"detail":"interactive","epoch":1,"kind":"pause_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":14120,"status":"running","wall_time":1791454151.289263}
+{"command_id":32,"detail":"reset_body OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"status":"applied","wall_time":1791454151.3619161}
+{"command_id":33,"detail":"delete_object target=gui_capacity6","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"wall_time":1791454152.117161}
+{"detail":"interactive","epoch":1,"kind":"resume_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"status":"paused","wall_time":1791454152.233114}
+{"command_id":33,"detail":"delete_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":25,"status":"applied","wall_time":1791454152.2615461}
+{"command_id":34,"detail":"set_player_active target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":93701,"wall_time":1791454313.918925}
+{"command_id":34,"detail":"set_player_active OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":93741,"status":"applied","wall_time":1791454314.06148}
+{"command_id":35,"detail":"spawn_box target=gui_flow","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":95821,"wall_time":1791454320.832408}
+{"command_id":35,"detail":"spawn_box OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":95901,"status":"applied","wall_time":1791454321.0614729}
+{"command_id":36,"detail":"move_object target=gui_flow","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":183401,"wall_time":1791454543.813591}
+{"command_id":36,"detail":"move_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":183441,"status":"applied","wall_time":1791454543.961391}
+{"command_id":37,"detail":"resize_object target=gui_flow","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":183681,"wall_time":1791454544.613147}
+{"command_id":37,"detail":"resize_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":183741,"status":"applied","wall_time":1791454544.7612381}
+{"command_id":38,"detail":"interaction target=-","epoch":1,"kind":"lab_command","requested_tick":192361,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":192381,"wall_time":1791454566.7887681}
+{"applied_epoch":1,"applied_tick":192401,"command_id":38,"detail":"interaction OK ok","epoch":1,"kind":"lab_command_result","requested_tick":192361,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":192441,"status":"applied","wall_time":1791454566.961561}
+{"command_id":39,"detail":"interaction target=gui_flow","epoch":1,"kind":"lab_command","requested_tick":196001,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":196021,"wall_time":1791454576.304528}
+{"applied_epoch":1,"applied_tick":196061,"command_id":39,"detail":"interaction OK ok","epoch":1,"kind":"lab_command_result","requested_tick":196001,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":196101,"status":"applied","wall_time":1791454576.461482}
+{"command_id":40,"detail":"interaction target=-","epoch":1,"kind":"lab_command","requested_tick":196941,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":196961,"wall_time":1791454578.7192481}
+{"applied_epoch":1,"applied_tick":196981,"command_id":40,"detail":"interaction OK ok","epoch":1,"kind":"lab_command_result","requested_tick":196941,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":197021,"status":"applied","wall_time":1791454578.8616171}
+{"command_id":41,"detail":"approach_object target=gui_flow","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":197341,"wall_time":1791454579.8204761}
+{"command_id":41,"detail":"approach_object OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":197401,"status":"applied","wall_time":1791454579.9612951}
+{"command_id":42,"detail":"set_player_active target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":205981,"wall_time":1791454602.470767}
+{"command_id":42,"detail":"set_player_active OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":206021,"status":"applied","wall_time":1791454602.561157}
+{"detail":"baseline","epoch":1,"kind":"marker","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":223481,"wall_time":1791454639.991468}
+{"detail":"gf","kind":"preset","wall_time":1791454640.7044139}
+{"detail":"preset role=GF strength=0.5 duration_ms=40","kind":"direct_neural","wall_time":1791454640.7044911}
+{"detail":"interactive","epoch":1,"kind":"pause_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":233461,"status":"running","wall_time":1791454661.3214688}
+{"detail":"interactive","epoch":1,"kind":"resume_requested","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":233481,"status":"paused","wall_time":1791454662.748847}
+{"command_id":43,"detail":"set_player_active target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":243103,"wall_time":1791454683.4437919}
+{"command_id":43,"detail":"set_player_active OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":243143,"status":"applied","wall_time":1791454683.5614328}
+{"command_id":44,"detail":"reset_body target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":243363,"wall_time":1791454684.2330151}
+{"detail":"body","kind":"reset","wall_time":1791454684.2330589}
+{"command_id":44,"detail":"reset_body OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":20,"status":"applied","wall_time":1791454684.4614}
+{"command_id":45,"detail":"interaction target=-","epoch":1,"kind":"lab_command","requested_tick":17220,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":17240,"wall_time":1791454730.4178782}
+{"applied_epoch":1,"applied_tick":17260,"command_id":45,"detail":"interaction OK ok","epoch":1,"kind":"lab_command_result","requested_tick":17220,"session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":17300,"status":"applied","wall_time":1791454730.6731071}
+{"command_id":46,"detail":"set_player_active target=-","epoch":1,"kind":"lab_command","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":33780,"wall_time":1791454793.3294291}
+{"command_id":46,"detail":"set_player_active OK ok","epoch":1,"kind":"lab_command_result","session_id":"C0F49BDB-CE77-478E-90FC-570D73C8D1EA","sim_tick":33820,"status":"applied","wall_time":1791454793.7621169}
+{"detail":"user stop","kind":"recording_stopped","wall_time":1791454803.0268979}

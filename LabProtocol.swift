@@ -76,6 +76,7 @@ struct LabCommand: Codable {
     var pitchDeg: Double? = nil
     // V6.5 food model for spawn_food (backend FOOD_VARIANTS name).
     var variant: String? = nil
+    var sceneDocument: String? = nil
 
     enum CodingKeys: String, CodingKey {
         case type, id, action, target, x, y, z, size, speed, strength, value
@@ -98,6 +99,7 @@ struct LabCommand: Codable {
         case distanceMM = "distance_mm"
         case pitchDeg = "pitch_deg"
         case variant
+        case sceneDocument = "scene_document"
     }
 }
 
@@ -504,6 +506,7 @@ struct LabAck: Decodable, FlyGymStampedPacket {
     var simTick: Int?
     /// Copied from the carrying lab_state; never decoded from a bare lab_ack.
     var edit: EnvironmentEditResult? = nil
+    var scene: SceneResult? = nil
     var receivedAt: Date = Date()
     var connectionGeneration: UInt64 = 0
 
@@ -594,6 +597,21 @@ struct LabEventNotice: Decodable, FlyGymStampedPacket {
         self.type = type
         self.event = event
         self.detail = detail
+    }
+
+    /// Recorder line, independent of UI language: the backend's event name,
+    /// then each decoded field under its wire key, `reason` last since it may
+    /// contain spaces.
+    var recordDetail: String {
+        guard let d = detail else { return event }
+        let fields: [(String, Any?)] = [
+            ("id", d.id), ("object_id", d.objectID), ("fly_segment", d.flySegment),
+            ("food_variant", d.foodVariant), ("contact_s", d.contactS),
+            ("normal_force", d.normalForce), ("peak_normal_force", d.peakNormalForce),
+            ("force_units", d.forceUnits), ("duration_ms", d.durationMS),
+            ("blocking_geom_kind", d.blockingGeomKind), ("sim_tick_ms", d.simTickMS), ("reason", d.reason)]
+        return ([event] + fields.compactMap { key, value in value.map { "\(key)=\($0)" } })
+            .joined(separator: " ")
     }
 }
 
@@ -698,9 +716,22 @@ struct LabRemoteEyes: Decodable, Equatable {
     }
 }
 
+struct SceneCapabilities: Decodable {
+    let schemaVersion: Int
+    let kind: String
+    let maxDocumentBytes: Int
+    let loadRequiresPause: Bool
+    var supported: Bool { schemaVersion == 1 && kind == "scene_settings" && maxDocumentBytes > 0 && maxDocumentBytes <= SceneFile.maximumBytes && loadRequiresPause }
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version", kind
+        case maxDocumentBytes = "max_document_bytes", loadRequiresPause = "load_requires_pause"
+    }
+}
+
 struct LabRemoteWorldState: Decodable {
     /// Optional V6.1 metadata, not current values or permission to apply an edit.
     var environmentCapabilities: EnvironmentCapabilities?
+    var sceneCapabilities: SceneCapabilities?
     var objects: [LabWorldObjectRemote]?
     var slotCapacity: [String: Int]?
     var slotFree: [String: Int]?
@@ -714,6 +745,7 @@ struct LabRemoteWorldState: Decodable {
     enum CodingKeys: String, CodingKey {
         case objects, projectiles, wind, temperature, eyes
         case environmentCapabilities = "environment_capabilities"
+        case sceneCapabilities = "scene_capabilities"
         case environmentRevision = "environment_revision"
         case slotCapacity = "slot_capacity"
         case slotFree = "slot_free"
@@ -727,6 +759,7 @@ struct LabRemoteWorldState: Decodable {
         // A supplied manifest is decoded strictly and dropped WHOLE on failure.
         // Optional capability corruption must not discard valid world telemetry.
         environmentCapabilities = try? c.decode(EnvironmentCapabilities.self, forKey: .environmentCapabilities)
+        sceneCapabilities = try? c.decode(SceneCapabilities.self, forKey: .sceneCapabilities)
         // Optional V5.6.2 field; older backends omit it and a bad one is dropped.
         projectiles = (try? c.decodeIfPresent([LabProjectileRemote].self, forKey: .projectiles)) ?? nil
         environmentRevision = (try? c.decodeIfPresent(Int.self, forKey: .environmentRevision)) ?? nil
@@ -807,11 +840,12 @@ struct LabRemoteState: Decodable, FlyGymStampedPacket {
     var simTick: Int?
     var interaction: LabInteractionState?
     var edit: EnvironmentEditResult?
+    var scene: SceneResult?
     var receivedAt: Date = Date()
     var connectionGeneration: UInt64 = 0
 
     enum CodingKeys: String, CodingKey {
-        case type, t, ack, ok, error, temperature, wind, status, epoch, edit
+        case type, t, ack, ok, error, temperature, wind, status, epoch, edit, scene
         case objectCount = "object_count"
         case objects
         case slotCapacity = "slot_capacity"
@@ -854,6 +888,7 @@ struct LabRemoteState: Decodable, FlyGymStampedPacket {
         interaction = try? c.decode(LabInteractionState.self, forKey: .interaction)
         // Likewise optional: a malformed edit detail drops only the detail.
         edit = try? c.decode(EnvironmentEditResult.self, forKey: .edit)
+        scene = try c.decodeIfPresent(SceneResult.self, forKey: .scene)
     }
 
     var authoritativeObjects: [LabWorldObjectRemote]? { objects ?? worldState?.objects }

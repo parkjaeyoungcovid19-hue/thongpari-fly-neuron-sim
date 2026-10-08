@@ -1499,6 +1499,9 @@ if let i = args.firstIndex(of: "--brainshot") {
 if args.contains(where: { $0.hasSuffix("test") || $0.hasSuffix("loop") }) {
     LabLanguage.pinEnglishForTests()
 }
+if args.contains("--observationaudittest") {
+    runObservationAuditTest()
+}
 if args.contains("--gpucheck") {
     runGPUCheck()
 }
@@ -1525,6 +1528,9 @@ if args.contains("--v4timingtest") {
 }
 if args.contains("--bridgeloop") {
     runBridgeLoopTest()
+}
+if args.contains("--sceneloop") {
+    runSceneLoopTest()
 }
 if args.contains("--labloop") {
     runLabLoopTest()

@@ -1,6 +1,6 @@
 // BrainView.swift — live visualization of the real FlyWire v783 brain: all
 // 139,255 somas as a rotating point cloud, the escape circuit highlighted on
-// top, and LIF spikes flashing at real neuron locations.
+// top, and sampled LIF flashes at real neuron locations (not an exact spike trace).
 
 import Cocoa
 import SceneKit
@@ -183,8 +183,9 @@ final class BrainRenderDriver: NSObject, SCNSceneRendererDelegate {
         let batch = bus.popAll()
         guard !batch.isEmpty else { return }
         // Take the slice evenly across the batch so the halos land all over the
-        // brain rather than all inside the last simulated millisecond, and never
-        // drop a giant fiber (only ~5% of its spikes survive the GPU sampler).
+        // brain rather than all inside the last simulated millisecond. This final
+        // filter retains GF events that reached it; the GPU sampler and bus can
+        // already have lost GF spikes. Halos fade in wall time, not neural ticks.
         let step = max(1, batch.count / FLASHES_PER_FRAME)
         var lit = 0
         for (k, e) in batch.enumerated() where e.isGF || (k % step == 0 && lit < FLASHES_PER_FRAME) {
@@ -242,7 +243,7 @@ final class BrainWindowController {
         panel = NSPanel(contentRect: NSRect(origin: origin, size: size),
                         styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
                         backing: .buffered, defer: false)
-        panel.title = "Fly Brain — FlyWire v783 (click = stimulate)"
+        panel.title = "Fly Brain — sampled spikes · FlyWire v783 (click = stimulate)"
         panel.level = .floating
         panel.isFloatingPanel = true
         panel.becomesKeyOnlyIfNeeded = true
@@ -275,6 +276,7 @@ final class BrainWindowController {
         view.preferredFramesPerSecond = 30
         view.delegate = driver
         view.isPlaying = true
+        view.setAccessibilityLabel(L("Sampled spike visualization; click stimulates neurons", "표본 발화 시각화; 클릭하면 뉴런 자극"))
         view.autoresizingMask = [.width, .height]
         panel.contentView = view
 

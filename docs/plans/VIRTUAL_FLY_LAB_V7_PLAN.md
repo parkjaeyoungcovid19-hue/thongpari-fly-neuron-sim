@@ -1,6 +1,6 @@
 # Virtual Fly Lab V7 — 정확한 뉴런 관측과 상호작용 타임라인
 
-작성: 2026-09-13 · 상태: **PLANNED / NOT IMPLEMENTED BY THIS DOCUMENT UPDATE**
+작성: 2026-09-13 · 갱신: 2026-10-08 · 상태: **V7.1 audit 완료 / V7.2–7.7 PLANNED**
 
 선행: **V6 완료 후에만 착수**. 병렬로 다음 버전 기능을 구현하거나 버전 순서를 바꾸지 않는다.
 
@@ -59,6 +59,8 @@ individual_id, event_id, selected groups/neurons, time window. 읽기 전용 조
 **할 일:** SpikeBus 표본 경로와 MetalSim 실제 집계를 추적한다. 모든 현재 BrainSignals 지표의 단위/EMA/분모를 문서화한다.
 
 **완료 출력:** 샘플 시각화와 정확 측정의 출처가 분리됨.
+
+**2026-10-08 완료:** [기존 관측 audit](../reports/V7_OBSERVATION_AUDIT.md), [V7.1 완료 보고서](../reports/V7_1_COMPLETION_REPORT.md). BrainSignals 단위/분모/EMA·GF latch·taste coverage와 sampled loss 경로를 문서화하고 UI 표기를 분리했다. V7.2+는 미착수.
 
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V7.1` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 

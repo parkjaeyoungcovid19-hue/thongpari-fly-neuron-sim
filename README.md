@@ -9,7 +9,7 @@
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS%20·%20Apple%20Silicon-111111?style=flat-square">
   <img alt="Swift" src="https://img.shields.io/badge/frontend-Swift%20%2B%20Metal-F05138?style=flat-square">
   <img alt="FlyGym" src="https://img.shields.io/badge/body-FlyGym%202.1%20%2B%20MuJoCo%203.9-5C7CFA?style=flat-square">
-  <img alt="status" src="https://img.shields.io/badge/V6.5-world%20editor%20·%20environment%20panel-2E8B57?style=flat-square">
+  <img alt="status" src="https://img.shields.io/badge/V7.1-scenes%20·%20observation%20audit-2E8B57?style=flat-square">
 </p>
 
 <p align="center">
@@ -64,7 +64,7 @@ The point is not to fake convincing animal behavior. Every response can be trace
 
 ## Status
 
-**V6.1–V6.5 (world editing and the environment panel) are implemented; neither V5 nor V6 is complete.** Each step passed its automated Swift/Python suites, real-MuJoCo tests and real TCP probes ([V6 progress](docs/reports/V6_PROGRESS.md)). At the user's request, V5 GUI/live acceptance and the V6.3/V6.4 GUI checks were deferred while work moved on. A [real-GUI audit on 2026-10-06](notes/validation/gui-2026-10-06/REPORT.md) drove the packaged app and found four defects: the editor dropped a ramp's tilt, food odour used the origin instead of the fly's position, environment errors were overwritten by older replies, and the editor kept English text after a language change. All four are [fixed and covered by new tests](notes/validation/gui-fixes-2026-10-06/README.md); a full GUI re-check is still pending. Undo (V6.6) and scene save (V6.7) are next. The [readiness report](docs/reports/V6_START_READINESS_2026-09-28.md) remains a historical planning assessment, not completion evidence.
+**V6.1–V6.7 and the requested V7.1 observation audit are complete.** V6 adds settings-only scene save/load and paused Undo/Redo; the four defects found in the 2026-10-06 GUI audit were rechecked in the real GUI. GUI-authored settings were saved, loaded in a new process, and saved again with identical content/hash; corrupt loads preserved the current scene. AC validation measured real TCP body feedback at 36.5 Hz and the authored-scene GUI at 31.6–33.6 Hz. See [V6 completion and runtime limits](docs/reports/V6_COMPLETION_REPORT.md), [V7.1 audit](docs/reports/V7_OBSERVATION_AUDIT.md) and [current evidence](notes/validation/v7-1-2026-10-08/README.md). V7.2–V7.7 are not implemented, and deferred independent V5 gates are not retroactively marked passed. Brain flashes are a lossy sample; displayed rates come from exact simulated spike counts per neuron with an approximately 120 ms simulation-time EMA (taste uses alternate coverage windows).
 
 | Version | What it added |
 |---|---|
@@ -82,6 +82,9 @@ The point is not to fake convincing animal behavior. Every response can be trace
 | V6.3 | Edit mode: pick objects in the 3D view, move / rotate / resize by numbers or drag handles, duplicate, delete |
 | **V6.4** | Ramps: tilted fixed terrain (0–45°) with leg contact pairs, so the fly climbs on its own legs |
 | **V6.5** | Environment panel: values at the fly, temperature, continuous wind with a direction dial, per-eye covers, food placement |
+| V6.6 | Paused owner transactions and setting Undo/Redo; no simulation rewind |
+| V6.7 | `.flyworld` schema1 settings save/load, strict validation, atomic file replace and failed-load rollback |
+| V7.1 | Existing observation audit: sampled flashes vs exact count-derived Hz/neuron, documented denominators/EMA/motor indices |
 
 Per-version evidence lives in [`docs/reports/V5_PROGRESS.md`](docs/reports/V5_PROGRESS.md), [`docs/reports/V6_PROGRESS.md`](docs/reports/V6_PROGRESS.md) and [`notes/validation/`](notes/validation/v5-6-1-2026-09-27/README.md).
 
@@ -128,6 +131,10 @@ Movement is integrated in **simulation time**, not frame rate or key repeat. Mou
 Choose **Edit**, then click an object in the 3D view or pick it from the list; **Show in view** turns the orbit camera to it. The tools are **Move**, **Rotate Z**, **Size** and, for ramps only, **Tilt**. Type a value and press Return, or drag a coloured handle; Esc cancels a drag. Out-of-range values are refused before anything is sent. Every edit carries the object's revision, so an edit made against an older state is rejected rather than applied over someone else's change, and the field shows the value the simulator reports back. **Duplicate** and **Delete** use the same path; a full slot pool is reported in words. There is no undo yet (V6.6).
 
 **Ramps** are fixed terrain: a thin box tilted 0–45° about its own Y axis. Tilting or resizing keeps the low edge in place, and they cannot be grabbed. FlyGym's fly geoms do not collide with anything by default, so every ramp slot gets explicit contact pairs for the tibiae, tarsi and body, with the floor's friction and solver settings. In real MuJoCo the fly climbs a ramp on its own legs (thorax height 1.0 → 7.4 mm); without those pairs its legs pass through. The cost: about +2% per step when ramps are far away, about +45% while the fly stands on one (mesh–box collision).
+
+### Scene files and Undo/Redo
+
+World → Save scene writes `.flyworld` settings (objects, IDs, tilt, variants, temperature, continuous wind, eye masks and participant spawn). Pause the acknowledged session before Load scene. It validates the complete candidate before replacing the world; an invalid file leaves the current world intact. It does not restore body/neuron state or time. Cmd-Z / Shift-Cmd-Z restore applied settings, including edits while paused; deletion is not undoable. The UI disables scene files when the connected backend does not advertise the capability.
 
 ### Environment panel
 
@@ -242,6 +249,7 @@ Self-tests are built into the binary; Python tests run against the mock and the 
 ./ThongpariFlyNeuronSim --simtest        # circuit invariants + GPU throughput
 ./ThongpariFlyNeuronSim --behaviortest   # sim -> body end to end
 ./ThongpariFlyNeuronSim --gpucheck       # GPU vs an independent CPU reference
+./ThongpariFlyNeuronSim --observationaudittest # display reads/loss vs exact counts, no dynamics change
 
 ./flygym-venv/bin/python flygym_bridge/test_v5_6_2.py --mock-only # food capacity / lifecycle, no MuJoCo
 ./flygym-venv/bin/python flygym_bridge/test_interaction_real.py   # grab / carry in real MuJoCo
@@ -251,7 +259,7 @@ Self-tests are built into the binary; Python tests run against the mock and the 
 ./flygym-venv/bin/python flygym_bridge/test_v6_4_terrain_real.py  # the fly climbs a ramp in real MuJoCo
 ```
 
-Against a fresh backend (`./run_flygym.sh --bridge-only`, or `bridge.py --mock`), `--bridgeloop`, `--labloop`, `--v4loop` and `--interactionloop` exercise the real TCP path. `--inputprobe` measures input latency and look cadence, and exits non-zero if its preconditions fail.
+Against a fresh backend (`./run_flygym.sh --bridge-only`, or `bridge.py --mock`), `--bridgeloop`, `--labloop`, `--v4loop`, `--sceneloop` and `--interactionloop` exercise the real TCP path. `--inputprobe` measures input latency and look cadence, and exits non-zero if its preconditions fail.
 
 Historical independent run (2026-09-29): 17 commands passed and 2 failed: the stale [real Lab capacity check](<flygym_bridge/test_lab_real.py>) and the real-headless TCP body-rate gate (14.1 Hz < 30 Hz). That run was not a complete V5/performance pass. Details: [2026-09-29 validation](<notes/validation/v5-independent-2026-09-29/README.md>). New suites: [sandbox and feeding tests](<flygym_bridge/test_v5_6_2.py>), [toy tests](<flygym_bridge/test_v5_6_2_tools.py>).
 

@@ -1,0 +1,14 @@
+{
+  "owned_app_backend_processes": [],
+  "ports": {
+    "17841": "bind available",
+    "60022": "bind available",
+    "60497": "bind available",
+    "60743": "bind available",
+    "61372": "bind available",
+    "61757": "bind available"
+  },
+  "sandbox_models_diff": "",
+  "links_missing": [],
+  "cleanup": "PASS"
+}

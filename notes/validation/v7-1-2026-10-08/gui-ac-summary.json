@@ -1,0 +1,8 @@
+{
+  "source": "last six 5-second windows after GUI resume, new-process authored scene, AC Power",
+  "windows": 6,
+  "body_hz_min": 31.6,
+  "body_hz_mean": 32.93333333333333,
+  "body_hz_max": 33.6,
+  "exclude": "paused interval is not a running-performance window; earlier appended launches in full bridge log excluded"
+}

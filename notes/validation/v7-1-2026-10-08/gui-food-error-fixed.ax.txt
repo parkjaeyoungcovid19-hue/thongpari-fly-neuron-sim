@@ -1,0 +1,128 @@
+Window: "Virtual Fly Lab", App: Thongpari Virtual Fly Lab.
+0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise
+	1 자르기 그룹
+		2 스크롤 영역
+			3 표 실험실 메뉴
+				4 row (selectable)
+					5 셀
+						6 이미지
+						7 텍스트 세계
+				8 row (selected)
+					9 셀 (selected)
+						10 이미지 미풍
+						11 텍스트 자극
+				12 row (selectable)
+					13 셀
+						14 이미지
+						15 텍스트 뇌
+				16 row (selectable)
+					17 셀
+						18 이미지
+						19 텍스트 데이터
+				20 row (selectable)
+					21 셀
+						22 이미지
+						23 텍스트 실험
+		24 자르기 도구 (disabled, settable, float) 168
+		25 텍스트 시점
+		26 팝업 버튼 경기장 둘러보기
+		27 버튼 카메라 초기화
+		28 텍스트 3D 화면 — 시각 135605 ms · 물체 4개
+		29 알 수 없음 Description: 파리 기분 (추정), Help: 실제 감정을 잰 것이 아니라 정해진 규칙으로 만든 단순 표시입니다. 먹이가 가까우면 행복, 춥거나 덥거나 세게 맞으면 슬픔, 맞으면 화남, 무언가 다가오거나 도망 신호가 켜지면 겁남.
+			30 text 🥵 슬픔 — 더워요 33 °C는 너무 더워요 감각·행동 신호로 만든 추정
+		31 text 타임라인 — 최근 명령과 반응 t110765  #6 spawn_wall v67_wall — 적용됨
+t120805  #7 edit_property — 적용됨 @t120845
+t127945  #8 spawn_food — 적용됨
+t131665  event 파리 입이 사과 food_2에 닿음 — 시뮬레이터 알림
+t132845  event 파리 입이 food_2에서 떨어짐 · 입 접촉 1.18초 — 시뮬레이터 알림 몸 데이터 31 ms 전 · 속도 0.0033 m/s · 발 닿음 1.00 · 눈 샘플 t135525 · 다가옴 감지 L/R 0.001/0.002 · 뇌 활동 1.8 Hz 실시간 — 시뮬레이터(headless) :59763 · 몸 데이터 초당 34회 · 실시간 대비 0.71배 기록 안 함
+		32 자르기 도구 (disabled, settable, float) 777
+		33 스크롤 영역 Secondary Actions: Scroll Up, Scroll Down
+			34 text 지금 파리 위치의 값 파리 위치  x 74.3 · y -205.8 mm · 바라보는 방향 275° · 몸 시각 135.645 s (31 ms 전)
+온도  33.0 °C (기록만) · 감각 전류 따뜻 0.000 / 차가 0.000 · 온도 뉴런 0.0 / 0.0 Hz
+바람  파리 위치에 없음 · 더듬이 전류 C 0.000 / E 0.000
+빛  눈 밝기 왼 0.89 / 오 0.88 (눈 영상 t135525) · 번쩍임 0.00 / 0.00
+먹이  냄새 왼 0.404 / 오 0.382 · 가장 가까운 먹이 8.0 mm · 맛(당) 0.00 · 후각 뉴런 8.9 / 6.8 Hz
+			35 버튼 설명, Description: 앞으로, Value: 접힘
+			36 text 온도 감각 모델 °C
+			37 슬라이더 (settable, float) 33
+				38 값 표시기 (settable, float) 33
+			39 텍스트 필드 (settable) 50
+			40 텍스트 방식
+			41 팝업 버튼 기록만
+			42 text 적용됨: 33.0 °C · 기록만 온도: 10–40 사이 숫자를 입력하세요 — 보내지 않음
+			43 버튼 설명, Description: 앞으로, Value: 접힘
+			44 text 바람 감각 모델 세기 0–1
+			45 슬라이더 (settable, float) 0.7
+				46 값 표시기 (settable, float) 0.7
+			47 텍스트 필드 (settable) 0.7
+			48 텍스트 방향 (°)
+			49 슬라이더 (settable, float) Description: 바람 방향 다이얼, Help: 위에서 본 바람이 부는 쪽: 오른쪽 = +X, 위 = +Y, Value: 90
+				50 값 표시기 (settable, float) 90
+			51 텍스트 필드 (settable) 0
+			52 체크상자 몸을 실제로 밀기 (물리), Value: 1
+			53 체크상자 더듬이 바람 감각 (JO-C/E), Value: 1
+			54 버튼 계속 불기
+			55 버튼 바람 끄기
+			56 text 적용됨: 세기 0.00 · 방향 0° · 꺼짐 · 몸 밀기, 더듬이 감각 한 번 (ms)
+			57 텍스트 필드 (settable) 500
+			58 버튼 한 번 불기
+			59 버튼 설명, Description: 앞으로, Value: 접힘
+			60 text 빛 감각 모델 왼쪽 눈 가림
+			61 슬라이더 (settable, float) Description: 왼쪽 눈 가림 정도, Value: 0
+				62 값 표시기 (settable, float) 0
+			63 text 0% 오른쪽 눈 가림
+			64 슬라이더 (settable, float) Description: 오른쪽 눈 가림 정도, Value: 0
+				65 값 표시기 (settable, float) 0
+			66 text 0% 적용됨: 왼쪽 눈 0% 가림 · 오른쪽 눈 0% 가림 번쩍임
+			67 팝업 버튼 왼쪽 눈
+			68 텍스트 세기 0–1
+			69 텍스트 필드 (settable) 1.0
+			70 텍스트 지속 시간 (ms)
+			71 텍스트 필드 (settable) 100
+			72 버튼 번쩍이기
+			73 버튼 설명, Description: 앞으로, Value: 접힘
+			74 text 먹이 감각 모델 먹이 1/8개 — 사과 종류
+			75 팝업 버튼 사과
+			76 버튼 파리 앞 15 mm에 놓기
+			77 텍스트 놓았습니다
+			78 버튼 설명, Description: 앞으로, Value: 접힘
+			79 text 건드리기 물리 몸 부위
+			80 팝업 버튼 가슴 (흉부)
+			81 텍스트 세기 0–1
+			82 텍스트 필드 (settable) 0.55
+			83 텍스트 지속 시간 (ms)
+			84 텍스트 필드 (settable) 150
+			85 버튼 건드리기 실행
+			86 버튼 자극 모두 끄기
+			87 버튼 설명, Description: 앞으로, Value: 접힘
+			88 스크롤 막대 (settable, float) 0.9595959595959596
+				89 값 표시기 (settable, float) 0.9595959595959596
+				90 화살표 증가 버튼
+				91 화살표 감소 버튼
+				92 페이지 증가 버튼
+				93 페이지 감소 버튼
+	94 도구 막대
+		95 버튼 Description: 사이드바, Help: 사이드바 가리기, Secondary Actions: 다음으로 이동
+		96 방식
+			97 라디오 버튼 Description: 관찰, Value: 0
+			98 라디오 버튼 Description: 참여, Value: 0
+			99 라디오 버튼 Description: 편집, Value: 1
+		100 버튼 Description: 일시 정지 / 재개, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		101 버튼 Description: 기록, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		102 팝업 버튼 Description: 언어, Help: 화면 언어 — 영어 또는 한국어, Value: 한국어, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		103 버튼 Description: 인스펙터, Help: 인스펙터 가리기, Secondary Actions: 이전으로 이동, 도구 막대에서 제거
+	104 닫기 버튼
+	105 전체 화면 버튼 Help: 이 버튼을 누르면 윈도우를 확대/축소합니다., Secondary Actions: 윈도우 확대/축소
+	106 최소화 버튼
+	107 text Virtual Fly Lab 실시간 · 실행 중
+108 menu bar
+	109 Thongpari Virtual Fly Lab
+	110 편집
+	111 언어
+	112 윈도우
+
+Selected text: ```
+50
+```
+
+Note: Pay special attention to the content selected by the user. If the user asks a question or refers to the content they are looking at on-screen, they might be referring to the selected content (but they might be referring to something else that's visible, too).

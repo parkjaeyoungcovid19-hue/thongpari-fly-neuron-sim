@@ -26,6 +26,7 @@ from protocol import (
     V4_EXPERIMENT_QUANTUM_TICKS, V4_PROTOCOL_VERSION,
 )
 from neural_decoder import decode, LocomotorCommand
+from scene_store import SceneError
 from environment_properties import EditError
 
 HOST = "127.0.0.1"
@@ -452,15 +453,23 @@ class Bridge:
                               epoch=(self.session_epoch if self.session_epoch > 0 else None),
                               sim_tick=(self.session_tick if self.session_id else None))
 
-    def _apply_lab_commands(self, *, applied_tick=None, applied_epoch=None):
+    def _apply_lab_commands(self, *, applied_tick=None, applied_epoch=None,
+                            commands=None, transaction=None):
+        """Apply queued lab commands; returns how many were applied.
+
+        `commands` given: exactly those (a V6.6 pause transaction, tagged with
+        `transaction` in each edit result); the deferred list is left in place.
+        """
         apply_fn = getattr(self.body, "apply_lab_command", None)
         if apply_fn is None:
-            return
-        # Limit discrete work per body tick; continuous slots are always drained
-        # as latest state. Remaining discrete FIFO entries stay bounded in queue.
-        commands = self.deferred_lab_commands + self.lab_commands.drain(max_discrete=32)
-        self.deferred_lab_commands = []
-        commands.sort(key=lambda command: command.seq)
+            return 0
+        if commands is None:
+            # Limit discrete work per body tick; continuous slots are always drained
+            # as latest state. Remaining discrete FIFO entries stay bounded in queue.
+            commands = self.deferred_lab_commands + self.lab_commands.drain(max_discrete=32)
+            self.deferred_lab_commands = []
+            commands.sort(key=lambda command: command.seq)
+        applied = 0
         for command in commands:
             v4 = command.session_id is not None or command.epoch is not None or command.protocol_version is not None
             if v4 and applied_tick is not None and command.requested_tick is not None and command.requested_tick > applied_tick:
@@ -504,6 +513,8 @@ class Bridge:
                     self._queue_lab_response(response)
                     continue
             try:
+                if command.op == "load_scene" and (not v4 or not self.session_paused):
+                    raise SceneError("session", "scene load requires an acknowledged paused session", status="rejected_busy")
                 result = apply_fn(command)
                 self.lab_applied += 1
                 self.last_lab_action = command.op
@@ -513,7 +524,10 @@ class Bridge:
                     applied_epoch=(applied_epoch if v4 else None),
                     status=("applied" if v4 else None))
                 if command.op in ("edit_property", "edit_object"):
-                    response.edit = result
+                    response.edit = result if transaction is None else {**result, "transaction": transaction}
+                if command.op in ("export_scene", "load_scene"):
+                    response.scene = result
+                applied += 1
                 if key is not None:
                     self._remember(self.recent_command_results, key, response)
                 self._queue_lab_response(response)
@@ -524,12 +538,33 @@ class Bridge:
                     ack=command.seq, ok=False, error=str(exc)[:512],
                     last_action=command.op,
                     status=(getattr(exc, "status", "rejected") if v4 else None))
-                if isinstance(exc, EditError):
+                if isinstance(exc, (EditError, SceneError)):
                     response.edit = {"ok": False, "status": exc.status, "path": exc.path,
                                      "reason": exc.reason, **exc.detail}
+                    if transaction is not None:
+                        response.edit["transaction"] = transaction
                 if key is not None:
                     self._remember(self.recent_command_results, key, response)
                 self._queue_lab_response(response)
+        return applied
+
+    def _apply_paused_edit_transaction(self, allowed_ops=None):
+        """V6.6: while an interactive session is paused, apply the edits at the
+        head of the queue at the frozen owner tick. No MuJoCo step, LabWorld
+        timer, eye render or player input runs; poses are refreshed only so the
+        view and ray picks show the edit. A stimulus ahead of an edit is a
+        barrier, so order is never changed; a future-tick edit waits for its
+        tick exactly as in the running loop."""
+        commands = self.lab_commands.drain_paused_edits(allowed_ops)
+        if not commands:
+            return 0
+        applied = self._apply_lab_commands(
+            applied_tick=self._current_owner_tick(), applied_epoch=self.session_epoch,
+            commands=commands, transaction="paused")
+        refresh = getattr(getattr(self.body, "lab_world", None), "refresh_poses", None)
+        if applied and refresh is not None:
+            refresh()
+        return applied
 
     def _drain_session_controls(self):
         return self._drain_queue(self.pending_session_controls)
@@ -958,7 +993,7 @@ class Bridge:
                 except OSError:
                     break
                 buf += chunk
-                if len(buf) > 65536:
+                if len(buf) > (2 << 20):
                     buf = b""
                     self.malformed += 1
                     continue
@@ -1014,6 +1049,8 @@ class Bridge:
                     applied_epoch=self.session_epoch)
 
             if self.session_mode == "deterministic":
+                if self.session_paused:
+                    self._apply_paused_edit_transaction(allowed_ops={"export_scene", "load_scene"})
                 step_request = None if self.session_paused else self._pop_experiment_step()
                 if step_request is not None:
                     result = self._process_experiment_step(step_request)
@@ -1036,10 +1073,16 @@ class Bridge:
 
             if self.session_paused:
                 # Interactive pause is a real body-time barrier. Keep the owner
-                # responsive to resume and status traffic, but do not apply lab
-                # commands, tick LabWorld timers, render eyes, or advance MuJoCo.
+                # responsive to resume and status traffic, but do not tick
+                # LabWorld timers, render eyes, or advance MuJoCo. Only queued
+                # edits apply, as an explicit pause transaction (V6.6).
                 last = now_mono
                 next_tick = now_mono
+                try:
+                    self._apply_paused_edit_transaction()
+                except Exception as e:
+                    print(f"bridge: paused edit transaction failed: {e}", flush=True)
+                    break
                 try:
                     for response in self._drain_lab_responses():
                         conn.sendall(encode(response))

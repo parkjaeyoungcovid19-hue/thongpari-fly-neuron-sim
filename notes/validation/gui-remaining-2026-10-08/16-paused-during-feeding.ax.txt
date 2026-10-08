@@ -1,0 +1,147 @@
+Window: "Virtual Fly Lab", App: Thongpari Virtual Fly Lab.
+0 표준 윈도우 Virtual Fly Lab – 실시간 · 일시 정지, Secondary Actions: Raise
+	1 자르기 그룹
+		2 스크롤 영역
+			3 표 실험실 메뉴
+				4 row (selectable)
+					5 셀
+						6 이미지
+						7 텍스트 세계
+				8 row (selectable)
+					9 셀
+						10 이미지 미풍
+						11 텍스트 자극
+				12 row (selectable)
+					13 셀
+						14 이미지
+						15 텍스트 뇌
+				16 row (selected)
+					17 셀 (selected)
+						18 이미지
+						19 텍스트 데이터
+				20 row (selectable)
+					21 셀
+						22 이미지
+						23 텍스트 실험
+		24 자르기 도구 (disabled, settable, float) 168
+		25 텍스트 시점
+		26 팝업 버튼 파리 따라가기
+		27 버튼 카메라 초기화
+		28 텍스트 3D 화면 — 시각 360 ms · 물체 9개
+		29 알 수 없음 Description: 파리 기분 (추정), Help: 실제 감정을 잰 것이 아니라 정해진 규칙으로 만든 단순 표시입니다. 먹이가 가까우면 행복, 춥거나 덥거나 세게 맞으면 슬픔, 맞으면 화남, 무언가 다가오거나 도망 신호가 켜지면 겁남.
+			30 text 🙂 평온 특별한 일 없어요 감각·행동 신호로 만든 추정
+		31 text 타임라인 — 최근 명령과 반응 t61350  #26 reset_body — 적용됨
+t340  event 파리 입이 각설탕 gui_capacity6에 닿음 — 시뮬레이터 알림
+t640  event 파리 입이 gui_capacity6에서 떨어짐 · 입 접촉 0.30초 — 시뮬레이터 알림
+t21460  #27 reset_body — 적용됨
+t340  session pause requested — 앱 안에서 처리 몸 데이터 0 ms 전 · 속도 0.0000 m/s · 발 닿음 0.00 · 눈 샘플 t-1 · 다가옴 감지 L/R 0.000/0.043 · 뇌 활동 1.9 Hz 실시간 — 시뮬레이터(headless) :54572 · 몸 데이터 초당 0회 ● 기록 중 06:34 → experiment-20261008-190025
+		32 자르기 도구 (disabled, settable, float) 721
+		33 스크롤 영역 Secondary Actions: Scroll Up, Scroll Down
+			34 텍스트 활동 카드 (읽기 전용)
+			35 버튼 Description: 각성 지표, Value: — 0–1, 모델 지표, Help: BrainSignals.arousal — 뇌 전체 평균 발화율을 SignalBuilder가 0–1로 줄인 값
+전체 뉴런 활동 수준입니다. 시뮬레이션의 모델 지표이며 파리의 감정이나 생각을 읽은 값이 아닙니다.
+				36 텍스트 각성 지표
+			37 버튼 Description: 다가옴(위협) 감지, Value: — 0–1, 모델 지표, Help: BrainSignals.nervous — LC4/LPLC2 다가옴 감지 뉴런 발화율을 0–1로 줄인 값
+시각 위협 관련 활동이며 공포를 느낀다는 뜻이 아닙니다. 시뮬레이션의 모델 지표이며 파리의 감정이나 생각을 읽은 값이 아닙니다.
+				38 텍스트 다가옴(위협) 감지
+			39 버튼 Description: 걷기 명령, Value: — 0–1.3, 모델 지표, Help: BrainSignals.walkDrive — DNp09 발화율에서 계산
+몸에 보낸 앞으로 걷기 명령이며, 몸이 실제로 움직였다는 증거는 아닙니다. 시뮬레이션의 모델 지표이며 파리의 감정이나 생각을 읽은 값이 아닙니다.
+				40 텍스트 걷기 명령
+			41 버튼 Description: 방향 전환 명령, Value: — −1…1, 모델 지표, Help: BrainSignals.turnBias — DNa01/02 왼쪽−오른쪽 발화율 차이에서 느린 기준값을 뺀 값
+몸에 보낸 방향 전환 명령입니다. 시뮬레이션의 모델 지표이며 파리의 감정이나 생각을 읽은 값이 아닙니다.
+				42 텍스트 방향 전환 명령
+			43 버튼 Description: 몸 손질 명령, Value: — 0–1.5, 모델 지표, Help: BrainSignals.groomDrive — DNg11 발화율에서 계산
+몸에 보낸 몸 손질 명령입니다. 시뮬레이션의 모델 지표이며 파리의 감정이나 생각을 읽은 값이 아닙니다.
+				44 텍스트 몸 손질 명령
+			45 버튼 Description: 수면 상태 스위치, Value: — 켬/끔, 모델 지표, Help: BrainSignals.sleep — 하루 주기 곡선과 사용자 입력 없는 시간으로 켜짐
+행동 모델의 스위치이며 피로나 휴식 욕구를 잰 값이 아닙니다. 시뮬레이션의 모델 지표이며 파리의 감정이나 생각을 읽은 값이 아닙니다.
+				46 텍스트 수면 상태 스위치
+			47 버튼 Description: 거대 신경(GF) 발화, Value: — 이번 프레임, 측정값 · 시뮬레이션 발화, Help: BrainSignals.escape — 직전 읽기 이후 GF(DNp01)가 발화했는지
+시뮬레이션의 도피 경로 발화 한 번이며 공포를 뜻하지 않습니다.
+				48 텍스트 거대 신경(GF) 발화
+			49 버튼 Description: 뇌 전체 평균 발화율, Value: 1.93 Hz/뉴런, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.ratePop — MetalSim 전체 평균 발화율
+실제 시뮬레이션 발화 집계의 뉴런당 평균을 약 120 ms simulation-time EMA로 평활했습니다. 반짝임 횟수나 실제 파리에서 잰 값이 아닙니다.
+				50 텍스트 뇌 전체 평균 발화율
+			51 버튼 Description: LC4/LPLC2 (다가옴), Value: 0.3 Hz/뉴런, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateLoom — MetalSim LC4/LPLC2 발화율
+실제 시뮬레이션 발화 집계의 뉴런당 평균을 약 120 ms simulation-time EMA로 평활했습니다. 반짝임 횟수나 실제 파리에서 잰 값이 아닙니다.
+				52 텍스트 LC4/LPLC2 (다가옴)
+			53 버튼 Description: DNa01/02 왼쪽, Value: 54.9 Hz/뉴런, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateDNaL — MetalSim DNa 왼쪽 발화율
+실제 시뮬레이션 발화 집계의 뉴런당 평균을 약 120 ms simulation-time EMA로 평활했습니다. 반짝임 횟수나 실제 파리에서 잰 값이 아닙니다.
+				54 텍스트 DNa01/02 왼쪽
+			55 버튼 Description: DNa01/02 오른쪽, Value: 73.1 Hz/뉴런, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateDNaR — MetalSim DNa 오른쪽 발화율
+실제 시뮬레이션 발화 집계의 뉴런당 평균을 약 120 ms simulation-time EMA로 평활했습니다. 반짝임 횟수나 실제 파리에서 잰 값이 아닙니다.
+				56 텍스트 DNa01/02 오른쪽
+			57 버튼 Description: MDN (뒤로 걷기), Value: 35.7 Hz/뉴런, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateMDN — MetalSim MDN 발화율
+실제 시뮬레이션 발화 집계의 뉴런당 평균을 약 120 ms simulation-time EMA로 평활했습니다. 반짝임 횟수나 실제 파리에서 잰 값이 아닙니다.
+				58 텍스트 MDN (뒤로 걷기)
+			59 버튼 Description: 먹이 냄새 후각 뉴런 왼쪽, Value: 5.6 Hz/뉴런, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateFoodOdorL — FlyWire 먹이 냄새 후각 뉴런(ORN) 그룹 발화율
+실제 시뮬레이션 발화 집계의 뉴런당 평균을 약 120 ms simulation-time EMA로 평활했습니다. 반짝임 횟수나 실제 파리에서 잰 값이 아닙니다. 냄새를 맡는 것은 감각 입력이며 배고픔이 아닙니다.
+				60 텍스트 먹이 냄새 후각 뉴런 왼쪽
+			61 버튼 Description: 먹이 냄새 후각 뉴런 오른쪽, Value: 22.6 Hz/뉴런, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateFoodOdorR — FlyWire 먹이 냄새 후각 뉴런(ORN) 그룹 발화율
+실제 시뮬레이션 발화 집계의 뉴런당 평균을 약 120 ms simulation-time EMA로 평활했습니다. 반짝임 횟수나 실제 파리에서 잰 값이 아닙니다. 냄새를 맡는 것은 감각 입력이며 배고픔이 아닙니다.
+				62 텍스트 먹이 냄새 후각 뉴런 오른쪽
+			63 버튼 Description: 당 미각 뉴런 (GRN), Value: 0.0 Hz/뉴런, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateSugarGRN — v783 당 GRN 21개(eonsystemspbc/fly-brain 출처), 32 ms 창을 번갈아 표본
+32 ms 창을 번갈아 집계한 뉴런당 발화율입니다. EMA는 집계한 step 약 120 ms(전체 simulation time 약 240 ms)이며 자기 창 밖에서는 유지됩니다. 연속 측정·반짝임 횟수가 아닙니다. 파리 주둥이가 음식에 닿아 있는 동안만 모델 당 신호로 자극됩니다.
+				64 텍스트 당 미각 뉴런 (GRN)
+			65 버튼 Description: MN9 (주둥이 운동 뉴런), Value: 3.3 Hz/뉴런, 측정값 · 시뮬레이션 발화, Help: LabTelemetry.rateMN9 — v783 MN9 2개, 읽기 전용
+32 ms 창을 번갈아 집계한 뉴런당 발화율입니다. EMA는 집계한 step 약 120 ms(전체 simulation time 약 240 ms)이며 자기 창 밖에서는 유지됩니다. 연속 측정·반짝임 횟수가 아닙니다. 몸에는 주둥이 구동이 없어 네트워크 반응만 보여 줍니다.
+				66 텍스트 MN9 (주둥이 운동 뉴런)
+			67 버튼 Description: 배고픔, Value: 미지원 , 미지원, Help: 없음 — 몸속 에너지·포만 상태 모델이 아직 없습니다 (V11 예정).
+아직 모델이 없습니다. 냄새나 다른 신호로 대신 추정하지 않습니다.
+				68 text 배고픔
+			69 텍스트 당 미각 뉴런 (GRN) — 측정값 · 시뮬레이션 발화: 0.0 Hz/뉴런
+출처: LabTelemetry.rateSugarGRN — v783 당 GRN 21개(eonsystemspbc/fly-brain 출처), 32 ms 창을 번갈아 표본
+32 ms 창을 번갈아 집계한 뉴런당 발화율입니다. EMA는 집계한 step 약 120 ms(전체 simulation time 약 240 ms)이며 자기 창 밖에서는 유지됩니다. 연속 측정·반짝임 횟수가 아닙니다. 파리 주둥이가 음식에 닿아 있는 동안만 모델 당 신호로 자극됩니다.
+			70 버튼 설명, Description: 앞으로, Value: 접힘
+			71 text 신호 경로 — 감각에서 몸까지 1  바깥 자극 → 감각기관    먹이 없음 → 냄새 0.000/0.000  |  눈에 보이는 커짐 0.000/0.000 → 다가옴 0.000/0.043  |  바람 없음  |  닿음 없음  |  온도 25.0°C
+2  감각기관 → 신호 세기    먹이 냄새 0.046/0.056  |  따뜻함/차가움 0.000/0.000  |  더듬이 바람 C/E 0.000/0.000  (시뮬레이션 단위)
+3  감각 뉴런 → 뇌    후각 L/R 5.6/22.6 Hz  |  따뜻함/차가움 0.0/0.0  |  바람 C/E 0.0/0.0  |  다가옴 감지 0.3  |  왼쪽/오른쪽 돌기 54.9/73.1  |  앞으로 걷기 27.6
+4  뇌 → 몸에 내린 명령    이번 순간에는 해석된 명령 없음  |  왼쪽/오른쪽 출력 0.000/0.000
+5  실제로 측정한 움직임    앞으로 0.0000 m/s  |  회전 0.00 rad/s  |  발 닿음 0.00  |  새 몸 데이터 없음
+			72 버튼 설명, Description: 앞으로, Value: 접힘
+			73 텍스트 뇌 발화율 (Hz/뉴런)
+			74 버튼 설명, Description: 앞으로, Value: 접힘
+			75 텍스트 운동 뉴런 발화율 (Hz/뉴런)
+			76 버튼 설명, Description: 앞으로, Value: 접힘
+			77 텍스트 주요 감각 입력
+			78 버튼 설명, Description: 앞으로, Value: 접힘
+			79 text 감각 뉴런 그룹에 들어가는 신호 먹이 냄새 — 왼쪽 0.000 · 오른쪽 0.000 · 가장 가까운 먹이: 없음 · 후각 뉴런 5.6/22.6 Hz
+맛 — 먹지 않음 · 당 미각 뉴런 0.0 Hz · MN9 3.3 Hz
+			80 버튼 설명, Description: 앞으로, Value: 접힘
+			81 text 몸 움직임 — 속도 0.0000 m/s · 회전 0.00 rad/s · 발 닿음 0.00
+			82 버튼 설명, Description: 앞으로, Value: 접힘
+			83 text 파리 눈에 보이는 것 시각 — 커짐 L/R 0.000/0.000 · 밝기 L/R 0.000/0.000 · 아직 눈 화면 없음
+			84 버튼 설명, Description: 앞으로, Value: 접힘
+			85 text 연결 상태 환경 — 0.4 s · 물체 9개 · 바람 0.00 · 25.0°C · 왼눈 뜸 · 오른눈 뜸 · 최근 알림: feeding_end 데이터 — 몸 오래됨 1.2 s · 환경 최신 148 ms 뇌 상태 — 잠 끔 · 감각 통과율 ×1.00
+보낸 명령 #27 reset_body
+확인 #27 성공 · 최신 · reset_body · ok · 1.8 s 전
+시뮬레이터 마지막 동작: reset_body
+대기열 0
+			86 버튼 그래프 지우기
+			87 스크롤 막대 (settable, float) 0
+				88 값 표시기 (settable, float) 0
+				89 화살표 증가 버튼
+				90 화살표 감소 버튼
+				91 페이지 증가 버튼
+				92 페이지 감소 버튼
+	93 도구 막대
+		94 버튼 Description: 사이드바, Help: 사이드바 가리기, Secondary Actions: 다음으로 이동
+		95 방식
+			96 라디오 버튼 Description: 관찰, Value: 1
+			97 라디오 버튼 Description: 참여, Value: 0
+			98 라디오 버튼 Description: 편집, Value: 0
+		99 버튼 Description: 일시 정지 / 재개, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		100 버튼 Description: 기록, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		101 팝업 버튼 Description: 언어, Help: 화면 언어 — 영어 또는 한국어, Value: 한국어, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		102 버튼 Description: 인스펙터, Help: 인스펙터 가리기, Secondary Actions: 이전으로 이동, 도구 막대에서 제거
+	103 닫기 버튼
+	104 전체 화면 버튼 Help: 이 버튼을 누르면 윈도우를 확대/축소합니다., Secondary Actions: 윈도우 확대/축소
+	105 최소화 버튼
+	106 text Virtual Fly Lab 실시간 · 일시 정지
+107 menu bar
+	108 Thongpari Virtual Fly Lab
+	109 편집
+	110 언어
+	111 윈도우
+
+The focused UI element is 0 표준 윈도우 Virtual Fly Lab – 실시간 · 일시 정지, Secondary Actions: Raise

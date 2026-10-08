@@ -1,0 +1,693 @@
+diff --git a/EnvironmentPanel.swift b/EnvironmentPanel.swift
+index 6609464..0c54145 100644
+--- a/EnvironmentPanel.swift
++++ b/EnvironmentPanel.swift
+@@ -219,8 +219,9 @@ final class EnvironmentPanel: NSObject {
+     let windStatus = NSTextField(wrappingLabelWithString: "")
+     let lightStatus = NSTextField(wrappingLabelWithString: "")
+     /// A refusal made here, before anything was sent (bad number, no
+-    /// simulator). It covers its own section until that section is used again.
+-    private var localStatus: (propertyID: String, text: String)?
++    /// simulator), or an undo/redo result. It covers its own section until
++    /// that section is used again.
++    private var localStatus: (propertyID: String, text: String, isError: Bool)?
+ 
+     private var capabilities: EnvironmentCapabilities?
+     private var backend = false
+@@ -413,7 +414,10 @@ final class EnvironmentPanel: NSObject {
+ 
+     // MARK: - Owner state
+ 
++    /// `bodyPaused`: the backend confirmed a pause, so `body` is the last packet
++    /// before it stopped rather than a live one.
+     func update(state: LabRemoteState?, telemetry t: LabTelemetry, body: FlyGymBodyFeedback?,
++                bodyPaused: Bool = false,
+                 identity: WorldEditorIdentity?, backendConnected: Bool, available: Bool, now: Date = Date()) {
+         backend = backendConnected
+         self.available = available
+@@ -428,7 +432,7 @@ final class EnvironmentPanel: NSObject {
+         localTemperature = (t.temperatureC, t.temperatureMode)
+         pump()
+         snapControls(now: now)
+-        renderSample(t, body: body, state: state)
++        renderSample(t, body: body, paused: bodyPaused, state: state)
+         render()
+     }
+ 
+@@ -532,7 +536,13 @@ final class EnvironmentPanel: NSObject {
+     }
+ 
+     private func refuse(_ propertyID: String, _ text: String) {
+-        localStatus = (propertyID, text)
++        localStatus = (propertyID, text, true)
++        renderStatus()
++    }
++
++    /// V6.6 Edit ▸ Undo/Redo feedback about one of this panel's settings.
++    func showHistory(propertyID: String, text: String, isError: Bool) {
++        localStatus = (propertyID, text, isError)
+         renderStatus()
+     }
+     private func clearRefusal(_ propertyID: String) {
+@@ -547,7 +557,7 @@ final class EnvironmentPanel: NSObject {
+         for (label, section) in [(temperatureStatus, "temperature"), (windStatus, "wind"), (lightStatus, "eyes")] {
+             var text = "", error = false
+             if let local = localStatus, Self.section(local.propertyID) == section {
+-                (text, error) = (local.text, true)
++                (text, error) = (local.text, local.isError)
+             } else if let pid = queue.messagePropertyID, Self.section(pid) == section {
+                 (text, error) = (queue.message, queue.isError)
+             }
+@@ -557,9 +567,14 @@ final class EnvironmentPanel: NSObject {
+         }
+     }
+ 
+-    private func renderSample(_ t: LabTelemetry, body: FlyGymBodyFeedback?, state: LabRemoteState?) {
++    private func renderSample(_ t: LabTelemetry, body: FlyGymBodyFeedback?, paused: Bool, state: LabRemoteState?) {
+         var lines: [String] = []
+-        if let body {
++        if let body, paused {
++            lines.append(String(format: L("At the fly  x %.1f · y %.1f mm · facing %.0f° · body t %.3f s (paused)",
++                                          "파리 위치  x %.1f · y %.1f mm · 바라보는 방향 %.0f° · 몸 시각 %.3f s (일시정지)"),
++                                body.positionXmm, body.positionYmm, Self.normalized(body.headingRad * 180 / .pi),
++                                body.simTime))
++        } else if let body {
+             lines.append(String(format: L("At the fly  x %.1f · y %.1f mm · facing %.0f° · body t %.3f s (%.0f ms ago)",
+                                           "파리 위치  x %.1f · y %.1f mm · 바라보는 방향 %.0f° · 몸 시각 %.3f s (%.0f ms 전)"),
+                                 body.positionXmm, body.positionYmm, Self.normalized(body.headingRad * 180 / .pi),
+diff --git a/EnvironmentPanelDiagnostics.swift b/EnvironmentPanelDiagnostics.swift
+index 6f42c72..d32beb3 100644
+--- a/EnvironmentPanelDiagnostics.swift
++++ b/EnvironmentPanelDiagnostics.swift
+@@ -230,6 +230,20 @@ private func runEnvironmentPanelAppKitChecks(
+           && eyePanel.leftMaskValue.stringValue == "100%" && eyePanel.leftMaskSlider.isEnabled
+           && !eyePanel.windStrengthSlider.isEnabled)
+ 
++    // Paused: the last body packet is shown as paused, not as missing data.
++    let pausedBody = FlyGymBodyFeedback(try! JSONDecoder().decode(FlyGymBodyPacket.self, from: Data("""
++        {"type": "body", "t": 7.25, "position_x_mm": 4.0, "position_y_mm": 2.0, "heading_rad": 0.0}
++        """.utf8)))
++    eyePanel.update(state: eyesOnly, telemetry: telemetry, body: pausedBody, bodyPaused: true,
++                    identity: identity, backendConnected: true, available: true)
++    let pausedText = eyePanel.sample.stringValue
++    eyePanel.update(state: eyesOnly, telemetry: telemetry, body: nil, identity: identity,
++                    backendConnected: true, available: true)
++    check("V6.6 paused body sample says paused, not missing",
++          pausedText.contains("7.250") && pausedText.contains(L("(paused)", "(일시정지)"))
++          && !pausedText.contains(L("no fresh body data", "새 몸 데이터 없음"))
++          && eyePanel.sample.stringValue.contains(L("no fresh body data", "새 몸 데이터 없음")))
++
+     // Without a physics backend: temperature applies on the brain side only, wind/eyes are disabled.
+     let noBackend = EnvironmentPanel()
+     noBackend.configure()
+diff --git a/EnvironmentProperty.swift b/EnvironmentProperty.swift
+index 41286a4..27719a7 100644
+--- a/EnvironmentProperty.swift
++++ b/EnvironmentProperty.swift
+@@ -314,6 +314,8 @@ struct EnvironmentEdit: Codable, Equatable {
+ 
+ /// Backend ACK detail for `edit_property`: applied value/revision, or the
+ /// rejection path. `currentRevision` accompanies a stale-revision rejection.
++/// V6.6: `previousValue` is the owner value the edit replaced (the undo
++/// inverse); `transaction` is "paused" for an edit applied while paused.
+ struct EnvironmentEditResult: Decodable, Equatable {
+     let ok: Bool
+     let status: String
+@@ -324,10 +326,13 @@ struct EnvironmentEditResult: Decodable, Equatable {
+     let path: String?
+     let reason: String?
+     let currentRevision: Int?
++    var previousValue: EnvironmentPropertyValue? = nil
++    var transaction: String? = nil
+ 
+     enum CodingKeys: String, CodingKey {
+-        case ok, status, revision, path, reason
++        case ok, status, revision, path, reason, transaction
+         case propertyID = "property_id", targetID = "target_id"
+         case actualValue = "actual_value", currentRevision = "current_revision"
++        case previousValue = "previous_value"
+     }
+ }
+diff --git a/LabDiagnostics.swift b/LabDiagnostics.swift
+index 9903f59..39b7958 100644
+--- a/LabDiagnostics.swift
++++ b/LabDiagnostics.swift
+@@ -849,6 +849,11 @@ func runLabTest() {
+           && live == .live && waiting == .connecting
+           && WorkspaceSnapshot.connection(bridgeEnabled: false, service: nil, connected: false,
+                                           bodyFresh: false, bodyAge: nil) == .disabled)
++    check("V6.6 a confirmed pause with a fresh owner is live, not stale; a silent owner is still stale",
++          WorkspaceSnapshot.connection(bridgeEnabled: true, service: .running, connected: true,
++                                       bodyFresh: false, bodyAge: 60, pausedOwnerFresh: true) == .live
++          && WorkspaceSnapshot.connection(bridgeEnabled: true, service: .running, connected: true,
++                                          bodyFresh: false, bodyAge: 60, pausedOwnerFresh: false) == .stale(60))
+     check("recording line never implies a save that has not completed",
+           WorkspaceRecording.stopping(path: "/r").line.hasPrefix("Saving")
+           && WorkspaceRecording.idle.line == "Not recording"
+diff --git a/LabViewState.swift b/LabViewState.swift
+index 1374a2f..6dd69ad 100644
+--- a/LabViewState.swift
++++ b/LabViewState.swift
+@@ -478,9 +478,13 @@ struct WorkspaceSnapshot: Equatable {
+     var pendingCommands: Int
+     var backendDetail: String
+ 
++    /// `pausedOwnerFresh`: the backend confirmed a pause and its lab_state is
++    /// still arriving. Body packets stop by design then (V6.6 edits still
++    /// apply), so an old body packet alone is not stale data.
+     static func connection(bridgeEnabled: Bool, service: FlyGymServiceState?,
+                            connected: Bool,
+-                           bodyFresh: Bool, bodyAge: TimeInterval?) -> WorkspaceConnection {
++                           bodyFresh: Bool, bodyAge: TimeInterval?,
++                           pausedOwnerFresh: Bool = false) -> WorkspaceConnection {
+         guard bridgeEnabled else { return .disabled }
+         if let service {
+             switch service {
+@@ -490,7 +494,7 @@ struct WorkspaceSnapshot: Equatable {
+             }
+         }
+         guard connected else { return .connecting }
+-        return bodyFresh ? .live : .stale(bodyAge)
++        return bodyFresh || pausedOwnerFresh ? .live : .stale(bodyAge)
+     }
+ 
+     static func clock(_ seconds: TimeInterval) -> String {
+diff --git a/LabWindow.swift b/LabWindow.swift
+index 0a4d611..f5b3800 100644
+--- a/LabWindow.swift
++++ b/LabWindow.swift
+@@ -347,6 +347,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
+     private var lastEventReceivedAt: Date?
+     private var backendDetail = ""
+     private var viewerFrameStale = false
++    /// V6.6 undo/redo of applied settings (Edit ▸ Undo, ⌘Z).
++    private var editHistory = WorldEditHistory()
+     private var pendingCommandSchedules: [Int: LabCommandSchedule] = [:]
+     private var lastPickRequestSeq: Int?
+     private var lastAppliedPickSeq: Int?
+@@ -396,7 +398,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
+         self.coordinator = coordinator
+         self.bridge = bridge
+         self.service = service
+-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
++        let w = LabMainWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                          backing: .buffered, defer: false)
+         w.title = "Virtual Fly Lab"
+@@ -406,6 +408,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
+         PlayerInputFocusPolicy.prepareWindowForCapture(w)
+         super.init(window: w)
+         w.delegate = self
++        w.worldUndo = { [weak self] direction in self?.stepEditHistory(direction) }
++        w.worldHistory = { [weak self] in self?.editHistory ?? WorldEditHistory() }
+         if let connectome, let sim = coordinator.sim, let screen = NSScreen.main {
+             brainController = BrainWindowController(connectome: connectome, sim: sim, screen: screen)
+         }
+@@ -1587,19 +1591,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
+         panel.configure()
+         panel.windOffButton.target = self
+         panel.windOffButton.action = #selector(stopWind)
+-        panel.onSubmit = { [weak self] command, captured in
+-            guard let self, let bridge = self.bridge, self.workspace?.acceptsBackendCommands == true else { return nil }
+-            let session = self.coordinator.sessionSnapshot()
+-            guard !session.sessionID.isEmpty, session.epoch > 0,
+-                  session.sessionID == captured.sessionID, session.epoch == captured.epoch,
+-                  bridge.connectionGeneration == captured.generation,
+-                  session.phase == .running || session.phase == .paused else { return nil }
+-            let schedule = self.coordinator.labCommandSchedule() ?? LabCommandSchedule(
+-                sessionID: session.sessionID, epoch: session.epoch, requestedTick: session.simTick)
+-            guard schedule.sessionID == captured.sessionID, schedule.epoch == captured.epoch,
+-                  let id = self.sendCommand(command, scheduleOverride: schedule) else { return nil }
+-            return (id, self.pendingCommandSchedules[id] ?? schedule)
+-        }
++        panel.onSubmit = { [weak self] command, captured in self?.sendEdit(command, captured: captured) }
+         panel.onLocalTemperature = { [weak self] celsius, mode in
+             guard let self else { return }
+             self.coordinator.labSetTemperature(celsius: celsius, modeledPhysiology: mode == "modeled_physiology",
+@@ -2655,11 +2647,70 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
+         }
+     }
+ 
++    /// An edit stamped with the session it was made in, sent only while that
++    /// session is still running or paused (a paused edit is a V6.6 transaction).
++    private func sendEdit(_ command: LabCommand, captured: WorldEditorIdentity) -> (Int, LabCommandSchedule)? {
++        guard let bridge, workspace?.acceptsBackendCommands == true else { return nil }
++        let session = coordinator.sessionSnapshot()
++        guard !session.sessionID.isEmpty, session.epoch > 0,
++              session.sessionID == captured.sessionID, session.epoch == captured.epoch,
++              bridge.connectionGeneration == captured.generation,
++              session.phase == .running || session.phase == .paused else { return nil }
++        let schedule = coordinator.labCommandSchedule() ?? LabCommandSchedule(
++            sessionID: session.sessionID, epoch: session.epoch, requestedTick: session.simTick)
++        guard schedule.sessionID == captured.sessionID, schedule.epoch == captured.epoch,
++              let id = sendCommand(command, scheduleOverride: schedule) else { return nil }
++        return (id, pendingCommandSchedules[id] ?? schedule)
++    }
++
++    private var editIdentity: WorldEditorIdentity? {
++        guard let bridge else { return nil }
++        let s = coordinator.sessionSnapshot()
++        return WorldEditorIdentity(generation: bridge.connectionGeneration, sessionID: s.sessionID, epoch: s.epoch)
++    }
++
++    /// Edit ▸ Undo/Redo outside a text field: send the step's inverse (or its
++    /// edit again) as an ordinary revision-checked edit.
++    private func stepEditHistory(_ direction: WorldEditHistory.Direction) {
++        guard let bridge, let identity = editIdentity else { return }
++        editHistory.observe(identity: identity)
++        let owner = WorldEditOwnerState(objects: arenaPlacement.worldObjects, world: bridge.latestLabState()?.worldState)
++        guard let command = editHistory.command(direction, owner: owner,
++                                                capabilities: owner.world?.environmentCapabilities) else {
++            presentEditHistory(); return
++        }
++        let targetsObject = command.objectEdit != nil || command.edit?.targetID != nil
++        if targetsObject && viewerFrameStale {
++            editHistory.sendFailed()
++        } else if let (id, schedule) = sendEdit(command, captured: identity) {
++            editHistory.began(commandID: id, schedule: schedule, direction: direction)
++        } else {
++            editHistory.sendFailed()
++        }
++        presentEditHistory()
++    }
++
++    /// Shows the history's latest word where its setting lives.
++    private func presentEditHistory() {
++        let text = editHistory.message, error = editHistory.isError
++        guard !text.isEmpty else { return }
++        switch editHistory.messageChange {
++        case .property(let pid, nil, _, _)?:
++            environmentPanel.showHistory(propertyID: pid, text: text, isError: error)
++        default:
++            worldEditor.showHistory(text, isError: error)
++        }
++    }
++
+     /// Each ACK resolves its timeline row once; only that first resolution is
+     /// recorded, so the repeated `ack` field of lab_state never double-counts.
+     private func handle(ack: LabAck) {
+         worldEditor.accept(ack)
+         environmentPanel.accept(ack)
++        if editHistory.accept(ack) {
++            presentEditHistory()
++            recorder.mark(kind: "edit_history", detail: editHistory.message, commandID: ack.id)
++        }
+         if ack.id == lastFoodCommandID {
+             lastFoodCommandID = nil
+             foodStatusLabel.stringValue = ack.ok ? L("Placed", "놓았습니다")
+@@ -2754,7 +2805,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
+             connection: WorkspaceSnapshot.connection(
+                 bridgeEnabled: bridge != nil, service: service?.state,
+                 connected: bridge?.connected == true,
+-                bodyFresh: body?.isFresh == true, bodyAge: body?.ageSeconds),
++                bodyFresh: body?.isFresh == true, bodyAge: body?.ageSeconds,
++                pausedOwnerFresh: coordinator.sessionSnapshot().phase == .paused
++                    && bridge?.labStateFreshness().isFresh == true),
+             session: coordinator.sessionSnapshot(),
+             recording: recording,
+             pendingCommands: timeline.pendingCount,
+@@ -2809,6 +2862,14 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
+     private func refresh() {
+         let now = Date()
+         let t = coordinator.labTelemetry()
++        // Every backend command carries the V4 identity, so begin the
++        // interactive session as soon as the backend can take it — not only on
++        // entering Participate/Edit. Otherwise a fresh launch's first
++        // environment-panel edit carries a local session ID the backend has
++        // never seen and is rejected as "wrong session".
++        if let bridge, bridge.connected, bridge.playerInputV5_5Available {
++            coordinator.ensureInteractivePlayerInputSession()
++        }
+         let session = coordinator.sessionSnapshot()
+         viewState.sync(session: session)
+         var state: LabRemoteState?
+@@ -2938,6 +2999,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
+                                mode: viewState.mode,
+                                available: workspace?.acceptsBackendCommands == true && !viewerFrameStale && viewState.viewerAvailable,
+                                heldID: state?.interaction?.heldObjectID, camera: worldViewer.mujocoCamera)
++            let historyMessage = editHistory.message
++            editHistory.observe(identity: WorldEditorIdentity(generation: bridge.connectionGeneration,
++                                                              sessionID: editorSession.sessionID, epoch: editorSession.epoch))
++            if editHistory.message != historyMessage { presentEditHistory() }
+             let (newAcks, cursor) = bridge.labAcks(after: ackCursor)
+             ackCursor = cursor
+             newAcks.forEach(handle(ack:))
+@@ -2970,8 +3035,13 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
+             }
+         }
+ 
++        // Paused: body packets stop on purpose, so show the last one as paused
++        // rather than as missing (same rule as the workspace connection).
++        let bodyPaused = session.phase == .paused && bridge?.labStateFreshness().isFresh == true
+         environmentPanel.update(
+-            state: state, telemetry: t, body: bridge?.latestBody(),
++            state: state, telemetry: t,
++            body: bodyPaused ? bridge?.latestBody(maxAge: .greatestFiniteMagnitude) : bridge?.latestBody(),
++            bodyPaused: bodyPaused,
+             identity: bridge.map { WorldEditorIdentity(generation: $0.connectionGeneration,
+                                                        sessionID: session.sessionID, epoch: session.epoch) },
+             backendConnected: bridge?.connected == true,
+diff --git a/WorldEditor.swift b/WorldEditor.swift
+index 2862f06..e7bccad 100644
+--- a/WorldEditor.swift
++++ b/WorldEditor.swift
+@@ -69,6 +69,8 @@ struct WorldEditorState {
+     private(set) var isError = false
+     mutating func clearDraftMessage() { if pending == nil { message=""; isError=false } }
+     mutating func fail(_ text: String) { message = text; isError = true }
++    /// V6.6 undo/redo feedback; never touches a pending edit.
++    mutating func note(_ text: String, isError: Bool) { message = text; self.isError = isError }
+     mutating func begin(_ request: WorldEditorPending) {
+         pending = request; isError = false
+         message = L("Applying… waiting for the simulator", "적용 중… 시뮬레이터 응답을 기다립니다")
+@@ -310,8 +312,8 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
+         duplicateButton.title = L("Duplicate", "복제")
+         deleteButton.title = L("Delete", "삭제")
+         hint.stringValue = L(
+-            "Position and size are in mm, rotation in degrees around the vertical axis. Only ramps tilt (0–45°); tilting or resizing a ramp keeps its low edge in place. Press Return to apply typed values, or drag a colored handle in the 3D view; Esc cancels a drag. A duplicate appears on top of the original — move it next. There is no undo yet.",
+-            "위치·크기는 mm, 회전은 수직축 기준 도(°) 단위입니다. 기울기는 경사로만 바꿀 수 있고(0–45°), 경사로의 기울기·크기를 바꿔도 낮은 쪽 모서리는 제자리에 있습니다. 값을 입력하고 Return을 누르거나 3D 화면의 색깔 핸들을 끌어 바꾸고, 끄는 중 Esc를 누르면 취소됩니다. 복제본은 원본과 같은 자리에 생기니 바로 옮기세요. 되돌리기는 아직 없습니다.")
++            "Position and size are in mm, rotation in degrees around the vertical axis. Only ramps tilt (0–45°); tilting or resizing a ramp keeps its low edge in place. Press Return to apply typed values, or drag a colored handle in the 3D view; Esc cancels a drag. A duplicate appears on top of the original — move it next. Undo with ⌘Z and redo with ⇧⌘Z (Edit menu); this sets values back and never rewinds time. Delete can't be undone.",
++            "위치·크기는 mm, 회전은 수직축 기준 도(°) 단위입니다. 기울기는 경사로만 바꿀 수 있고(0–45°), 경사로의 기울기·크기를 바꿔도 낮은 쪽 모서리는 제자리에 있습니다. 값을 입력하고 Return을 누르거나 3D 화면의 색깔 핸들을 끌어 바꾸고, 끄는 중 Esc를 누르면 취소됩니다. 복제본은 원본과 같은 자리에 생기니 바로 옮기세요. ⌘Z로 되돌리고 ⇧⌘Z로 다시 합니다(편집 메뉴). 값만 되돌리며 시간은 되돌리지 않습니다. 삭제는 되돌릴 수 없습니다.")
+         objectsPopup.removeAllItems()
+         refreshPopup(objects: listedObjects, selectedID: selectionID)
+         state.clearDraftMessage()
+@@ -585,6 +587,11 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
+         enqueue(command, propertyID: "object." + op, source: o, value: nil)
+     }
+ 
++    func showHistory(_ text: String, isError: Bool) {
++        state.note(text, isError: isError)
++        renderStatus()
++    }
++
+     func accept(_ ack: LabAck) {
+         let pending = state.pending
+         let duplicateID = state.accept(ack)
+diff --git a/WorldEditorDiagnostics.swift b/WorldEditorDiagnostics.swift
+index 1a252e1..784a5d6 100644
+--- a/WorldEditorDiagnostics.swift
++++ b/WorldEditorDiagnostics.swift
+@@ -73,6 +73,7 @@ func runWorldEditorTest() {
+     runWorldEditorAppKitChecks(check)
+     runRampEditorChecks(check, caps: caps, identity: identity, schedule: schedule, camera: camera)
+     runEnvironmentPanelChecks(check, caps: caps)
++    runWorldEditHistoryChecks(check, caps: caps)
+     print("V6.3 editor diagnostics: \(failures) failures"); exit(failures==0 ? 0 : 1)
+ }
+ 
+diff --git a/build.sh b/build.sh
+index b439db1..e4968c2 100755
+--- a/build.sh
++++ b/build.sh
+@@ -1,7 +1,7 @@
+ #!/bin/zsh
+ # Build Thongpari Fly Neuron Sim
+ cd "$(dirname "$0")"
+-swiftc -O -swift-version 5 -o ThongpariFlyNeuronSim main.swift FlyModel.swift FlyGymPackets.swift FlyGymBridge.swift FlyGymService.swift BridgeDiagnostics.swift LabSession.swift LabProtocol.swift EnvironmentProperty.swift EnvironmentPanel.swift EnvironmentPanelDiagnostics.swift WorldEditor.swift WorldEditorDiagnostics.swift WorldEditorAppKitDiagnostics.swift LabDiagnostics.swift LabViewState.swift PlayerController.swift LabGraphView.swift ExperimentRecorder.swift WorldViewer.swift LabLocalization.swift NeuronGuide.swift FlyMood.swift ActivityCards.swift LabChrome.swift MuJoCoCanvas.swift LabWindow.swift SensoryModel.swift MotorReadout.swift \
++swiftc -O -swift-version 5 -j"$(sysctl -n hw.ncpu)" -o ThongpariFlyNeuronSim main.swift FlyModel.swift FlyGymPackets.swift FlyGymBridge.swift FlyGymService.swift BridgeDiagnostics.swift LabSession.swift LabProtocol.swift EnvironmentProperty.swift EnvironmentPanel.swift EnvironmentPanelDiagnostics.swift WorldEditor.swift WorldEditHistory.swift WorldEditHistoryDiagnostics.swift WorldEditorDiagnostics.swift WorldEditorAppKitDiagnostics.swift LabDiagnostics.swift LabViewState.swift PlayerController.swift LabGraphView.swift ExperimentRecorder.swift WorldViewer.swift LabLocalization.swift NeuronGuide.swift FlyMood.swift ActivityCards.swift LabChrome.swift MuJoCoCanvas.swift LabWindow.swift SensoryModel.swift MotorReadout.swift \
+     Sim.swift MetalSim.swift GPUCheck.swift Diagnostics.swift SimDiagnostics.swift BrainView.swift Environment.swift \
+     -framework Cocoa -framework SceneKit -framework Metal || exit 1
+ echo "Built ./ThongpariFlyNeuronSim"
+diff --git a/docs/plans/VIRTUAL_FLY_LAB_V6_PLAN.md b/docs/plans/VIRTUAL_FLY_LAB_V6_PLAN.md
+index 8bd4bd6..a726d9a 100644
+--- a/docs/plans/VIRTUAL_FLY_LAB_V6_PLAN.md
++++ b/docs/plans/VIRTUAL_FLY_LAB_V6_PLAN.md
+@@ -111,6 +111,12 @@ forward edit, inverse edit, expected_revision. simulation rewind가 아니며 
+ 
+ **완료 출력:** edit 허용 정책/ACK가 기록되고 undo는 설정만 복구.
+ 
++**2026-10-07 구현 결정:**
++- **일시정지 중 편집 허용 정책.** interactive 세션이 일시정지면 serve loop는 큐 맨 앞에 있는 V4 스탬프 `edit_property`/`edit_object`만 멈춘 owner tick에서 적용한다(`_apply_paused_edit_transaction`). MuJoCo step·LabWorld 타이머·눈 렌더·참여자 입력은 돌지 않고, 영상과 광선 선택이 편집을 보도록 `mj_kinematics`로 자세만 다시 계산한다. 그 밖의 명령(자극·동작)은 장벽이다: 그 뒤의 편집은 재개할 때까지 순서대로 기다린다. 더 이른 continuous 슬롯이 있으면 그것도 장벽이다. 미래 tick 명령은 실행 중과 같은 규칙으로 자기 tick까지 미룬다. 스탬프 없는 옛 명령은 재개 후에 적용한다. 이 경로의 편집 ACK에는 `edit.transaction = "paused"`가 붙는다. deterministic 모드는 바꾸지 않는다(명령은 step 경계에서만 적용).
++- **undo 역연산은 백엔드가 준다.** `apply_edit` 결과에 `previous_value`(편집 직전 owner 값, edit 값 형식)를 싣는다. Swift는 이전 값을 추측하지 않는다.
++- **Swift `WorldEditHistory`.** 적용된 edit ACK만 기록한다(편집기·환경 패널 공통). 같은 설정을 1.5 s 안에 이어서 바꾸면 한 단계로 합친다(슬라이더 끌기 = 처음 값→마지막 값). undo/redo는 일반 edit으로 보내며, 보내기 전에 그 설정이 아직 그 단계가 남긴 값인지 확인한다. 다르면(다른 조작·물리·먹기 등으로 바뀜) 덮어쓰지 않고 그 단계를 기록에서 뺀다. 경합은 백엔드 revision 검사가 거절한다(stale·busy는 단계 유지, 그 밖의 거절은 제거). 복제의 undo는 복사본 삭제, redo는 다시 복제하고 이후 단계는 새 ID를 따른다. **삭제는 되돌릴 수 없다**(V6.6 범위 밖, 편집기 안내문에 명시). 사용자가 물체를 지우면 그 물체를 가리키는 단계는 빠진다. 세션·epoch·연결이 바뀌면 기록을 비운다. 시간 제한 바람이 부는 동안 바람 단계는 기다린다.
++- **편집 ▸ 실행 취소(⌘Z/⇧⌘Z).** NSWindow가 `undo:`를 직접 받으므로 Lab 창을 `LabMainWindow`로 바꿔, 텍스트 칸 입력 중에는 글자 되돌리기를, 그 밖에는 세계 기록을 쓴다. 메뉴 제목에 다음 단계가 표시된다(예: ‘이동 box-1 실행 취소’).
++
+ **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V6.6` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
+ 
+ ### 6.7. scene 저장과 reload
+diff --git a/docs/reports/V6_PROGRESS.md b/docs/reports/V6_PROGRESS.md
+index 7dce1ee..e672a80 100644
+--- a/docs/reports/V6_PROGRESS.md
++++ b/docs/reports/V6_PROGRESS.md
+@@ -23,7 +23,7 @@ Codex가 사용자 요청으로 Computer Use를 통해 현재 패키지와 실
+ | V6.3 | 객체 선택·gizmo·수치 입력 동등성 | **GUI 기본 편집 부분 통과 / 전체 수용 미완료** | 23:08 후보 자동 검사 로그 수집 및 실제 편집 모드 전환·물체 선택 확인. 이후 다른 세션이 소스와 binary를 변경했으므로 이전 결과를 최신 빌드 통과 근거로 쓰지 않음. 수치 적용·드래그·복제/삭제·negative·지속 성능 수용은 미완료. [후보별 GUI 인계](../../notes/validation/v6-3-2026-10-05/GUI_PARENT_HANDOFF.md) |
+ | V6.4 | primitive 지형 편집 | **자동·실물·TCP 통과 / 현재 GUI FAIL: pitch 누락** | 새 모양 `ramp`(경사로): box + 기울기(pitch 0–45°, 자기 Y축), 기울기·크기 편집은 낮은 쪽 윗모서리를 축으로 회전, 고정 지형(잡기·접근 거절). 다리 접촉쌍(경골·부절·몸통 43개 × 슬롯 4개, FlyGym 바닥과 같은 마찰·solver 값). 슬롯 초과는 `rejected_capacity`와 사람이 읽는 사유로 표시. 실물: 렌더↔충돌 pose/size 최대 차 1.1e-16, 면 안팎 탐침 전부 일치, 파리가 자기 다리로 경사로를 오름(흉부 z 1.00→7.41 mm), 다리 쌍을 뺀 대조군은 1.15 mm. TCP mock·real 9/9. 비용: 경사로가 멀 때 ~+2%, 파리가 경사로 위일 때 ~+45%(메시–상자 GJK). [증거](../../notes/validation/v6-4-2026-10-06/README.md) |
+ | V6.5 | 환경 패널 | **자동·실물 TCP 통과 기록 / 현재 GUI FAIL: 후각 위치·오류 안내 / AC 재측정 필요** | ‘감각’ 페이지를 환경 패널로 교체: 지금 파리 위치의 값(실제 body packet + 뇌에 넣은 전류), 온도·바람(원형 방향 다이얼)·눈별 가림·먹이 종류 놓기. 적용값과 ‘보내는 중’ 분리, 슬라이더 100단계 → edit 3개(V6-03). 바람 edit = 계속 부는 바람 설정, puff 중엔 `rejected_busy`. 온도는 backend 적용값을 뇌 쪽이 따름(ACK 전 로컬 적용 제거). real TCP 15/15, Swift 78 PASS, 음성 대조 확인. bridgeloop real은 배터리에서 22 Hz FAIL — A/B로 변경 무관 확인, AC 재측정 필요. 바람 강화(사용자 승인): 가슴 힘 60,000 mm/s² + 바람 속도(30 mm/s×세기)에 가까워지면 힘 감소 → 세기 1에서 1초 8.85 mm(이전 0.08 mm), 정면 0.7 이상이면 넘어짐(허용), 불안정 경고 0건. [증거](../../notes/validation/v6-5-2026-10-06/README.md), [GUI 목록](../../notes/validation/v6-5-2026-10-06/GUI_CHECKLIST.md) |
+-| V6.6 | transaction·undo/redo | planned | simulation rewind 아님 |
++| V6.6 | transaction·undo/redo | **구현 / 자동·실물 TCP 통과 / 마지막 수정 미빌드·GUI 재확인 보류(사용자 요청)** | 일시정지 중 편집 트랜잭션(자극은 장벽), `previous_value` 역연산, Swift `WorldEditHistory`(⌘Z/⇧⌘Z). simulation rewind 아님. [증거](../../notes/validation/v6-6-2026-10-07/README.md) |
+ | V6.7 | .flyworld scene 저장·reload | planned | 뉴런 snapshot 아님; 최종 real·GUI·성능 수용도 필요 |
+ 
+ ## 확인된 기존 제약
+diff --git a/flygym_bridge/bridge.py b/flygym_bridge/bridge.py
+index 334a7d2..c9d039b 100644
+--- a/flygym_bridge/bridge.py
++++ b/flygym_bridge/bridge.py
+@@ -452,15 +452,23 @@ class Bridge:
+                               epoch=(self.session_epoch if self.session_epoch > 0 else None),
+                               sim_tick=(self.session_tick if self.session_id else None))
+ 
+-    def _apply_lab_commands(self, *, applied_tick=None, applied_epoch=None):
++    def _apply_lab_commands(self, *, applied_tick=None, applied_epoch=None,
++                            commands=None, transaction=None):
++        """Apply queued lab commands; returns how many were applied.
++
++        `commands` given: exactly those (a V6.6 pause transaction, tagged with
++        `transaction` in each edit result); the deferred list is left in place.
++        """
+         apply_fn = getattr(self.body, "apply_lab_command", None)
+         if apply_fn is None:
+-            return
+-        # Limit discrete work per body tick; continuous slots are always drained
+-        # as latest state. Remaining discrete FIFO entries stay bounded in queue.
+-        commands = self.deferred_lab_commands + self.lab_commands.drain(max_discrete=32)
+-        self.deferred_lab_commands = []
+-        commands.sort(key=lambda command: command.seq)
++            return 0
++        if commands is None:
++            # Limit discrete work per body tick; continuous slots are always drained
++            # as latest state. Remaining discrete FIFO entries stay bounded in queue.
++            commands = self.deferred_lab_commands + self.lab_commands.drain(max_discrete=32)
++            self.deferred_lab_commands = []
++            commands.sort(key=lambda command: command.seq)
++        applied = 0
+         for command in commands:
+             v4 = command.session_id is not None or command.epoch is not None or command.protocol_version is not None
+             if v4 and applied_tick is not None and command.requested_tick is not None and command.requested_tick > applied_tick:
+@@ -513,7 +521,8 @@ class Bridge:
+                     applied_epoch=(applied_epoch if v4 else None),
+                     status=("applied" if v4 else None))
+                 if command.op in ("edit_property", "edit_object"):
+-                    response.edit = result
++                    response.edit = result if transaction is None else {**result, "transaction": transaction}
++                applied += 1
+                 if key is not None:
+                     self._remember(self.recent_command_results, key, response)
+                 self._queue_lab_response(response)
+@@ -527,9 +536,30 @@ class Bridge:
+                 if isinstance(exc, EditError):
+                     response.edit = {"ok": False, "status": exc.status, "path": exc.path,
+                                      "reason": exc.reason, **exc.detail}
++                    if transaction is not None:
++                        response.edit["transaction"] = transaction
+                 if key is not None:
+                     self._remember(self.recent_command_results, key, response)
+                 self._queue_lab_response(response)
++        return applied
++
++    def _apply_paused_edit_transaction(self):
++        """V6.6: while an interactive session is paused, apply the edits at the
++        head of the queue at the frozen owner tick. No MuJoCo step, LabWorld
++        timer, eye render or player input runs; poses are refreshed only so the
++        view and ray picks show the edit. A stimulus ahead of an edit is a
++        barrier, so order is never changed; a future-tick edit waits for its
++        tick exactly as in the running loop."""
++        commands = self.lab_commands.drain_paused_edits()
++        if not commands:
++            return 0
++        applied = self._apply_lab_commands(
++            applied_tick=self._current_owner_tick(), applied_epoch=self.session_epoch,
++            commands=commands, transaction="paused")
++        refresh = getattr(getattr(self.body, "lab_world", None), "refresh_poses", None)
++        if applied and refresh is not None:
++            refresh()
++        return applied
+ 
+     def _drain_session_controls(self):
+         return self._drain_queue(self.pending_session_controls)
+@@ -1036,10 +1066,16 @@ class Bridge:
+ 
+             if self.session_paused:
+                 # Interactive pause is a real body-time barrier. Keep the owner
+-                # responsive to resume and status traffic, but do not apply lab
+-                # commands, tick LabWorld timers, render eyes, or advance MuJoCo.
++                # responsive to resume and status traffic, but do not tick
++                # LabWorld timers, render eyes, or advance MuJoCo. Only queued
++                # edits apply, as an explicit pause transaction (V6.6).
+                 last = now_mono
+                 next_tick = now_mono
++                try:
++                    self._apply_paused_edit_transaction()
++                except Exception as e:
++                    print(f"bridge: paused edit transaction failed: {e}", flush=True)
++                    break
+                 try:
+                     for response in self._drain_lab_responses():
+                         conn.sendall(encode(response))
+diff --git a/flygym_bridge/environment_properties.py b/flygym_bridge/environment_properties.py
+index b4a4c9d..5d174e0 100644
+--- a/flygym_bridge/environment_properties.py
++++ b/flygym_bridge/environment_properties.py
+@@ -337,24 +337,32 @@ def validate_edit(edit, descriptors):
+     if (not _number(revision) or not float(revision).is_integer()
+             or not 0 <= revision <= MAX_REVISION):
+         raise EditError("edit.expected_revision", "must be a nonnegative integer")
+-    value, kind = edit["value"], d["value_type"]
++    return d, check_value(d, edit["value"], "edit.value")
++
++
++def check_value(d, value, path):
++    """Strict descriptor value check shared by edits and V6.7 scene files:
++    no clamping or coercion. Returns numbers as float; raises EditError at
++    `path` (or `path[i]` for a vector component)."""
++    kind = d["value_type"]
+     if kind == "number":
+         if not _number(value) or not d["min"] <= value <= d["max"]:
+-            raise EditError("edit.value", f"must be a finite number in [{d['min']}, {d['max']}]")
+-        value = float(value)
+-    elif kind == "vector":
++            raise EditError(path, f"must be a finite number in [{d['min']}, {d['max']}]")
++        return float(value)
++    if kind == "vector":
+         if not isinstance(value, list) or len(value) != len(d["min"]):
+-            raise EditError("edit.value", f"must be a {len(d['min'])}-vector")
++            raise EditError(path, f"must be a {len(d['min'])}-vector")
+         for i, (v, lo, hi) in enumerate(zip(value, d["min"], d["max"])):
+             if not _number(v) or not lo <= v <= hi:
+-                raise EditError(f"edit.value[{i}]", f"must be a finite number in [{lo}, {hi}]")
+-        value = [float(v) for v in value]
+-    elif kind == "boolean":
++                raise EditError(f"{path}[{i}]", f"must be a finite number in [{lo}, {hi}]")
++        return [float(v) for v in value]
++    if kind == "boolean":
+         if not isinstance(value, bool):
+-            raise EditError("edit.value", "must be a boolean")
+-    elif not isinstance(value, str) or value not in d["choices"]:
+-        raise EditError("edit.value", "must be one of the descriptor choices")
+-    return d, value
++            raise EditError(path, "must be a boolean")
++        return value
++    if not isinstance(value, str) or value not in d["choices"]:
++        raise EditError(path, "must be one of the descriptor choices")
++    return value
+ 
+ 
+ def environment_capabilities(touch_targets=None):
+diff --git a/flygym_bridge/lab_world.py b/flygym_bridge/lab_world.py
+index 6e9a5f1..69ebc2e 100644
+--- a/flygym_bridge/lab_world.py
++++ b/flygym_bridge/lab_world.py
+@@ -411,6 +411,7 @@ class LabWorld:
+             "celsius": 25.0,
+             "mode": "environment_only",
+             "neural_connected": False,
++            "neural_target": None,
+             "controller_tempo_via_brain_packet": False,
+         }
+         self.flash = {
+@@ -1419,6 +1420,7 @@ class LabWorld:
+         if int(edit["expected_revision"]) != current:
+             raise EditError("edit.expected_revision", "stale revision",
+                             status="rejected_stale_revision", current_revision=current)
++        previous = self._edit_value(d, obj if pid.startswith("object.") else None)
+         if field == "position_mm":
+             actual = self.move_object(target, position_mm=value)["position_mm"]
+         elif field == "pitch_deg":
+@@ -1441,7 +1443,23 @@ class LabWorld:
+             actual = self.set_eye_state(**{field: value})[field]
+         revision = obj.revision if pid.startswith("object.") else self.environment_revision
+         return {"ok": True, "status": "applied", "property_id": pid, "target_id": target,
+-                "actual_value": actual, "revision": int(revision)}
++                "actual_value": actual, "previous_value": previous, "revision": int(revision)}
++
++    def _edit_value(self, d, obj):
++        """Owner value of an editable property, in its edit wire form. The V6.6
++        undo inverse is built from this, never from a client-side guess."""
++        pid, field = d["property_id"], d["legacy_field"]
++        if obj is not None:
++            value = getattr(obj, field)
++            if field in ("position_mm", "size_mm"):
++                value = [float(v) for v in value]
++                return value if d["value_type"] == "vector" else value[0]
++            return float(value)
++        if pid.startswith("temperature."):
++            return self.temperature[field]
++        if pid in WIND_EDIT_FIELDS:
++            return self.wind[WIND_EDIT_FIELDS[pid]]
++        return self.eyes[field]
+ 
+     def edit_object(self, edit):
+         """V6.3 discrete object mutation; validate completely before owner mutation."""
+@@ -2416,6 +2434,13 @@ class LabWorld:
+         else:
+             sm.set_geom_collidable(self.model, gid, True)
+ 
++    def refresh_poses(self):
++        """Recompute world poses after an edit applied while paused (V6.6), so
++        the view stream and ray picks see it. Kinematics only: no time step,
++        no contact or force computation."""
++        if self._bound:
++            self._mujoco.mj_kinematics(self.model, self.data)
++
+     def _deactivate_slot(self, slot):
+         if not self._bound:
+             return
+diff --git a/flygym_bridge/protocol.py b/flygym_bridge/protocol.py
+index 090144f..0e98829 100644
+--- a/flygym_bridge/protocol.py
++++ b/flygym_bridge/protocol.py
+@@ -53,6 +53,9 @@ CONTINUOUS_LAB_OPS = {
+     "move_object", "resize_object", "wind", "set_eye_state", "eye_state",
+     "temperature", "set_temperature",
+ }
++# V6.6: the only commands an interactive pause applies (as an explicit edit
++# transaction, without stepping). Stimuli and actions wait for resume.
++PAUSE_EDIT_LAB_OPS = {"edit_property", "edit_object"}
+ 
+ def clamp(x, lo, hi):
+     try:
+@@ -1403,6 +1406,21 @@ class LabCommandQueue:
+         # behavior while Swift's monotonic command IDs recover total order.
+         return sorted(discrete + continuous, key=lambda command: command.seq)
+ 
++    def drain_paused_edits(self):
++        """V6.6 pause transaction: pop only the stamped edits at the head of the
++        FIFO that precede every pending continuous slot. The first non-edit is
++        a barrier, so nothing overtakes a stimulus waiting for resume."""
++        with self._lock:
++            floor = min((c.seq for c in self._continuous.values()), default=None)
++            out = []
++            while self._discrete:
++                head = self._discrete[0]
++                if (head.op not in PAUSE_EDIT_LAB_OPS or head.session_id is None
++                        or (floor is not None and head.seq >= floor)):
++                    break
++                out.append(self._discrete.popleft())
++            return out
++
+     def stats(self):
+         with self._lock:
+             return {
+diff --git a/flygym_bridge/test_environment_edits.py b/flygym_bridge/test_environment_edits.py
+index 8103165..6e67078 100644
+--- a/flygym_bridge/test_environment_edits.py
++++ b/flygym_bridge/test_environment_edits.py
+@@ -236,7 +236,8 @@ class EnvironmentEditTests(unittest.TestCase):
+         self.assertTrue(ok["ok"])
+         self.assertEqual(ok["edit"], {"ok": True, "status": "applied",
+                                       "property_id": "temperature.celsius", "target_id": None,
+-                                      "actual_value": 31.0, "revision": edit["expected_revision"] + 1})
++                                      "actual_value": 31.0, "previous_value": 25.0,
++                                      "revision": edit["expected_revision"] + 1})
+         self.assertEqual(ok["state"]["environment_revision"], edit["expected_revision"] + 1)
+         self.assertFalse(bad["ok"])
+         self.assertEqual(bad["edit"]["path"], "edit.value")

@@ -1,6 +1,6 @@
 # Virtual Fly Lab V6 — Viewer 환경·지형 편집 기본판
 
-작성: 2026-09-13 · 갱신: 2026-10-06 · 상태: **V6.5 자동·실물 검증 통과(GUI 미확인, AC 성능 재측정 필요), 전체 V6 미완료**
+작성: 2026-09-13 · 갱신: 2026-10-08 · 상태: **V6.1–V6.7 완료 — [실행·GUI·성능 및 한계](../reports/V6_COMPLETION_REPORT.md)**
 
 기본 선행: **V5 완료 후에 착수**. **2026-10-05 사용자 예외:** “일단 그거는 미루고 다음단계 ㄱㄱ” 요청으로 V5 GUI·live 성능 수용 검증을 보류하고 V6.1부터 진행한다. V5 완료·GUI PASS로 해석하지 않으며 미검증 게이트를 유지한다. 세부 구현 순서는 그대로 지킨다. [V6 진행표](../reports/V6_PROGRESS.md).
 
@@ -111,6 +111,12 @@ forward edit, inverse edit, expected_revision. simulation rewind가 아니며 �
 
 **완료 출력:** edit 허용 정책/ACK가 기록되고 undo는 설정만 복구.
 
+**2026-10-07 구현 결정:**
+- **일시정지 중 편집 허용 정책.** interactive 세션이 일시정지면 serve loop는 큐 맨 앞에 있는 V4 스탬프 `edit_property`/`edit_object`만 멈춘 owner tick에서 적용한다(`_apply_paused_edit_transaction`). MuJoCo step·LabWorld 타이머·눈 렌더·참여자 입력은 돌지 않고, 영상과 광선 선택이 편집을 보도록 `mj_kinematics`로 자세만 다시 계산한다. 그 밖의 명령(자극·동작)은 장벽이다: 그 뒤의 편집은 재개할 때까지 순서대로 기다린다. 더 이른 continuous 슬롯이 있으면 그것도 장벽이다. 미래 tick 명령은 실행 중과 같은 규칙으로 자기 tick까지 미룬다. 스탬프 없는 옛 명령은 재개 후에 적용한다. 이 경로의 편집 ACK에는 `edit.transaction = "paused"`가 붙는다. deterministic 모드는 바꾸지 않는다(명령은 step 경계에서만 적용).
+- **undo 역연산은 백엔드가 준다.** `apply_edit` 결과에 `previous_value`(편집 직전 owner 값, edit 값 형식)를 싣는다. Swift는 이전 값을 추측하지 않는다.
+- **Swift `WorldEditHistory`.** 적용된 edit ACK만 기록한다(편집기·환경 패널 공통). 같은 설정을 1.5 s 안에 이어서 바꾸면 한 단계로 합친다(슬라이더 끌기 = 처음 값→마지막 값). undo/redo는 일반 edit으로 보내며, 보내기 전에 그 설정이 아직 그 단계가 남긴 값인지 확인한다. 다르면(다른 조작·물리·먹기 등으로 바뀜) 덮어쓰지 않고 그 단계를 기록에서 뺀다. 경합은 백엔드 revision 검사가 거절한다(stale·busy는 단계 유지, 그 밖의 거절은 제거). 복제의 undo는 복사본 삭제, redo는 다시 복제하고 이후 단계는 새 ID를 따른다. **삭제는 되돌릴 수 없다**(V6.6 범위 밖, 편집기 안내문에 명시). 사용자가 물체를 지우면 그 물체를 가리키는 단계는 빠진다. 세션·epoch·연결이 바뀌면 기록을 비운다. 시간 제한 바람이 부는 동안 바람 단계는 기다린다.
+- **편집 ▸ 실행 취소(⌘Z/⇧⌘Z).** NSWindow가 `undo:`를 직접 받으므로 Lab 창을 `LabMainWindow`로 바꿔, 텍스트 칸 입력 중에는 글자 되돌리기를, 그 밖에는 세계 기록을 쓴다. 메뉴 제목에 다음 단계가 표시된다(예: ‘이동 box-1 실행 취소’).
+
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V6.6` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 
 ### 6.7. scene 저장과 reload
@@ -118,6 +124,9 @@ forward edit, inverse edit, expected_revision. simulation rewind가 아니며 �
 **할 일:** 임시 파일→schema/hash 검사→atomic rename 순서. load는 staging→검사→session barrier→swap이며 정상 world를 먼저 삭제하지 않는다.
 
 **완료 출력:** 새 프로세스에서 scene 설정 roundtrip.
+
+**2026-10-08 구현 결정:** `.flyworld` schema1/kind=scene_settings. objects·environment·participant spawn과 descriptor/source asset SHA256을 저장한다. Python은 strict JSON·schema·hash·단위·용량·fly/spawn overlap을 검증하고 candidate를 만든 뒤 stamped paused owner boundary에서 교체한다. interactive pause에서는 기존 edit과 scene 요청을 drain하며, deterministic pause에서는 scene 요청만 허용한다(다른 편집 정책은 유지). `export_scene` ACK의 canonical text/hash를 Swift가 검증한 뒤 임시 파일→재검사→atomic rename한다. 성공 load는 undo/선택·runtime 도구를 정리하며 fly/neural time은 유지한다. [완료 보고서](../reports/V6_COMPLETION_REPORT.md)·[future state](../reports/V6_FUTURE_STATE_INVENTORY.md).
+
 
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V6.7` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 
@@ -146,14 +155,14 @@ mesh/heightfield, 공간 날씨 field, full session restore는 후속 버전이�
 
 ## 9. 완료 체크리스트
 
-- [ ] 위 구현 단계와 각 출력이 모두 존재한다.
-- [ ] schema/단위/상태 소유권과 실제 코드가 일치한다.
-- [ ] 버전별 정상·실패 검사와 필요한 기존 회귀가 실제 exit 0이다.
-- [ ] 실제 backend와 새 GUI 프로세스의 사용자 동선을 확인했다. headless를 GUI 검증으로 표시하지 않았다.
-- [ ] 저장/기록/큐/모듈 상태를 추가했다면 snapshot/cleanup inventory도 갱신했다.
-- [ ] 성능 기준 및 실제 측정, unsupported/제약이 Viewer와 문서에 일치한다.
-- [ ] 기존 사용자 변경을 보존했고 실행한 프로세스/시험 자원을 정리했다.
-- [ ] `docs/reports/V6_COMPLETION_REPORT.md`에 명령/exit/로그/파일/한계/rollback을 남겼다.
+- [x] 위 구현 단계와 각 출력이 모두 존재한다.
+- [x] schema/단위/상태 소유권과 실제 코드가 일치한다.
+- [x] 버전별 정상·실패 검사와 필요한 기존 회귀가 실제 exit 0이다.
+- [x] 실제 backend와 새 GUI 프로세스의 사용자 동선을 확인했다. headless를 GUI 검증으로 표시하지 않았다.
+- [x] 저장/기록/큐/모듈 상태를 추가했다면 snapshot/cleanup inventory도 갱신했다.
+- [x] 성능 기준 및 실제 측정, unsupported/제약이 Viewer와 문서에 일치한다.
+- [x] 기존 사용자 변경을 보존했고 실행한 프로세스/시험 자원을 정리했다.
+- [x] `docs/reports/V6_COMPLETION_REPORT.md`에 명령/exit/로그/파일/한계/rollback을 남겼다.
 
 ## 10. 다음 버전에 넘길 내용
 

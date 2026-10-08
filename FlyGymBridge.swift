@@ -1055,6 +1055,7 @@ final class FlyGymBridge {
                                        epoch: state.epoch,
                                        simTick: state.simTick,
                                        edit: state.edit,
+                                       scene: state.scene,
                                        receivedAt: receivedAt,
                                        connectionGeneration: generation))
             }

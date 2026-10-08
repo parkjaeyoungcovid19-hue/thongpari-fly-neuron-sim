@@ -1,0 +1,123 @@
+Window: "Virtual Fly Lab", App: Thongpari Virtual Fly Lab.
+0 표준 윈도우 Virtual Fly Lab – Live · Running, Secondary Actions: Raise
+	1 자르기 그룹
+		2 스크롤 영역
+			3 표 Lab sections
+				4 row (selectable)
+					5 셀
+						6 이미지
+						7 텍스트 World
+				8 row (selected)
+					9 셀 (selected)
+						10 이미지 미풍
+						11 텍스트 Stimuli
+				12 row (selectable)
+					13 셀
+						14 이미지
+						15 텍스트 Brain
+				16 row (selectable)
+					17 셀
+						18 이미지
+						19 텍스트 Data
+				20 row (selectable)
+					21 셀
+						22 이미지
+						23 텍스트 Experiment
+		24 자르기 도구 (disabled, settable, float) 168
+		25 텍스트 Camera
+		26 팝업 버튼 Follow fly
+		27 버튼 Reset camera
+		28 텍스트 3D world — snapshot #1737 · rev 6 · tick 23130 · 4 objects
+		29 알 수 없음 Description: Fly mood (estimate), Help: A simple rule-based mood, not a measurement of feelings. Food nearby → happy; cold, heat or a hard hit → sad; being hit → angry; something looming or an escape → scared.
+			30 text 😨 Scared escape neuron (GF) fired Estimated from senses & behaviour
+		31 text Timeline t3405  #5 edit_property — applied @t3405
+t3405  #6 edit_property — applied @t3405
+t3405  #7 edit_property — applied @t3405
+t3405  session resume requested — local
+t3405  event scene_loaded — @3405 ms — backend event body 9 ms old · speed 0.0037 m/s · contact 0.83 · eye sample t23090 · loom L/R 0.297/0.012 · brain 1.9 Hz Live — headless backend :60022 · body feedback 33 Hz · sim/wall 0.67x Not recording
+		32 자르기 도구 (disabled, settable, float) 777
+		33 스크롤 영역 Secondary Actions: Scroll Up, Scroll Down
+			34 text Now at the fly At the fly  x 54.4 · y 54.5 mm · facing 53° · body t 23.150 s (9 ms ago)
+Temperature  28.0 °C (record only) · receptor current warm 0.000 / cool 0.000 · TRN 0.0 / 0.0 Hz
+Wind  strength 0.20 toward 90° = forward-left (+37° from facing) · JO-C/E current 0.010 / 0.001 · 0.0 / 0.0 Hz
+Light  eye brightness L 0.22 / R 0.53 (eye image t23090) · flash 0.00 / 0.00
+Food  odor L 0.000 / R 0.000 · nearest 253.0 mm · taste sugar 0.00 · ORN 0.0 / 0.0 Hz
+			35 버튼 About, Description: 앞으로, Value: Collapsed
+			36 text Temperature SENSORY MODEL °C
+			37 슬라이더 (settable, float) 28
+				38 값 표시기 (settable, float) 28
+			39 텍스트 필드 (settable) 28
+			40 텍스트 Mode
+			41 팝업 버튼 record only
+			42 text Applied: 28.0 °C · record only Redid Temperature (while paused)
+			43 버튼 About, Description: 앞으로, Value: Collapsed
+			44 text Wind SENSORY MODEL Strength 0–1
+			45 슬라이더 (settable, float) 0.2
+				46 값 표시기 (settable, float) 0.2
+			47 텍스트 필드 (settable) 0.2
+			48 텍스트 Direction (°)
+			49 슬라이더 (settable, float) Description: Wind direction dial, Help: Points where the wind blows, seen from above: right = +X, up = +Y, Value: 0
+				50 값 표시기 (settable, float) 0
+			51 텍스트 필드 (settable) 90
+			52 체크상자 Push the body (physics), Value: 0
+			53 체크상자 Antenna wind sense (JO-C/E), Value: 1
+			54 버튼 Blow continuously
+			55 버튼 Stop wind
+			56 text Applied: strength 0.20 · toward 90° · continuous · antenna sense Puff (ms)
+			57 텍스트 필드 (settable) 500
+			58 버튼 Blow once
+			59 버튼 About, Description: 앞으로, Value: Collapsed
+			60 text Light SENSORY MODEL Left eye cover
+			61 슬라이더 (settable, float) Description: Left eye cover amount, Value: 0.6
+				62 값 표시기 (settable, float) 0.6
+			63 text 60% Right eye cover
+			64 슬라이더 (settable, float) Description: Right eye cover amount, Value: 0
+				65 값 표시기 (settable, float) 0
+			66 text 0% Applied: left eye 60% covered · right eye 0% covered Flash
+			67 팝업 버튼 Left eye
+			68 텍스트 Intensity 0–1
+			69 텍스트 필드 (settable) 1.0
+			70 텍스트 Duration (ms)
+			71 텍스트 필드 (settable) 100
+			72 버튼 Flash
+			73 버튼 About, Description: 앞으로, Value: Collapsed
+			74 text Food SENSORY MODEL Food 1 of 8 — apple Kind
+			75 팝업 버튼 apple
+			76 버튼 Place 15 mm in front of the fly
+			77 버튼 About, Description: 앞으로, Value: Collapsed
+			78 text Touch PHYSICAL Body part
+			79 팝업 버튼 Thorax
+			80 텍스트 Strength 0–1
+			81 텍스트 필드 (settable) 0.55
+			82 텍스트 Duration (ms)
+			83 텍스트 필드 (settable) 150
+			84 버튼 Apply touch
+			85 버튼 Reset stimuli
+			86 버튼 About, Description: 앞으로, Value: Collapsed
+			87 스크롤 막대 (settable, float) 0
+				88 값 표시기 (settable, float) 0
+				89 화살표 증가 버튼
+				90 화살표 감소 버튼
+				91 페이지 증가 버튼
+				92 페이지 감소 버튼
+	93 도구 막대
+		94 버튼 Description: 사이드바, Help: 사이드바 가리기, Secondary Actions: 다음으로 이동
+		95 Mode
+			96 라디오 버튼 Description: Observe, Value: 1
+			97 라디오 버튼 Description: Participate, Value: 0
+			98 라디오 버튼 Description: Edit, Value: 0
+		99 버튼 Description: Pause / Resume, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		100 버튼 Description: Record, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		101 팝업 버튼 Description: Language, Help: Interface language — English or Korean, Value: English, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		102 버튼 Description: 인스펙터, Help: 인스펙터 가리기, Secondary Actions: 이전으로 이동, 도구 막대에서 제거
+	103 닫기 버튼
+	104 전체 화면 버튼 Help: 이 버튼을 누르면 윈도우를 확대/축소합니다., Secondary Actions: 윈도우 확대/축소
+	105 최소화 버튼
+	106 text Virtual Fly Lab Live · Running
+107 menu bar
+	108 Thongpari Virtual Fly Lab
+	109 Edit
+	110 Language
+	111 Window
+
+The focused UI element is 28 텍스트 3D world — snapshot #1737 · rev 6 · tick 23130 · 4 objects

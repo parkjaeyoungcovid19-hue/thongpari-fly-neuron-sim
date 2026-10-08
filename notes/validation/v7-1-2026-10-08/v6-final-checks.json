@@ -1,0 +1,22 @@
+[
+  {
+    "test": "test_v6_4_terrain.py",
+    "exit": 0,
+    "seconds": 0.35
+  },
+  {
+    "test": "test_v6_4_terrain_real.py",
+    "exit": 0,
+    "seconds": 19.07
+  },
+  {
+    "test": "test_world_editor.py",
+    "exit": 0,
+    "seconds": 0.3
+  },
+  {
+    "test": "test_world_editor_real.py",
+    "exit": 0,
+    "seconds": 4.39
+  }
+]

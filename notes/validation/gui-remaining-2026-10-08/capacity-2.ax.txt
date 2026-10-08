@@ -1,0 +1,19 @@
+The following is a diff from the previous accessibility tree for Window: "Virtual Fly Lab" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~0 표준 윈도우 Virtual Fly Lab – 실시간 · 일시 정지, Secondary Actions: Raise
+~		28 텍스트 3D 화면 — 시각 45765 ms · 물체 3개
+~		31 text 타임라인 — 최근 명령과 반응 t20  session resume requested — 앱 안에서 처리
+t745  event 파리 입이 사과 gui_snack에 닿음 — 시뮬레이터 알림
+t1025  event 파리 입이 gui_snack에서 떨어짐 · 입 접촉 0.28초 — 시뮬레이터 알림
+t45745  session pause requested — 앱 안에서 처리
+t45765  #13 spawn_food gui_capacity2 — 요청함 몸 데이터 0 ms 전 · 속도 0.0000 m/s · 발 닿음 0.00 · 눈 샘플 t-1 · 다가옴 감지 L/R 0.003/0.053 · 뇌 활동 1.8 Hz 실시간 — 시뮬레이터(headless) :54572 · 몸 데이터 초당 0회 ● 기록 중 05:24 → experiment-20261008-190025
+~			113 text 선택한 대상 보기 — 관찰 · 파리 fly · 참여자 없음 · 물체 gui_snack · 시뮬레이션 시각 45765 ms · 일시 정지
+~			123 텍스트 필드 (settable) Value: gui_capacity2, Placeholder: 자동
+~			126 텍스트 필드 (settable) 54
+~			128 텍스트 필드 (settable) -40
+~			137 text 물체 상태 — ‘gui_capacity2’ 만들기 요청 보냄… 물체 수 (사용/최대) — box 1/64 · sphere 0/64 · wall 0/64 · ramp 0/4 · food 1/8 · car 1/4 · trap 0/2 gui_car · 장난감 자동차 · 14 mm
+gui_snack · 먹이 · 사과
+obstacle_box · 상자
+~			139 text 장난감 물리 선택한 물체 — 위 ‘이름’ 칸에 자동차나 함정 이름을 적거나 3D 화면에서 고르세요 속도 (mm/s)
+~			169 text 참여 조작 — 입력 거절됨: session paused E: 조준한 물체 집기 비비탄총 — 참여 모드에서 사용
+~	106 text Virtual Fly Lab 실시간 · 일시 정지
+The focused UI element is 128 텍스트 필드 (settable) -40

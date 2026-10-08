@@ -1,0 +1,144 @@
+Window: "Virtual Fly Lab", App: Thongpari Virtual Fly Lab.
+0 표준 윈도우 Virtual Fly Lab – Live · Running, Secondary Actions: Raise
+	1 자르기 그룹
+		2 스크롤 영역
+			3 표 Lab sections
+				4 row (selectable)
+					5 셀
+						6 이미지
+						7 텍스트 World
+				8 row (selectable)
+					9 셀
+						10 이미지 미풍
+						11 텍스트 Stimuli
+				12 row (selectable)
+					13 셀
+						14 이미지
+						15 텍스트 Brain
+				16 row (selected)
+					17 셀 (selected)
+						18 이미지
+						19 텍스트 Data
+				20 row (selectable)
+					21 셀
+						22 이미지
+						23 텍스트 Experiment
+		24 자르기 도구 (disabled, settable, float) 168
+		25 텍스트 Camera
+		26 팝업 버튼 Follow fly
+		27 버튼 Reset camera
+		28 텍스트 3D world — snapshot #735 · rev 1 · tick 48285 · 1 objects
+		29 알 수 없음 Description: Fly mood (estimate), Help: A simple rule-based mood, not a measurement of feelings. Food nearby → happy; cold, heat or a hard hit → sad; being hit → angry; something looming or an escape → scared.
+			30 text 🙂 Calm nothing unusual Estimated from senses & behaviour
+		31 text Timeline t48325 · No commands yet — stimuli, markers and their ACKs appear here body 9 ms old · speed 0.0042 m/s · contact 0.83 · eye sample t48185 · loom L/R 0.176/0.002 · brain 1.6 Hz Live — headless backend :61757 · body feedback 35 Hz · sim/wall 0.71x Not recording
+		32 자르기 도구 (disabled, settable, float) 536
+		33 스크롤 영역 Secondary Actions: Scroll Up, Scroll Down
+			34 텍스트 Activity cards (read-only)
+			35 버튼 Description: Arousal, Value: 0.16 0–1, MODEL INDEX, Help: BrainSignals.arousal — whole-brain mean rate scaled to 0–1 by SignalBuilder
+Overall network activity. An engineering index of the simulation, not a feeling or thought of the fly.
+				36 텍스트 Arousal
+			37 버튼 Description: Looming threat, Value: 0.23 0–1, MODEL INDEX, Help: BrainSignals.nervous — LC4/LPLC2 looming-detector rate scaled to 0–1
+Visual threat-related activity; it does not mean the fly feels fear. An engineering index of the simulation, not a feeling or thought of the fly.
+				38 텍스트 Looming threat
+			39 버튼 Description: Walk drive, Value: 0.17 0–1.3, MODEL INDEX, Help: BrainSignals.walkDrive — from the DNp09 rate
+Forward-walking command sent to the body; a command, not proof the body moved. An engineering index of the simulation, not a feeling or thought of the fly.
+				40 텍스트 Walk drive
+			41 버튼 Description: Turn bias, Value: -0.43 −1…1, MODEL INDEX, Help: BrainSignals.turnBias — DNa01/02 left−right rate difference minus its slow baseline
+Steering command sent to the body. An engineering index of the simulation, not a feeling or thought of the fly.
+				42 텍스트 Turn bias
+			43 버튼 Description: Grooming drive, Value: 0.08 0–1.5, MODEL INDEX, Help: BrainSignals.groomDrive — from the DNg11 rate
+Grooming command sent to the body. An engineering index of the simulation, not a feeling or thought of the fly.
+				44 텍스트 Grooming drive
+			45 버튼 Description: Sleep gate, Value: no on/off, MODEL INDEX, Help: BrainSignals.sleep — circadian curve and user idle time
+A behaviour-model switch, not a measured fatigue or need for rest. An engineering index of the simulation, not a feeling or thought of the fly.
+				46 텍스트 Sleep gate
+			47 버튼 Description: Giant fiber spike, Value: no this frame, MEASURED · simulated spikes, Help: BrainSignals.escape — the GF (DNp01) spiked since the previous readout
+A single escape-pathway spike event in the simulation; it does not mean fear.
+				48 텍스트 Giant fiber spike
+			49 버튼 Description: Whole-brain rate, Value: 1.64 Hz/neuron, MEASURED · simulated spikes, Help: LabTelemetry.ratePop — MetalSim population rate
+Exact simulated spike counts per neuron, smoothed by an approximately 120 ms simulation-time EMA. Not an animation count or real-fly recording.
+				50 텍스트 Whole-brain rate
+			51 버튼 Description: LC4/LPLC2 (loom), Value: 25.9 Hz/neuron, MEASURED · simulated spikes, Help: LabTelemetry.rateLoom — MetalSim LC4/LPLC2 rate
+Exact simulated spike counts per neuron, smoothed by an approximately 120 ms simulation-time EMA. Not an animation count or real-fly recording.
+				52 텍스트 LC4/LPLC2 (loom)
+			53 버튼 Description: DNa01/02 left, Value: 29.3 Hz/neuron, MEASURED · simulated spikes, Help: LabTelemetry.rateDNaL — MetalSim DNa left rate
+Exact simulated spike counts per neuron, smoothed by an approximately 120 ms simulation-time EMA. Not an animation count or real-fly recording.
+				54 텍스트 DNa01/02 left
+			55 버튼 Description: DNa01/02 right, Value: 47.9 Hz/neuron, MEASURED · simulated spikes, Help: LabTelemetry.rateDNaR — MetalSim DNa right rate
+Exact simulated spike counts per neuron, smoothed by an approximately 120 ms simulation-time EMA. Not an animation count or real-fly recording.
+				56 텍스트 DNa01/02 right
+			57 버튼 Description: MDN (backward), Value: 16.2 Hz/neuron, MEASURED · simulated spikes, Help: LabTelemetry.rateMDN — MetalSim MDN rate
+Exact simulated spike counts per neuron, smoothed by an approximately 120 ms simulation-time EMA. Not an animation count or real-fly recording.
+				58 텍스트 MDN (backward)
+			59 버튼 Description: Food-odour ORN left, Value: 0.0 Hz/neuron, MEASURED · simulated spikes, Help: LabTelemetry.rateFoodOdorL — receptor-group rate of the FlyWire ORN food group
+Exact simulated spike counts per neuron, smoothed by an approximately 120 ms simulation-time EMA. Not an animation count or real-fly recording. Smelling food is a sensory input, not hunger.
+				60 텍스트 Food-odour ORN left
+			61 버튼 Description: Food-odour ORN right, Value: 0.0 Hz/neuron, MEASURED · simulated spikes, Help: LabTelemetry.rateFoodOdorR — receptor-group rate of the FlyWire ORN food group
+Exact simulated spike counts per neuron, smoothed by an approximately 120 ms simulation-time EMA. Not an animation count or real-fly recording. Smelling food is a sensory input, not hunger.
+				62 텍스트 Food-odour ORN right
+			63 버튼 Description: Sugar taste GRN, Value: 0.0 Hz/neuron, MEASURED · simulated spikes, Help: LabTelemetry.rateSugarGRN — 21 identified v783 sugar GRNs (eonsystemspbc/fly-brain), sampled on alternate 32 ms windows
+Exact counts within alternate 32 ms coverage windows per neuron. EMA is approximately 120 ms of counted steps (about 240 ms of elapsed simulation time); held outside its window. Not a continuous trace or animation count. Driven only while the fly's mouth touches food (modelled sugar content).
+				64 텍스트 Sugar taste GRN
+			65 버튼 Description: MN9 (proboscis motor), Value: 2.8 Hz/neuron, MEASURED · simulated spikes, Help: LabTelemetry.rateMN9 — 2 identified v783 MN9 cells, read-only
+Exact counts within alternate 32 ms coverage windows per neuron. EMA is approximately 120 ms of counted steps (about 240 ms of elapsed simulation time); held outside its window. Not a continuous trace or animation count. The body has no proboscis actuator; this is the network's response only.
+				66 텍스트 MN9 (proboscis motor)
+			67 버튼 Description: Hunger, Value: Unsupported , UNSUPPORTED, Help: None — no internal energy/satiety model exists yet (planned for V11).
+Not modelled. No value is estimated from odour or any other signal.
+				68 text Hunger
+			69 텍스트 Whole-brain rate — MEASURED · simulated spikes: 1.64 Hz/neuron
+Source: LabTelemetry.ratePop — MetalSim population rate
+Exact simulated spike counts per neuron, smoothed by an approximately 120 ms simulation-time EMA. Not an animation count or real-fly recording.
+			70 버튼 About, Description: 앞으로, Value: Collapsed
+			71 text Signal path 1  Source → sensor     food none → odor 0.000/0.000  |  vision expansion 0.000/0.000 → loom 0.147/0.002  |  wind 0.00  |  touch 0.00  |  temp 25.0°C
+2  Sensor → current    ORN food 0.000/0.000  |  TRN warm/cool 0.000/0.000  |  JO-C/E wind 0.000/0.000  (simulation current units)
+3  Receptor → brain    ORN L/R 0.0/0.0 Hz  |  TRN warm/cool 0.0/0.0  |  JO-C/E 0.0/0.0  |  loom 19.0  |  DNa L/R 41.0/41.1  |  DNp09 24.5
+4  BrainSignals → FlyGym controller    walk 0.44  |  turn 0.31  |  escape OFF  |  back OFF  |  groom 0.22  |  wing 1.30  |  arousal 0.18  |  nervous 0.17  |  tempo 1.00  |  sleep OFF  |  controller L/R 0.015/0.039
+5  Measured motion     forward 0.0039 m/s  |  yaw -1.09 rad/s  |  contact 0.83  |  body packet 21 ms old · MuJoCo t 48.385 s · sim/wall 0.72x
+			72 버튼 About, Description: 앞으로, Value: Collapsed
+			73 텍스트 Brain rate (Hz/neuron)
+			74 버튼 About, Description: 앞으로, Value: Collapsed
+			75 텍스트 Descending rates (Hz/neuron)
+			76 버튼 About, Description: 앞으로, Value: Collapsed
+			77 텍스트 Compact sensory inputs
+			78 버튼 About, Description: 앞으로, Value: Collapsed
+			79 text FlyWire sensory groups Food odor — left 0.000 · right 0.000 · nearest source: none · ORN 0.0/0.0 Hz
+Taste — not eating · sugar GRN 0.0 Hz · MN9 2.8 Hz
+			80 버튼 About, Description: 앞으로, Value: Collapsed
+			81 text Body Movement — speed 0.0042 m/s · turn -0.95 rad/s · contact 0.83
+			82 버튼 About, Description: 앞으로, Value: Collapsed
+			83 text Rendered-eye vision Vision — expansion L/R 0.000/0.000 · brightness L/R 0.553/0.565 · raw-eye sample tick 48185 ms · 140 ms old
+			84 버튼 About, Description: 앞으로, Value: Collapsed
+			85 text Connection Environment — 48.0 s · 1 object · wind 0.00 · 25.0°C · left eye open · right eye open Packets — body FRESH 12 ms · environment FRESH 487 ms Brain state — sleep OFF · sensoryGate ×1.00
+sent: none
+ack: none yet
+queue 0
+			86 버튼 Clear graphs
+			87 스크롤 막대 (settable, float) 0
+				88 값 표시기 (settable, float) 0
+				89 화살표 증가 버튼
+				90 화살표 감소 버튼
+				91 페이지 증가 버튼
+				92 페이지 감소 버튼
+	93 도구 막대
+		94 버튼 Description: 사이드바, Help: 사이드바 가리기, Secondary Actions: 다음으로 이동
+		95 방식
+			96 라디오 버튼 Description: Observe, Value: 1
+			97 라디오 버튼 Description: Participate, Value: 0
+			98 라디오 버튼 Description: Edit, Value: 0
+		99 버튼 Description: Pause / Resume, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		100 버튼 Description: 인스펙터, Help: 인스펙터 가리기, Secondary Actions: 이전으로 이동, 도구 막대에서 제거
+		101 팝업 버튼 추가 도구 막대 항목
+	102 닫기 버튼
+	103 전체 화면 버튼 Help: 이 버튼을 누르면 윈도우를 확대/축소합니다., Secondary Actions: 윈도우 확대/축소
+	104 최소화 버튼
+	105 text Virtual Fly Lab Live · Running
+106 menu bar
+	107 Thongpari Virtual Fly Lab
+	108 Edit
+	109 Language
+	110 Window
+
+Selected:
+	16 row (selected)
+
+Note: Pay special attention to the content selected by the user. If the user asks a question or refers to the content they are looking at on-screen, they might be referring to the selected content (but they might be referring to something else that's visible, too).

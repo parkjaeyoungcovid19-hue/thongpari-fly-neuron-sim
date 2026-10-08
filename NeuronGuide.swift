@@ -169,9 +169,9 @@ enum NeuronGuide {
         rows.append((feedbackColor, L("Body feedback & wind/tap input", "몸 감각·바람/두드림 입력"),
                      L("Leg-stepping feedback and the older wind/tap input channel.",
                        "다리 딛는 느낌과 예전 방식의 바람/두드림 입력 뉴런입니다.")))
-        rows.append((rgb(0.75, 0.95, 1.0), L("Flash = a spike", "반짝임 = 발화"),
-                     L("A neuron sending a signal right now.",
-                       "지금 막 신호를 보낸 뉴런입니다.")))
+        rows.append((rgb(0.75, 0.95, 1.0), L("Flash = sampled spike", "반짝임 = 표본 발화"),
+                     L("A retained sample of simulated firing; incomplete counts and wall-time fading, not exact spike timing.",
+                       "시뮬레이션 발화 중 남은 표본입니다. 일부가 빠지고 실제 시간에 따라 사라져 정확한 발화 횟수·시각은 아닙니다.")))
         rows.append((NSColor.tertiaryLabelColor, L("Faint dots = all other neurons", "흐린 점 = 나머지 뉴런"),
                      L("The rest of the 139,255 neurons, tinted by broad class; overall activity reads as arousal.",
                        "나머지 약 13만 9천 개 뉴런으로, 큰 분류별로 색이 다릅니다. 전체가 얼마나 활발한지가 ‘흥분도’로 쓰입니다.")))

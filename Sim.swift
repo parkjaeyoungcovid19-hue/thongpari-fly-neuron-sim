@@ -10,9 +10,9 @@ import simd
 struct BrainSignals {
     var escape = false        // giant fiber spiked -> takeoff NOW
     var nervous: CGFloat = 0  // looming-detector population rate, 0..1
-    var turnBias: CGFloat = 0 // rad/s steering from DNa01/DNa02 left-right rate difference
+    var turnBias: CGFloat = 0 // dimensionless −1...1 steering input from the adapted DNa rate difference
     var backward = false      // MDN burst -> backward walking
-    var walkDrive: CGFloat = 0  // DNp09 forward-walking command rate, ~0..1.5
+    var walkDrive: CGFloat = 0  // DNp09 normalized forward-walking command, 0..1.3
     var groomDrive: CGFloat = 0 // DNg11 grooming command rate, ~0..1.5
     var wingDrive: CGFloat = 0  // DNp02/04/11 escape-maneuver DN rate, ~0..1.3
     var arousal: CGFloat = 0    // whole-population activity, ~0..1
@@ -20,7 +20,8 @@ struct BrainSignals {
     var sleep = false           // circadian + idle -> sleep-like state
 }
 
-// Thread-safe spike hand-off from the sim (fly render loop) to the brain window.
+// Lossy, presentation-only hand-off. No simulation tick or loss count; never
+// use this bus for exact counts/rates or latency. push drops old display events.
 final class SpikeBus {
     private let lock = NSLock()
     private var events: [(neuron: Int, isGF: Bool)] = []

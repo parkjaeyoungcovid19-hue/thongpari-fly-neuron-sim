@@ -1,0 +1,74 @@
+{
+  "head": {
+    "command": [
+      "git",
+      "rev-parse",
+      "HEAD"
+    ],
+    "exit_code": 0,
+    "stdout": "7cea100afb9b347f4fd24c354f9523eab6df00d8\n",
+    "stderr": ""
+  },
+  "codesign": {
+    "command": [
+      "codesign",
+      "--verify",
+      "--deep",
+      "--strict",
+      "/Users/apgx/.codex/visualizations/2026/10/07/01a116f3-6bf3-7f13-ac54-ab981b63e47b/Thongpari Virtual Fly Lab.app"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "os": {
+    "command": [
+      "sw_vers"
+    ],
+    "exit_code": 0,
+    "stdout": "ProductName:\t\tmacOS\nProductVersion:\t\t26.6.2\nBuildVersion:\t\t25G83\n",
+    "stderr": ""
+  },
+  "hardware": {
+    "command": [
+      "sysctl",
+      "-n",
+      "hw.model",
+      "hw.memsize"
+    ],
+    "exit_code": 0,
+    "stdout": "Mac14,2\n8589934592\n",
+    "stderr": ""
+  },
+  "processes": {
+    "command": [
+      "ps",
+      "-axo",
+      "pid,ppid,command"
+    ],
+    "exit_code": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  "ports": {
+    "command": [
+      "lsof",
+      "-nP",
+      "-iTCP:54572",
+      "-iTCP:54573",
+      "-iTCP:55389",
+      "-iTCP:55390",
+      "-sTCP:LISTEN"
+    ],
+    "exit_code": 1,
+    "stdout": "",
+    "stderr": ""
+  },
+  "hashes": {
+    "/Users/apgx/.codex/visualizations/2026/10/07/01a116f3-6bf3-7f13-ac54-ab981b63e47b/Thongpari Virtual Fly Lab.app/Contents/MacOS/ThongpariFlyNeuronSim": "066a2895ca3a7f8c33836fdb2e5558544637d286b0ec803f52da331344bfef8a",
+    "ThongpariFlyNeuronSim": "f6f6d5b502052a8532747daf46e2edaa5f578fa63473f816785858f548ca0072",
+    "LabWindow.swift": "e1c88ab042a4e6f87c2fad98b0749108fee11207bb77d4435cd8fc35b8025fd2",
+    "LabProtocol.swift": "0d8819919701a52e56f2f2d06aab0d850fe0a2b0b3a53decd2eba086bc9a4be2"
+  },
+  "checked_at": "2026-10-08T19:24:11.220316+09:00"
+}

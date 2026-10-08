@@ -337,24 +337,32 @@ def validate_edit(edit, descriptors):
     if (not _number(revision) or not float(revision).is_integer()
             or not 0 <= revision <= MAX_REVISION):
         raise EditError("edit.expected_revision", "must be a nonnegative integer")
-    value, kind = edit["value"], d["value_type"]
+    return d, check_value(d, edit["value"], "edit.value")
+
+
+def check_value(d, value, path):
+    """Strict descriptor value check shared by edits and V6.7 scene files:
+    no clamping or coercion. Returns numbers as float; raises EditError at
+    `path` (or `path[i]` for a vector component)."""
+    kind = d["value_type"]
     if kind == "number":
         if not _number(value) or not d["min"] <= value <= d["max"]:
-            raise EditError("edit.value", f"must be a finite number in [{d['min']}, {d['max']}]")
-        value = float(value)
-    elif kind == "vector":
+            raise EditError(path, f"must be a finite number in [{d['min']}, {d['max']}]")
+        return float(value)
+    if kind == "vector":
         if not isinstance(value, list) or len(value) != len(d["min"]):
-            raise EditError("edit.value", f"must be a {len(d['min'])}-vector")
+            raise EditError(path, f"must be a {len(d['min'])}-vector")
         for i, (v, lo, hi) in enumerate(zip(value, d["min"], d["max"])):
             if not _number(v) or not lo <= v <= hi:
-                raise EditError(f"edit.value[{i}]", f"must be a finite number in [{lo}, {hi}]")
-        value = [float(v) for v in value]
-    elif kind == "boolean":
+                raise EditError(f"{path}[{i}]", f"must be a finite number in [{lo}, {hi}]")
+        return [float(v) for v in value]
+    if kind == "boolean":
         if not isinstance(value, bool):
-            raise EditError("edit.value", "must be a boolean")
-    elif not isinstance(value, str) or value not in d["choices"]:
-        raise EditError("edit.value", "must be one of the descriptor choices")
-    return d, value
+            raise EditError(path, "must be a boolean")
+        return value
+    if not isinstance(value, str) or value not in d["choices"]:
+        raise EditError(path, "must be one of the descriptor choices")
+    return value
 
 
 def environment_capabilities(touch_targets=None):

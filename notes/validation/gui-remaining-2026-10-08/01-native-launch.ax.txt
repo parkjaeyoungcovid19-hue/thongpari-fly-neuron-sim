@@ -1,0 +1,19 @@
+The following is a diff from the previous accessibility tree for Window: "Virtual Fly Lab" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+Removed element IDs: 28
+~0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise
+~		26 팝업 버튼 파리 따라가기
++		123 텍스트 3D 화면 — 시각 2405 ms · 물체 1개
+~			30 text 😨 겁남 비상 탈출 뉴런(GF)이 켜졌어요 감각·행동 신호로 만든 추정
+~		31 text 타임라인 — 최근 명령과 반응 아직 명령이 없습니다 — 자극, 구간 표시와 그 결과가 여기에 나타납니다 몸 데이터 73 ms 전 · 속도 0.0047 m/s · 발 닿음 0.50 · 눈 샘플 t2425 · 다가옴 감지 L/R 0.230/0.184 · 뇌 활동 1.9 Hz 실시간 — 시뮬레이터(headless) :54572 · 몸 데이터 초당 12회 · 실시간 대비 0.40배 · 느림: 몸 데이터가 초당 30회 미만 기록 안 함
+~			34 text 선택한 대상 보기 — 관찰 · 파리 fly · 참여자 없음 · 물체 없음 · 시뮬레이션 시각 2445 ms · 실행 중
+~			37 버튼 장면 저장…
+~			38 버튼 장면 불러오기…
+~			39 텍스트 장면 설정만 저장합니다 — 체크포인트 아님
+~			58 text 물체 상태 — 준비됨 물체 수 (사용/최대) — box 1/64 · sphere 0/64 · wall 0/64 · ramp 0/4 · food 0/8 · car 0/4 · trap 0/2 obstacle_box · 상자
+~			90 text 참여 조작 — 관찰 모드입니다. 카메라는 보는 방향만 바꾸고 세계에는 영향을 주지 않습니다 E: 조준한 물체 집기 비비탄총 — 참여 모드에서 사용
+~			108 라디오 버튼 Description: 참여, Value: 0
+~	117 text Virtual Fly Lab 실시간 · 실행 중
+Selected:
+	4 row (selected)
+
+Note: Pay special attention to the content selected by the user. If the user asks a question or refers to the content they are looking at on-screen, they might be referring to the selected content (but they might be referring to something else that's visible, too).

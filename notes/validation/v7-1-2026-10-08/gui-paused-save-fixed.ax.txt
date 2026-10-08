@@ -1,0 +1,134 @@
+Window: "Virtual Fly Lab", App: Thongpari Virtual Fly Lab.
+0 표준 윈도우 Virtual Fly Lab – Live · Paused, Secondary Actions: Raise
+	1 자르기 그룹
+		2 스크롤 영역
+			3 표 Lab sections
+				4 row (selected)
+					5 셀 (selected)
+						6 이미지
+						7 텍스트 World
+				8 row (selectable)
+					9 셀
+						10 이미지 미풍
+						11 텍스트 Stimuli
+				12 row (selectable)
+					13 셀
+						14 이미지
+						15 텍스트 Brain
+				16 row (selectable)
+					17 셀
+						18 이미지
+						19 텍스트 Data
+				20 row (selectable)
+					21 셀
+						22 이미지
+						23 텍스트 Experiment
+		24 자르기 도구 (disabled, settable, float) 168
+		25 텍스트 Camera
+		26 팝업 버튼 Follow fly
+		27 버튼 Reset camera
+		28 텍스트 3D world — snapshot #526 · rev 6 · tick 3405 · 4 objects
+		29 알 수 없음 Description: Fly mood (estimate), Help: A simple rule-based mood, not a measurement of feelings. Food nearby → happy; cold, heat or a hard hit → sad; being hit → angry; something looming or an escape → scared.
+			30 text 🙂 Calm nothing unusual Estimated from senses & behaviour
+		31 text Timeline t3385  session pause requested — local
+t3405  #1 load_scene — applied @t3405
+t3405  #2 export_scene — applied @t3405 body 0 ms old · speed 0.0000 m/s · contact 0.00 · eye sample t-1 · loom L/R 0.396/0.079 · brain 1.9 Hz Live — headless backend :60022 · body feedback 0 Hz Not recording
+		32 자르기 도구 (disabled, settable, float) 777
+		33 스크롤 영역 Secondary Actions: Scroll Up, Scroll Down
+			34 text Selection View — OBSERVE · fly fly · player none · object none · tick 3405 ms · PAUSED
+			35 버튼 About, Description: 앞으로, Value: Collapsed
+			36 텍스트 Scene files
+			37 버튼 Save scene…
+			38 버튼 Load scene…
+			39 텍스트 Scene saved: GUI-paused-fixed.flyworld
+			40 버튼 About, Description: 앞으로, Value: Collapsed
+			41 text Selected object editor PHYSICAL Press Edit in the toolbar to move, rotate, resize, tilt, duplicate or delete objects. Place objects PHYSICAL Type
+			42 팝업 버튼 Box
+			43 텍스트 Name
+			44 텍스트 필드 (settable) auto
+			45 체크상자 Create on map click, Value: 0
+			46 텍스트 X (mm)
+			47 텍스트 필드 (settable) 60
+			48 텍스트 Y (mm)
+			49 텍스트 필드 (settable) 0
+			50 텍스트 Z (mm)
+			51 텍스트 필드 (settable) 5
+			52 텍스트 Size (mm)
+			53 텍스트 필드 (settable) 5
+			54 버튼 Create
+			55 버튼 Move
+			56 버튼 Resize
+			57 버튼 Remove
+			58 text Object status — ready Object capacity — box 1/64 · sphere 0/64 · wall 1/64 · ramp 1/4 · food 1/8 · car 0/4 · trap 0/2 food_2 · food · apple
+obstacle_box · box
+v67_ramp · ramp
+v67_wall · wall
+			59 버튼 About, Description: 앞으로, Value: Collapsed
+			60 text Toys PHYSICAL Selected — type or pick a car or trap name above Speed (mm/s)
+			61 텍스트 필드 (settable) 20
+			62 텍스트 Distance (mm)
+			63 텍스트 필드 (settable) 80
+			64 버튼 (disabled) Drive
+			65 버튼 (disabled) Re-arm
+			66 버튼 About, Description: 앞으로, Value: Collapsed
+			67 text Approach the fly PHYSICAL Speed (mm/s)
+			68 텍스트 필드 (settable) 12
+			69 텍스트 Stop at (mm)
+			70 텍스트 필드 (settable) 8
+			71 버튼 Start approach
+			72 버튼 About, Description: 앞으로, Value: Collapsed
+			73 text Participate PHYSICAL Forward
+			74 팝업 버튼 Value: W, ID: forward
+			75 텍스트 Backward
+			76 팝업 버튼 Value: S, ID: backward
+			77 텍스트 Left
+			78 팝업 버튼 Value: A, ID: left
+			79 텍스트 Right
+			80 팝업 버튼 Value: D, ID: right
+			81 텍스트 Interact
+			82 팝업 버튼 Value: E, ID: interact
+			83 텍스트 BB gun
+			84 팝업 버튼 Value: G, ID: gun
+			85 텍스트 Fire
+			86 팝업 버튼 Value: F, ID: fire
+			87 text Release Esc (fixed) Look sensitivity
+			88 슬라이더 (settable, float) Help: Mouse-look speed while controlling the participant, Value: 0.0015
+				89 값 표시기 (settable, float) 0.0015
+			90 text Participant controls — Observe mode; camera controls remain presentation-only E: grab aimed object BB gun — available in Participate
+			91 버튼 About, Description: 앞으로, Value: Collapsed
+			92 텍스트 Reset
+			93 버튼 World
+			94 버튼 Body
+			95 버튼 Brain
+			96 버튼 Everything
+			97 버튼 About, Description: 앞으로, Value: Collapsed
+			98 스크롤 막대 (settable, float) 0
+				99 값 표시기 (settable, float) 0
+				100 화살표 증가 버튼
+				101 화살표 감소 버튼
+				102 페이지 증가 버튼
+				103 페이지 감소 버튼
+	104 도구 막대
+		105 버튼 Description: 사이드바, Help: 사이드바 가리기, Secondary Actions: 다음으로 이동
+		106 Mode
+			107 라디오 버튼 Description: Observe, Value: 1
+			108 라디오 버튼 Description: Participate, Value: 0
+			109 라디오 버튼 Description: Edit, Value: 0
+		110 버튼 Description: Pause / Resume, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		111 버튼 Description: Record, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		112 팝업 버튼 Description: Language, Help: Interface language — English or Korean, Value: English, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		113 버튼 Description: 인스펙터, Help: 인스펙터 가리기, Secondary Actions: 이전으로 이동, 도구 막대에서 제거
+	114 닫기 버튼
+	115 전체 화면 버튼 Help: 이 버튼을 누르면 윈도우를 확대/축소합니다., Secondary Actions: 윈도우 확대/축소
+	116 최소화 버튼
+	117 text Virtual Fly Lab Live · Paused
+118 menu bar
+	119 Thongpari Virtual Fly Lab
+	120 Edit
+	121 Language
+	122 Window
+
+Selected:
+	4 row (selected)
+
+Note: Pay special attention to the content selected by the user. If the user asks a question or refers to the content they are looking at on-screen, they might be referring to the selected content (but they might be referring to something else that's visible, too).

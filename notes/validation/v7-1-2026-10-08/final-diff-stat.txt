@@ -1,0 +1,30 @@
+ ActivityCards.swift                     |  26 ++--
+ BrainView.swift                         |  10 +-
+ EnvironmentPanel.swift                  |  29 +++--
+ EnvironmentPanelDiagnostics.swift       |  14 +++
+ EnvironmentProperty.swift               |   7 +-
+ FlyGymBridge.swift                      |   1 +
+ FlyGymService.swift                     |  15 ++-
+ LIF.metal                               |   4 +-
+ LabDiagnostics.swift                    |  18 +++
+ LabProtocol.swift                       |  22 +++-
+ LabViewState.swift                      |   8 +-
+ LabWindow.swift                         | 211 ++++++++++++++++++++++++++++----
+ NeuronGuide.swift                       |   6 +-
+ README.md                               |  14 ++-
+ Sim.swift                               |   7 +-
+ Virtual Fly Lab.command                 |   2 +-
+ WorldEditor.swift                       |  11 +-
+ WorldEditorDiagnostics.swift            |   1 +
+ build.sh                                |   4 +-
+ docs/plans/VIRTUAL_FLY_LAB_V6_PLAN.md   |  27 ++--
+ docs/plans/VIRTUAL_FLY_LAB_V7_PLAN.md   |   4 +-
+ docs/reports/V6_PROGRESS.md             |  24 ++--
+ flygym_bridge/bridge.py                 |  67 ++++++++--
+ flygym_bridge/environment_properties.py |  32 +++--
+ flygym_bridge/lab_world.py              | 127 ++++++++++++++++++-
+ flygym_bridge/protocol.py               |  22 ++++
+ flygym_bridge/test_environment_edits.py |   3 +-
+ main.swift                              |   6 +
+ package_app.sh                          |  18 ++-
+ 29 files changed, 622 insertions(+), 118 deletions(-)

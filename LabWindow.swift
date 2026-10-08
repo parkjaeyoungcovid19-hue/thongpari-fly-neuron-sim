@@ -1,6 +1,7 @@
 // LabWindow.swift — AppKit Virtual Fly Lab integrated control/telemetry window.
 
 import Cocoa
+import UniformTypeIdentifiers
 
 private final class LabArenaPlacementView: NSView {
     var onPick: ((Double, Double) -> Void)?
@@ -347,6 +348,13 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private var lastEventReceivedAt: Date?
     private var backendDetail = ""
     private var viewerFrameStale = false
+    /// V6.6 undo/redo of applied settings (Edit ▸ Undo, ⌘Z).
+    private let sceneStatus = NSTextField(wrappingLabelWithString: L("Scene settings only — not a checkpoint", "장면 설정만 저장합니다 — 체크포인트 아님"))
+    private var sceneStatusRender: (() -> String)?
+    private var saveSceneButton: NSButton?
+    private var loadSceneButton: NSButton?
+    private var pendingScene: (id: Int, url: URL?, generation: UInt64, sessionID: String, epoch: Int, sentAt: Date)?
+    private var editHistory = WorldEditHistory()
     private var pendingCommandSchedules: [Int: LabCommandSchedule] = [:]
     private var lastPickRequestSeq: Int?
     private var lastAppliedPickSeq: Int?
@@ -396,7 +404,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         self.coordinator = coordinator
         self.bridge = bridge
         self.service = service
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
+        let w = LabMainWindow(contentRect: NSRect(x: 0, y: 0, width: 1320, height: 820),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                          backing: .buffered, defer: false)
         w.title = "Virtual Fly Lab"
@@ -406,6 +414,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         PlayerInputFocusPolicy.prepareWindowForCapture(w)
         super.init(window: w)
         w.delegate = self
+        w.worldUndo = { [weak self] direction in self?.stepEditHistory(direction) }
+        w.worldHistory = { [weak self] in self?.editHistory ?? WorldEditHistory() }
         if let connectome, let sim = coordinator.sim, let screen = NSScreen.main {
             brainController = BrainWindowController(connectome: connectome, sim: sim, screen: screen)
         }
@@ -594,6 +604,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     /// canvas instance, camera and selection are never rebuilt.
     private func buildUI() {
         guard let window else { return }
+        sceneStatus.stringValue = sceneStatusRender?() ?? L("Scene settings only — not a checkpoint", "장면 설정만 저장합니다 — 체크포인트 아님")
         canvasHUDs.forEach { $0.removeFromSuperview() }
         canvasHUDs.removeAll()
         for (index, mode) in segmentModes.enumerated() {
@@ -1000,7 +1011,90 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         renderViewState()
     }
 
+    private func sceneMessage(_ text: @autoclosure @escaping () -> String, error: Bool = false) {
+        sceneStatusRender = text
+        sceneStatus.stringValue = text()
+        sceneStatus.textColor = error ? .systemRed : .secondaryLabelColor
+    }
+
+    @objc private func saveScene() {
+        guard pendingScene == nil, let bridge, bridge.connected, bridge.latestLabState()?.worldState?.sceneCapabilities?.supported == true else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "flyworld") ?? .json]
+        panel.nameFieldStringValue = "Scene.flyworld"
+        guard let window else { return }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            self.submitScene(LabCommand(id: 0, action: "export_scene"), url: url)
+        }
+    }
+
+    @objc private func loadScene() {
+        guard pendingScene == nil, bridge?.connected == true, bridge?.latestLabState()?.worldState?.sceneCapabilities?.supported == true else { return }
+        guard coordinator.sessionSnapshot().phase == .paused else {
+            sceneMessage(L("Pause the simulation before loading a scene", "장면을 불러오기 전에 일시정지하세요"), error: true); return
+        }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "flyworld") ?? .json, .json]
+        panel.allowsMultipleSelection = false
+        guard let window else { return }
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            do {
+                let text = try SceneFile.read(url)
+                self.submitScene(LabCommand(id: 0, action: "load_scene", sceneDocument: text), url: nil)
+            } catch { self.sceneMessage(error.localizedDescription, error: true) }
+        }
+    }
+
+    private func submitScene(_ command: LabCommand, url: URL?) {
+        guard pendingScene == nil, let bridge, coordinator.ensureInteractivePlayerInputSession() else { return }
+        let session = coordinator.sessionSnapshot()
+        let schedule = coordinator.labCommandSchedule() ?? LabCommandSchedule(
+            sessionID: session.sessionID, epoch: session.epoch, requestedTick: session.simTick)
+        guard let id = sendCommand(command, scheduleOverride: schedule) else { return }
+        pendingScene = (id, url, bridge.connectionGeneration, session.sessionID, session.epoch, Date())
+        sceneMessage(L("Waiting for scene result…", "장면 처리 결과를 기다리는 중…"))
+    }
+
+    private func acceptScene(_ ack: LabAck) {
+        guard let p = pendingScene, ack.id == p.id, ack.connectionGeneration == p.generation,
+              ack.sessionID == p.sessionID, ack.epoch == p.epoch else { return }
+        pendingScene = nil
+        guard ack.ok, let result = ack.scene, result.kind == "scene_settings" else {
+            sceneMessage(ack.message, error: true); return
+        }
+        do {
+            if let url = p.url {
+                guard let text = result.documentText, let canonical = result.canonicalScene else { throw CocoaError(.fileWriteUnknown) }
+                try SceneFile.write(text, to: url, canonicalScene: canonical)
+                sceneMessage(L("Scene saved: ", "장면 저장됨: ") + url.lastPathComponent)
+                recorder.mark(kind: "scene_saved", detail: url.lastPathComponent, commandID: ack.id, appliedTick: ack.appliedTick)
+            } else {
+                editHistory = WorldEditHistory()
+                viewState.selectObject(nil)
+                sceneMessage(L("Scene loaded — body and neurons were not rewound", "장면 불러옴 — 몸과 뉴런 시간은 되돌리지 않았습니다"))
+                recorder.mark(kind: "scene_loaded", detail: result.contentSHA256 ?? "", commandID: ack.id,
+                              appliedTick: ack.appliedTick)
+            }
+        } catch { sceneMessage(error.localizedDescription, error: true) }
+    }
+
     private func renderViewState() {
+        let sceneSupported = bridge?.connected == true && bridge?.latestLabState()?.worldState?.sceneCapabilities?.supported == true
+        saveSceneButton?.isEnabled = sceneSupported && pendingScene == nil
+        loadSceneButton?.isEnabled = sceneSupported && pendingScene == nil
+        if sceneStatusRender == nil {
+            sceneStatus.stringValue = sceneSupported ? L("Scene settings only — not a checkpoint", "장면 설정만 저장합니다 — 체크포인트 아님")
+                : L("Scene files need a compatible connected backend", "장면 파일은 연결된 호환 백엔드가 필요합니다")
+        }
+        if let p = pendingScene {
+            let session = coordinator.sessionSnapshot()
+            if bridge?.connectionGeneration != p.generation || session.sessionID != p.sessionID || session.epoch != p.epoch || Date().timeIntervalSince(p.sentAt) > 10 {
+                pendingScene = nil
+                sceneMessage(L("Scene result unavailable — check the connection and retry", "장면 결과를 받지 못했습니다 — 연결 확인 후 다시 시도하세요"), error: true)
+            }
+        }
         interactionPresentation.expire()
         let connection = workspace?.connection ?? .connecting
         window?.subtitle = "\(connection.title) · \(viewState.phaseBadge.capitalized)"
@@ -1540,9 +1634,13 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         arenaPlacement.heightAnchor.constraint(equalToConstant: 250).isActive = true
         arenaPlacement.selectedShape = selectedValue(objectShape, fallback: "box")
         arenaPlacement.selectedPoint = (d(objectX), d(objectY))
+        saveSceneButton = button(L("Save scene…", "장면 저장…"), #selector(saveScene))
+        loadSceneButton = button(L("Load scene…", "장면 불러오기…"), #selector(loadScene))
         return LabInspectorPage([
             section(L("Selection", "선택한 대상"), help: L("Click the fly or an object in the 3D view. A selection is confirmed only by the backend's ray pick; the fly is drawn as a position marker, not its real body geometry.", "3D 화면에서 파리나 물체를 클릭하면 선택됩니다. 드래그하면 카메라가 돌아가고, Shift나 Option을 누른 채 드래그하면 옮겨지며, 스크롤이나 핀치로 확대합니다. 선택은 시뮬레이터가 실제로 맞았는지 확인한 뒤에 확정됩니다."),
                     [viewStateLabel]),
+            section(L("Scene files", "장면 파일"), help: L("Saves objects and environment settings. Pause before loading; body and neuron state continue from the current time.", "물체와 환경 설정을 저장합니다. 불러오기 전에 일시정지하세요. 몸과 뉴런 상태는 현재 시점에서 이어집니다."),
+                    [LabForm.buttons([saveSceneButton!, loadSceneButton!]), sceneStatus]),
             section(L("Selected object editor", "선택 물체 편집"), kind: .physical, [worldEditor]),
             section(L("Place objects", "물체 놓기"), kind: .physical,
                     help: L("Top-down map of the arena: up is +X (forward), left is +Y. Clicking the map fills X/Y; with “Create on map click” on, the click also creates the object.", "경기장을 위에서 본 지도입니다. 위쪽이 앞(+X), 왼쪽이 +Y입니다. 지도를 클릭하면 X/Y 칸이 채워지고, ‘지도를 클릭하면 바로 만들기’를 켜 두면 클릭과 동시에 물체가 생깁니다."),
@@ -1587,19 +1685,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         panel.configure()
         panel.windOffButton.target = self
         panel.windOffButton.action = #selector(stopWind)
-        panel.onSubmit = { [weak self] command, captured in
-            guard let self, let bridge = self.bridge, self.workspace?.acceptsBackendCommands == true else { return nil }
-            let session = self.coordinator.sessionSnapshot()
-            guard !session.sessionID.isEmpty, session.epoch > 0,
-                  session.sessionID == captured.sessionID, session.epoch == captured.epoch,
-                  bridge.connectionGeneration == captured.generation,
-                  session.phase == .running || session.phase == .paused else { return nil }
-            let schedule = self.coordinator.labCommandSchedule() ?? LabCommandSchedule(
-                sessionID: session.sessionID, epoch: session.epoch, requestedTick: session.simTick)
-            guard schedule.sessionID == captured.sessionID, schedule.epoch == captured.epoch,
-                  let id = self.sendCommand(command, scheduleOverride: schedule) else { return nil }
-            return (id, self.pendingCommandSchedules[id] ?? schedule)
-        }
+        panel.onSubmit = { [weak self] command, captured in self?.sendEdit(command, captured: captured) }
         panel.onLocalTemperature = { [weak self] celsius, mode in
             guard let self else { return }
             self.coordinator.labSetTemperature(celsius: celsius, modeledPhysiology: mode == "modeled_physiology",
@@ -1675,7 +1761,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             view.wantsLayer = true
             view.layer?.cornerRadius = 8
             view.layer?.masksToBounds = true
-            view.setAccessibilityLabel(L("FlyWire whole-brain activity. Clicking a cluster stimulates it directly.", "초파리 뇌 전체 활동. 뉴런 덩어리를 클릭하면 그 부분을 직접 자극합니다."))
+            view.setAccessibilityLabel(L("FlyWire sampled spike visualization. Clicking a cluster stimulates it directly.", "초파리 뇌 표본 발화 시각화. 뉴런 덩어리를 클릭하면 그 부분을 직접 자극합니다."))
             brainView = view
         } else {
             brainView = LabForm.note(L("The brain model is not loaded in this session.", "이번 실행에서는 뇌 모델을 불러오지 않았습니다."))
@@ -1689,9 +1775,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         updateBrainRoleDescription()
         _ = LabForm.number(brainStrength); _ = LabForm.number(brainDuration)
         return LabInspectorPage([
-            section(L("Whole-brain activity", "뇌 전체 활동"),
-                    help: L("All 139,255 FlyWire somata; flashes are spikes. Clicking a cluster applies direct neural stimulation to it — the same kind of intervention as the controls below.", "초파리 뇌의 뉴런 139,255개를 점으로 표시했습니다. 반짝이는 점이 지금 신호를 보내는(발화하는) 뉴런입니다. 덩어리를 클릭하면 아래 버튼과 같은 방식으로 그 부분을 직접 자극합니다."),
-                    [brainView]),
+            section(L("Sampled spike visualization", "표본 발화 시각화"),
+                    help: L("All 139,255 somata are shown. Flashes are a lossy sample, without exact counts or timing. Data rates use exact simulated spike counts per neuron and an approximately 120 ms simulation-time EMA. Clicking applies direct neural stimulation.", "뉴런 139,255개를 표시합니다. 반짝임은 일부 발화만 보여 주며 정확한 횟수·시간을 뜻하지 않습니다. Data 발화율은 실제 시뮬레이션 집계의 뉴런당 평균, 약 120 ms simulation-time EMA입니다. 클릭하면 뉴런을 직접 자극합니다."),
+                    [LabForm.note(L("Sampled flashes — counts and timing are incomplete. Click = direct stimulation.", "표본 반짝임 — 횟수·시간이 불완전합니다. 클릭 = 직접 자극.")), brainView]),
             section(L("What the colours mean", "색 안내 — 각 뉴런이 하는 일"),
                     [neuronLegend()]),
             section(L("Stimulate a population", "뉴런 그룹 직접 자극하기"), kind: .directNeural,
@@ -1767,10 +1853,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             section(L("Signal path", "신호 경로 — 감각에서 몸까지"),
                     help: L("Read top to bottom to find where a response stops. Each line uses only telemetry the runtime actually exposes.", "위에서 아래로 읽으면 자극이 어디까지 전달됐는지 알 수 있습니다: 1 바깥 자극 → 2 감각 신호 → 3 뉴런 반응 → 4 몸에 내린 명령 → 5 실제 움직임. 모두 실제로 측정된 값만 씁니다."),
                     [signalPathLabel]),
-            section(L("Brain activity (Hz)", "뇌 활동 (초당 발화 횟수)"),
-                    help: L("Population spike rates. walk/back/groom are DN readouts; a higher line means more activity, not a guaranteed behavior.", "뉴런 그룹이 1초에 몇 번 신호를 보내는지입니다. brain=뇌 전체 평균, loom=다가오는 물체 감지, walk=걷기, back=뒤로 걷기, groom=몸 손질. 선이 높을수록 활발하다는 뜻이지 그 행동을 꼭 한다는 뜻은 아닙니다."),
+            section(L("Brain rate (Hz/neuron)", "뇌 발화율 (Hz/뉴런)"),
+                    help: L("Exact simulated spike counts divided by population size; approximately 120 ms simulation-time EMA, not a fixed window or animation count. walk/back/groom are DN rates, not guaranteed behavior.", "실제 시뮬레이션 발화 집계를 그룹 뉴런 수로 나눈 뉴런당 발화율입니다. 약 120 ms simulation-time EMA이며 고정 구간 평균·반짝임 횟수가 아닙니다. walk/back/groom은 운동 뉴런 발화율이며 행동을 보장하지 않습니다."),
                     [neuralGraph]),
-            section(L("Descending populations (Hz)", "몸에 명령을 내리는 뉴런 (초당 발화 횟수)"),
+            section(L("Descending rates (Hz/neuron)", "운동 뉴런 발화율 (Hz/뉴런)"),
                     help: L("DNa L/R steering, MDN backward, DNp09 forward walking, DNg11 grooming, escW escape/wing.", "뇌에서 몸으로 명령을 내리는 뉴런입니다. DNa L/R=왼쪽/오른쪽으로 돌기, MDN=뒤로 걷기, DNp09=앞으로 걷기, DNg11=몸 손질, escW=도망·날개."),
                     [commandGraph]),
             section(L("Compact sensory inputs", "주요 감각 입력"),
@@ -2084,46 +2170,52 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             sent = send(action, target: objectTarget, x: d(objectX), y: d(objectY), z: d(objectZ),
                         size: max(0.1, d(objectSize, fallback: 5)))
         }
-        if let id = sent {
-            lastObjectCommandID = id
-            lastObjectCommandTarget = objectTarget
-            lastObjectCommandDescription = L("create \(shape) ‘\(objectTarget)’", "‘\(objectTarget)’ 만들기")
-            worldObjectStatusLabel.stringValue = L("Object status — sending \(lastObjectCommandDescription)…", "물체 상태 — \(lastObjectCommandDescription) 요청 보냄…")
-            worldObjectStatusLabel.textColor = .secondaryLabelColor
-        } else {
-            worldObjectStatusLabel.stringValue = L("Object status — bridge unavailable; object was not sent", "물체 상태 — 시뮬레이터에 연결되지 않아 보내지 못했습니다")
-            worldObjectStatusLabel.textColor = .systemOrange
-        }
+        trackObjectCommand(sent, target: objectTarget,
+                           describe: L("create \(shape) ‘\(objectTarget)’", "‘\(objectTarget)’ 만들기"))
     }
     @objc private func moveObject() {
         let objectTarget = target
-        if send("move_object", target: objectTarget, x: d(objectX), y: d(objectY), z: d(objectZ)) != nil {
-            viewState.selectObject(objectTarget)
-            renderViewState()
-        }
+        selectSent(send("move_object", target: objectTarget, x: d(objectX), y: d(objectY), z: d(objectZ)),
+                   target: objectTarget, describe: L("move ‘\(objectTarget)’", "‘\(objectTarget)’ 옮기기"))
     }
     @objc private func resizeObject() {
         let objectTarget = target
-        if send("resize_object", target: objectTarget, size: max(0.1, d(objectSize, fallback: 5))) != nil {
-            viewState.selectObject(objectTarget)
-            renderViewState()
-        }
+        selectSent(send("resize_object", target: objectTarget, size: max(0.1, d(objectSize, fallback: 5))),
+                   target: objectTarget, describe: L("resize ‘\(objectTarget)’", "‘\(objectTarget)’ 크기 바꾸기"))
     }
     @objc private func deleteObject() {
         let objectTarget = target
-        if send("delete_object", target: objectTarget) != nil {
-            viewState.selectObject(objectTarget)
-            renderViewState()
-        }
+        selectSent(send("delete_object", target: objectTarget),
+                   target: objectTarget, describe: L("delete ‘\(objectTarget)’", "‘\(objectTarget)’ 지우기"))
     }
     @objc private func approachObject() {
         let objectTarget = target
-        if send("approach_object", target: objectTarget,
-                speed: max(0.1, d(objectSpeed, fallback: 12)),
-                endDistance: max(0.5, d(objectEndDistance, fallback: 8))) != nil {
-            viewState.selectObject(objectTarget)
-            renderViewState()
+        selectSent(send("approach_object", target: objectTarget,
+                        speed: max(0.1, d(objectSpeed, fallback: 12)),
+                        endDistance: max(0.5, d(objectEndDistance, fallback: 8))),
+                   target: objectTarget, describe: L("approach ‘\(objectTarget)’", "‘\(objectTarget)’ 다가가기"))
+    }
+
+    /// Points the object status line at this command, so it shows this
+    /// command's own ACK — never a stale result from an earlier one.
+    private func trackObjectCommand(_ id: Int?, target: String?, describe: String) {
+        guard let id else {
+            worldObjectStatusLabel.stringValue = L("Object status — \(describe) was not sent", "물체 상태 — \(describe) 요청을 보내지 못했습니다")
+            worldObjectStatusLabel.textColor = .systemOrange
+            return
         }
+        lastObjectCommandID = id
+        lastObjectCommandTarget = target
+        lastObjectCommandDescription = describe
+        worldObjectStatusLabel.stringValue = L("Object status — sending \(describe)…", "물체 상태 — \(describe) 요청 보냄…")
+        worldObjectStatusLabel.textColor = .secondaryLabelColor
+    }
+
+    private func selectSent(_ id: Int?, target: String?, describe: String) {
+        trackObjectCommand(id, target: target, describe: describe)
+        guard id != nil else { return }
+        viewState.selectObject(target)
+        renderViewState()
     }
     /// Shape of the object named in the Name field, from the latest lab_state.
     private func namedObject() -> LabWorldObjectRemote? {
@@ -2133,18 +2225,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func sendToyAction(_ command: LabCommand?, describe: String) {
-        guard let command, let id = sendCommand(command) else {
-            worldObjectStatusLabel.stringValue = L("Object status — \(describe) was not sent", "물체 상태 — \(describe) 요청을 보내지 못했습니다")
-            worldObjectStatusLabel.textColor = .systemOrange
-            return
-        }
-        lastObjectCommandID = id
-        lastObjectCommandTarget = command.target
-        lastObjectCommandDescription = describe
-        worldObjectStatusLabel.stringValue = L("Object status — sending \(describe)…", "물체 상태 — \(describe) 요청 보냄…")
-        worldObjectStatusLabel.textColor = .secondaryLabelColor
-        viewState.selectObject(command.target)
-        renderViewState()
+        selectSent(command.flatMap { sendCommand($0) }, target: command?.target, describe: describe)
     }
 
     @objc private func driveSelectedCar() {
@@ -2655,11 +2736,71 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    /// An edit stamped with the session it was made in, sent only while that
+    /// session is still running or paused (a paused edit is a V6.6 transaction).
+    private func sendEdit(_ command: LabCommand, captured: WorldEditorIdentity) -> (Int, LabCommandSchedule)? {
+        guard let bridge, workspace?.acceptsBackendCommands == true else { return nil }
+        let session = coordinator.sessionSnapshot()
+        guard !session.sessionID.isEmpty, session.epoch > 0,
+              session.sessionID == captured.sessionID, session.epoch == captured.epoch,
+              bridge.connectionGeneration == captured.generation,
+              session.phase == .running || session.phase == .paused else { return nil }
+        let schedule = coordinator.labCommandSchedule() ?? LabCommandSchedule(
+            sessionID: session.sessionID, epoch: session.epoch, requestedTick: session.simTick)
+        guard schedule.sessionID == captured.sessionID, schedule.epoch == captured.epoch,
+              let id = sendCommand(command, scheduleOverride: schedule) else { return nil }
+        return (id, pendingCommandSchedules[id] ?? schedule)
+    }
+
+    private var editIdentity: WorldEditorIdentity? {
+        guard let bridge else { return nil }
+        let s = coordinator.sessionSnapshot()
+        return WorldEditorIdentity(generation: bridge.connectionGeneration, sessionID: s.sessionID, epoch: s.epoch)
+    }
+
+    /// Edit ▸ Undo/Redo outside a text field: send the step's inverse (or its
+    /// edit again) as an ordinary revision-checked edit.
+    private func stepEditHistory(_ direction: WorldEditHistory.Direction) {
+        guard let bridge, let identity = editIdentity else { return }
+        editHistory.observe(identity: identity)
+        let owner = WorldEditOwnerState(objects: arenaPlacement.worldObjects, world: bridge.latestLabState()?.worldState)
+        guard let command = editHistory.command(direction, owner: owner,
+                                                capabilities: owner.world?.environmentCapabilities) else {
+            presentEditHistory(); return
+        }
+        let targetsObject = command.objectEdit != nil || command.edit?.targetID != nil
+        if targetsObject && viewerFrameStale {
+            editHistory.sendFailed()
+        } else if let (id, schedule) = sendEdit(command, captured: identity) {
+            editHistory.began(commandID: id, schedule: schedule, direction: direction)
+        } else {
+            editHistory.sendFailed()
+        }
+        presentEditHistory()
+    }
+
+    /// Shows the history's latest word where its setting lives.
+    private func presentEditHistory() {
+        let text = editHistory.message, error = editHistory.isError
+        guard !text.isEmpty else { return }
+        switch editHistory.messageChange {
+        case .property(let pid, nil, _, _)?:
+            environmentPanel.showHistory(propertyID: pid, text: text, isError: error)
+        default:
+            worldEditor.showHistory(text, isError: error)
+        }
+    }
+
     /// Each ACK resolves its timeline row once; only that first resolution is
     /// recorded, so the repeated `ack` field of lab_state never double-counts.
     private func handle(ack: LabAck) {
+        acceptScene(ack)
         worldEditor.accept(ack)
         environmentPanel.accept(ack)
+        if editHistory.accept(ack) {
+            presentEditHistory()
+            recorder.mark(kind: "edit_history", detail: editHistory.message, commandID: ack.id)
+        }
         if ack.id == lastFoodCommandID {
             lastFoodCommandID = nil
             foodStatusLabel.stringValue = ack.ok ? L("Placed", "놓았습니다")
@@ -2754,7 +2895,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             connection: WorkspaceSnapshot.connection(
                 bridgeEnabled: bridge != nil, service: service?.state,
                 connected: bridge?.connected == true,
-                bodyFresh: body?.isFresh == true, bodyAge: body?.ageSeconds),
+                bodyFresh: body?.isFresh == true, bodyAge: body?.ageSeconds,
+                pausedOwnerFresh: coordinator.sessionSnapshot().phase == .paused
+                    && bridge?.labStateFreshness().isFresh == true),
             session: coordinator.sessionSnapshot(),
             recording: recording,
             pendingCommands: timeline.pendingCount,
@@ -2809,6 +2952,14 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private func refresh() {
         let now = Date()
         let t = coordinator.labTelemetry()
+        // Every backend command carries the V4 identity, so begin the
+        // interactive session as soon as the backend can take it — not only on
+        // entering Participate/Edit. Otherwise a fresh launch's first
+        // environment-panel edit carries a local session ID the backend has
+        // never seen and is rejected as "wrong session".
+        if let bridge, bridge.connected, bridge.playerInputV5_5Available {
+            coordinator.ensureInteractivePlayerInputSession()
+        }
         let session = coordinator.sessionSnapshot()
         viewState.sync(session: session)
         var state: LabRemoteState?
@@ -2938,6 +3089,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                                mode: viewState.mode,
                                available: workspace?.acceptsBackendCommands == true && !viewerFrameStale && viewState.viewerAvailable,
                                heldID: state?.interaction?.heldObjectID, camera: worldViewer.mujocoCamera)
+            let historyMessage = editHistory.message
+            editHistory.observe(identity: WorldEditorIdentity(generation: bridge.connectionGeneration,
+                                                              sessionID: editorSession.sessionID, epoch: editorSession.epoch))
+            if editHistory.message != historyMessage { presentEditHistory() }
             let (newAcks, cursor) = bridge.labAcks(after: ackCursor)
             ackCursor = cursor
             newAcks.forEach(handle(ack:))
@@ -2949,6 +3104,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 let text = LabToy.eventLine(notice.event, notice.detail)
                     ?? (detail.isEmpty ? notice.event : "\(notice.event) — \(detail)")
                 noteLocal("event", text, kind: .physical, status: .event, tick: notice.detail?.simTickMS)
+                let s = coordinator.sessionSnapshot()
+                recorder.mark(kind: "lab_event", detail: notice.recordDetail,
+                              sessionID: s.sessionID, epoch: s.epoch, simTick: s.simTick)
             }
 
             if eyeCommandPendingID != nil {
@@ -2970,8 +3128,13 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             }
         }
 
+        // Paused: body packets stop on purpose, so show the last one as paused
+        // rather than as missing (same rule as the workspace connection).
+        let bodyPaused = session.phase == .paused && bridge?.labStateFreshness().isFresh == true
         environmentPanel.update(
-            state: state, telemetry: t, body: bridge?.latestBody(),
+            state: state, telemetry: t,
+            body: bodyPaused ? bridge?.latestBody(maxAge: .greatestFiniteMagnitude) : bridge?.latestBody(),
+            bodyPaused: bodyPaused,
             identity: bridge.map { WorldEditorIdentity(generation: $0.connectionGeneration,
                                                        sessionID: session.sessionID, epoch: session.epoch) },
             backendConnected: bridge?.connected == true,

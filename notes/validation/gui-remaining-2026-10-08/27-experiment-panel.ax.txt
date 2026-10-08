@@ -1,0 +1,87 @@
+Window: "Virtual Fly Lab", App: Thongpari Virtual Fly Lab.
+0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise
+	1 자르기 그룹
+		2 스크롤 영역
+			3 표 실험실 메뉴
+				4 row (selectable)
+					5 셀
+						6 이미지
+						7 텍스트 세계
+				8 row (selectable)
+					9 셀
+						10 이미지 미풍
+						11 텍스트 자극
+				12 row (selectable)
+					13 셀
+						14 이미지
+						15 텍스트 뇌
+				16 row (selectable)
+					17 셀
+						18 이미지
+						19 텍스트 데이터
+				20 row (selected)
+					21 셀 (selected)
+						22 이미지
+						23 텍스트 실험
+		24 자르기 도구 (disabled, settable, float) 168
+		25 텍스트 시점
+		26 팝업 버튼 경기장 둘러보기
+		27 버튼 카메라 초기화
+		28 텍스트 3D 화면 — 시각 209161 ms · 물체 9개
+		29 알 수 없음 Description: 파리 기분 (추정), Help: 실제 감정을 잰 것이 아니라 정해진 규칙으로 만든 단순 표시입니다. 먹이가 가까우면 행복, 춥거나 덥거나 세게 맞으면 슬픔, 맞으면 화남, 무언가 다가오거나 도망 신호가 켜지면 겁남.
+			30 text 🙂 평온 특별한 일 없어요 감각·행동 신호로 만든 추정
+		31 text 타임라인 — 최근 명령과 반응 t196981  event object_grabbed — gui_flow · @196981 ms — 시뮬레이터 알림
+t197341  #41 approach_object gui_flow — 적용됨
+t197361  event approach_complete — gui_flow · @197361 ms — 시뮬레이터 알림
+t205981  #42 set_player_active — 적용됨
+t206001  event object_placed — gui_flow · participant_inactive · @206001 ms — 시뮬레이터 알림 몸 데이터 37 ms 전 · 속도 0.0018 m/s · 발 닿음 1.00 · 눈 샘플 t209001 · 다가옴 감지 L/R 0.001/0.043 · 뇌 활동 1.6 Hz 실시간 — 시뮬레이터(headless) :54572 · 몸 데이터 초당 24회 · 실시간 대비 0.41배 · 느림: 몸 데이터가 초당 30회 미만 ● 기록 중 16:23 → experiment-20261008-190025
+		32 자르기 도구 (disabled, settable, float) 721
+		33 스크롤 영역
+			34 text 세션 세션 — 실시간 모드 · 실행 중 · 회차 1 · 시각 209181 ms · 몸 결과 —
+			35 버튼 재현 가능한 세션 시작
+			36 버튼 설명, Description: 앞으로, Value: 접힘
+			37 텍스트 구간 표시
+			38 버튼 기준 구간
+			39 버튼 자극 시작
+			40 버튼 자극 끝
+			41 버튼 관찰 구간
+			42 버튼 설명, Description: 앞으로, Value: 접힘
+			43 text 물리·감각 실험 예시 물리
+			44 버튼 정면에서 물체 접근
+			45 버튼 왼쪽에서 물체 접근
+			46 버튼 오른쪽에서 물체 접근
+			47 버튼 왼눈 가리고 물체 접근
+			48 버튼 바람 한 번
+			49 버튼 가슴 건드리기
+			50 버튼 설명, Description: 앞으로, Value: 접힘
+			51 text 뉴런 직접 자극 실험 뉴런 직접 자극
+			52 버튼 비상 탈출 (GF)
+			53 버튼 왼쪽 돌기 (DNa)
+			54 버튼 오른쪽 돌기 (DNa)
+			55 버튼 뒤로 걷기 (MDN)
+			56 버튼 앞으로 걷기 (DNp09)
+			57 버튼 설명, Description: 앞으로, Value: 접힘
+			58 텍스트 반복
+			59 버튼 마지막 실험 다시 하기
+			60 버튼 전부 초기화
+	61 도구 막대
+		62 버튼 Description: 사이드바, Help: 사이드바 가리기, Secondary Actions: 다음으로 이동
+		63 방식
+			64 라디오 버튼 Description: 관찰, Value: 1
+			65 라디오 버튼 Description: 참여, Value: 0
+			66 라디오 버튼 Description: 편집, Value: 0
+		67 버튼 Description: 일시 정지 / 재개, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		68 버튼 Description: 기록, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		69 팝업 버튼 Description: 언어, Help: 화면 언어 — 영어 또는 한국어, Value: 한국어, Secondary Actions: 이전으로 이동, 다음으로 이동, 도구 막대에서 제거
+		70 버튼 Description: 인스펙터, Help: 인스펙터 가리기, Secondary Actions: 이전으로 이동, 도구 막대에서 제거
+	71 닫기 버튼
+	72 전체 화면 버튼 Help: 이 버튼을 누르면 윈도우를 확대/축소합니다., Secondary Actions: 윈도우 확대/축소
+	73 최소화 버튼
+	74 text Virtual Fly Lab 실시간 · 실행 중
+75 menu bar
+	76 Thongpari Virtual Fly Lab
+	77 편집
+	78 언어
+	79 윈도우
+
+The focused UI element is 0 표준 윈도우 Virtual Fly Lab – 실시간 · 실행 중, Secondary Actions: Raise

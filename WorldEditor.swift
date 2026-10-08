@@ -69,6 +69,8 @@ struct WorldEditorState {
     private(set) var isError = false
     mutating func clearDraftMessage() { if pending == nil { message=""; isError=false } }
     mutating func fail(_ text: String) { message = text; isError = true }
+    /// V6.6 undo/redo feedback; never touches a pending edit.
+    mutating func note(_ text: String, isError: Bool) { message = text; self.isError = isError }
     mutating func begin(_ request: WorldEditorPending) {
         pending = request; isError = false
         message = L("Applying… waiting for the simulator", "적용 중… 시뮬레이터 응답을 기다립니다")
@@ -310,8 +312,8 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
         duplicateButton.title = L("Duplicate", "복제")
         deleteButton.title = L("Delete", "삭제")
         hint.stringValue = L(
-            "Position and size are in mm, rotation in degrees around the vertical axis. Only ramps tilt (0–45°); tilting or resizing a ramp keeps its low edge in place. Press Return to apply typed values, or drag a colored handle in the 3D view; Esc cancels a drag. A duplicate appears on top of the original — move it next. There is no undo yet.",
-            "위치·크기는 mm, 회전은 수직축 기준 도(°) 단위입니다. 기울기는 경사로만 바꿀 수 있고(0–45°), 경사로의 기울기·크기를 바꿔도 낮은 쪽 모서리는 제자리에 있습니다. 값을 입력하고 Return을 누르거나 3D 화면의 색깔 핸들을 끌어 바꾸고, 끄는 중 Esc를 누르면 취소됩니다. 복제본은 원본과 같은 자리에 생기니 바로 옮기세요. 되돌리기는 아직 없습니다.")
+            "Position and size are in mm, rotation in degrees around the vertical axis. Only ramps tilt (0–45°); tilting or resizing a ramp keeps its low edge in place. Press Return to apply typed values, or drag a colored handle in the 3D view; Esc cancels a drag. A duplicate appears on top of the original — move it next. Undo with ⌘Z and redo with ⇧⌘Z (Edit menu); this sets values back and never rewinds time. Delete can't be undone.",
+            "위치·크기는 mm, 회전은 수직축 기준 도(°) 단위입니다. 기울기는 경사로만 바꿀 수 있고(0–45°), 경사로의 기울기·크기를 바꿔도 낮은 쪽 모서리는 제자리에 있습니다. 값을 입력하고 Return을 누르거나 3D 화면의 색깔 핸들을 끌어 바꾸고, 끄는 중 Esc를 누르면 취소됩니다. 복제본은 원본과 같은 자리에 생기니 바로 옮기세요. ⌘Z로 되돌리고 ⇧⌘Z로 다시 합니다(편집 메뉴). 값만 되돌리며 시간은 되돌리지 않습니다. 삭제는 되돌릴 수 없습니다.")
         objectsPopup.removeAllItems()
         refreshPopup(objects: listedObjects, selectedID: selectionID)
         state.clearDraftMessage()
@@ -583,6 +585,11 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
         var command = LabCommand(id: 0, action: "edit_object", target: o.id)
         command.objectEdit = WorldObjectEdit(operation: op, targetID: o.id, expectedRevision: revision)
         enqueue(command, propertyID: "object." + op, source: o, value: nil)
+    }
+
+    func showHistory(_ text: String, isError: Bool) {
+        state.note(text, isError: isError)
+        renderStatus()
     }
 
     func accept(_ ack: LabAck) {

@@ -123,8 +123,8 @@ kernel void lif_update(
         if (g != 0u) {
             atomic_fetch_add_explicit(&groupCounts[P.slot * 16u + uint(g)], 1u, memory_order_relaxed);
         }
-        // benign race: last writer wins, which is exactly the order-independent
-        // random sample of spikers the brain window wants.
+        // Presentation-only lossy sample: last writer wins in each of 32 slots.
+        // Selection depends on GPU write order; exact counts/spikeList above do not.
         sampled[P.slot * 32u + ((h >> 3u) & 31u)] = gid;
     }
 }

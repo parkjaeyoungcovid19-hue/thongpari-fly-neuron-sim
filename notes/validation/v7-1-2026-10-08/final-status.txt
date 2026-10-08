@@ -1,0 +1,50 @@
+ M ActivityCards.swift
+ M BrainView.swift
+ M EnvironmentPanel.swift
+ M EnvironmentPanelDiagnostics.swift
+ M EnvironmentProperty.swift
+ M FlyGymBridge.swift
+ M FlyGymService.swift
+ M LIF.metal
+ M LabDiagnostics.swift
+ M LabProtocol.swift
+ M LabViewState.swift
+ M LabWindow.swift
+ M NeuronGuide.swift
+ M README.md
+ M Sim.swift
+ M "Virtual Fly Lab.command"
+ M WorldEditor.swift
+ M WorldEditorDiagnostics.swift
+ M build.sh
+ M docs/plans/VIRTUAL_FLY_LAB_V6_PLAN.md
+ M docs/plans/VIRTUAL_FLY_LAB_V7_PLAN.md
+ M docs/reports/V6_PROGRESS.md
+ M flygym_bridge/bridge.py
+ M flygym_bridge/environment_properties.py
+ M flygym_bridge/lab_world.py
+ M flygym_bridge/protocol.py
+ M flygym_bridge/test_environment_edits.py
+ M main.swift
+ M package_app.sh
+?? MUJOCO_LOG.TXT
+?? ObservationAuditDiagnostics.swift
+?? SceneFile.swift
+?? WorldEditHistory.swift
+?? WorldEditHistoryDiagnostics.swift
+?? docs/reports/V6_COMPLETION_REPORT.md
+?? docs/reports/V6_FUTURE_STATE_INVENTORY.md
+?? docs/reports/V7_1_COMPLETION_REPORT.md
+?? docs/reports/V7_OBSERVATION_AUDIT.md
+?? docs/reports/V7_PROGRESS.md
+?? flygym_bridge/scene_store.py
+?? flygym_bridge/test_scene_store.py
+?? flygym_bridge/test_scene_store_real.py
+?? flygym_bridge/test_v6_6_pause_edits.py
+?? flygym_bridge/test_v6_6_pause_edits_real.py
+?? notes/validation/refactor-2026-09-22/decode-benchmark/benchmark
+?? notes/validation/v5-6-2026-09-26/tcp-loop/headless-backend.pid
+?? notes/validation/v5-6-2026-09-26/tcp-loop/mock-backend.pid
+?? notes/validation/v5-6-2026-09-26/tcp-loop/mock-labloop-backend.pid
+?? notes/validation/v6-6-2026-10-07/
+?? notes/validation/v7-1-2026-10-08/

@@ -53,6 +53,9 @@ CONTINUOUS_LAB_OPS = {
     "move_object", "resize_object", "wind", "set_eye_state", "eye_state",
     "temperature", "set_temperature",
 }
+# V6.6: the only commands an interactive pause applies (as an explicit edit
+# transaction, without stepping). Stimuli and actions wait for resume.
+PAUSE_EDIT_LAB_OPS = {"edit_property", "edit_object", "export_scene", "load_scene"}
 
 def clamp(x, lo, hi):
     try:
@@ -1258,6 +1261,7 @@ class LabStatePacket:
     sim_tick: int | None = None
     # V6.2 edit_property result: applied actual_value/revision or rejection path.
     edit: dict | None = None
+    scene: dict | None = None
 
     @staticmethod
     def from_dict(d: dict) -> "LabStatePacket":
@@ -1284,6 +1288,7 @@ class LabStatePacket:
             epoch=(None if d.get("epoch") is None else _bounded_int(d.get("epoch"), 1)),
             sim_tick=(None if d.get("sim_tick") is None else _bounded_int(d.get("sim_tick"), 0)),
             edit=dict(d["edit"]) if isinstance(d.get("edit"), dict) else None,
+            scene=dict(d["scene"]) if isinstance(d.get("scene"), dict) else None,
         )
 
     def to_dict(self) -> dict:
@@ -1304,6 +1309,8 @@ class LabStatePacket:
             d["sim_tick"] = self.sim_tick
         if self.edit is not None:
             d["edit"] = self.edit
+        if self.scene is not None:
+            d["scene"] = self.scene
         # Swift V1 deliberately decodes a small flat summary while the nested
         # state object retains the complete backend state for future clients.
         if isinstance(self.state, dict):
@@ -1402,6 +1409,21 @@ class LabCommandQueue:
         # so clients that omit sequence IDs (all seq=0) retain FIFO-then-slot
         # behavior while Swift's monotonic command IDs recover total order.
         return sorted(discrete + continuous, key=lambda command: command.seq)
+
+    def drain_paused_edits(self, allowed_ops=None):
+        """V6.6 pause transaction: pop only the stamped edits at the head of the
+        FIFO that precede every pending continuous slot. The first non-edit is
+        a barrier, so nothing overtakes a stimulus waiting for resume."""
+        with self._lock:
+            floor = min((c.seq for c in self._continuous.values()), default=None)
+            out = []
+            while self._discrete:
+                head = self._discrete[0]
+                if (head.op not in (PAUSE_EDIT_LAB_OPS if allowed_ops is None else allowed_ops) or head.session_id is None
+                        or (floor is not None and head.seq >= floor)):
+                    break
+                out.append(self._discrete.popleft())
+            return out
 
     def stats(self):
         with self._lock:

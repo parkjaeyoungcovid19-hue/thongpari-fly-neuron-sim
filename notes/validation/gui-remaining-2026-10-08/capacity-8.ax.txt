@@ -1,0 +1,13 @@
+The following is a diff from the previous accessibility tree for Window: "Virtual Fly Lab" with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.
+~		31 text 타임라인 — 최근 명령과 반응 t45765  #15 spawn_food gui_capacity4 — 요청함
+t45765  #16 spawn_food gui_capacity5 — 요청함
+t45765  #17 spawn_food gui_capacity6 — 요청함
+t45765  #18 spawn_food gui_capacity7 — 요청함
+t45765  #19 spawn_food gui_capacity8 — 요청함 몸 데이터 0 ms 전 · 속도 0.0000 m/s · 발 닿음 0.00 · 눈 샘플 t-1 · 다가옴 감지 L/R 0.003/0.053 · 뇌 활동 1.8 Hz 실시간 — 시뮬레이터(headless) :54572 · 몸 데이터 초당 0회 ● 기록 중 05:28 → experiment-20261008-190025
+~			123 텍스트 필드 (settable) Value: gui_capacity8, Placeholder: 자동
+~			126 텍스트 필드 (settable) 126
+~			137 text 물체 상태 — ‘gui_capacity8’ 만들기 요청 보냄… 물체 수 (사용/최대) — box 1/64 · sphere 0/64 · wall 0/64 · ramp 0/4 · food 1/8 · car 1/4 · trap 0/2 gui_car · 장난감 자동차 · 14 mm
+gui_snack · 먹이 · 사과
+obstacle_box · 상자
+~			169 text 참여 조작 — 관찰 모드입니다. 카메라는 보는 방향만 바꾸고 세계에는 영향을 주지 않습니다 E: 조준한 물체 집기 비비탄총 — 참여 모드에서 사용
+The focused UI element is 128 텍스트 필드 (settable) -40

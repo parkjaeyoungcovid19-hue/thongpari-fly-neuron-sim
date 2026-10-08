@@ -314,6 +314,8 @@ struct EnvironmentEdit: Codable, Equatable {
 
 /// Backend ACK detail for `edit_property`: applied value/revision, or the
 /// rejection path. `currentRevision` accompanies a stale-revision rejection.
+/// V6.6: `previousValue` is the owner value the edit replaced (the undo
+/// inverse); `transaction` is "paused" for an edit applied while paused.
 struct EnvironmentEditResult: Decodable, Equatable {
     let ok: Bool
     let status: String
@@ -324,10 +326,13 @@ struct EnvironmentEditResult: Decodable, Equatable {
     let path: String?
     let reason: String?
     let currentRevision: Int?
+    var previousValue: EnvironmentPropertyValue? = nil
+    var transaction: String? = nil
 
     enum CodingKeys: String, CodingKey {
-        case ok, status, revision, path, reason
+        case ok, status, revision, path, reason, transaction
         case propertyID = "property_id", targetID = "target_id"
         case actualValue = "actual_value", currentRevision = "current_revision"
+        case previousValue = "previous_value"
     }
 }

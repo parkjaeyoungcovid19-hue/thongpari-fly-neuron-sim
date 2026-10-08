@@ -197,6 +197,12 @@ func runLabTest() {
           && contact?.detail?.summary.contains("@1200 ms") == true
           && badDetail?.event == "object_placed" && badDetail?.detail == nil,
           contact?.detail?.summary ?? "nil")
+    let feedingEnd = parseLabEventLine(Data(#"{"type":"lab_event","event":"feeding_end","data":{"id":"gui_capacity6","reason":"food deleted","contact_s":0.02,"sim_tick_ms":20}}"#.utf8))
+    check("lab_event recorder line keeps the raw event name and wire fields",
+          contact?.recordDetail == "object_contact_end id=box_1 fly_segment=thorax peak_normal_force=0.25 force_units=mujoco_model duration_ms=14 sim_tick_ms=1200"
+          && feedingEnd?.recordDetail == "feeding_end id=gui_capacity6 contact_s=0.02 sim_tick_ms=20 reason=food deleted"
+          && badDetail?.recordDetail == "object_placed",
+          feedingEnd?.recordDetail ?? "nil")
     let speedState = parseLabStateLine(Data(#"{"type":"lab_state","interaction":{"held_object_id":null,"carry_blocked":false,"reach_mm":12,"carry_speed_mm_s":40}}"#.utf8))
     let badSpeed = parseLabStateLine(Data(#"{"type":"lab_state","interaction":{"held_object_id":null,"carry_blocked":false,"reach_mm":12,"carry_speed_mm_s":0}}"#.utf8))
     // V5.6.1 feel fixes: latest-wins frame hand-off, look sensitivity, pointer lock.
@@ -849,6 +855,11 @@ func runLabTest() {
           && live == .live && waiting == .connecting
           && WorkspaceSnapshot.connection(bridgeEnabled: false, service: nil, connected: false,
                                           bodyFresh: false, bodyAge: nil) == .disabled)
+    check("V6.6 a confirmed pause with a fresh owner is live, not stale; a silent owner is still stale",
+          WorkspaceSnapshot.connection(bridgeEnabled: true, service: .running, connected: true,
+                                       bodyFresh: false, bodyAge: 60, pausedOwnerFresh: true) == .live
+          && WorkspaceSnapshot.connection(bridgeEnabled: true, service: .running, connected: true,
+                                          bodyFresh: false, bodyAge: 60, pausedOwnerFresh: false) == .stale(60))
     check("recording line never implies a save that has not completed",
           WorkspaceRecording.stopping(path: "/r").line.hasPrefix("Saving")
           && WorkspaceRecording.idle.line == "Not recording"
@@ -864,6 +875,19 @@ func runLabTest() {
                                  atomically: true, encoding: .utf8)
     try? fm.createSymbolicLink(atPath: fakeRoot.appendingPathComponent("flygym-venv/bin/python").path,
                                withDestinationPath: "/bin/sh")
+    let probeStarted = DispatchSemaphore(value: 0), probeRelease = DispatchSemaphore(value: 0)
+    let blockedProbeService = FlyGymService(mode: .mock, root: fakeRoot, cloudEvictionProbe: { _ in
+        probeStarted.signal(); probeRelease.wait(); return true
+    })
+    let probeDidStart = probeStarted.wait(timeout: .now() + 1) == .success
+    let probeReadStart = Date()
+    let probePendingValue = blockedProbeService.runtimeIsCloudEvicted
+    check("cloud-runtime probe cannot block UI reads", probeDidStart && !probePendingValue
+          && Date().timeIntervalSince(probeReadStart) < 0.1)
+    probeRelease.signal()
+    let probeDeadline = Date().addingTimeInterval(1)
+    while !blockedProbeService.runtimeIsCloudEvicted && Date() < probeDeadline { usleep(1_000) }
+    check("cloud-runtime probe publishes its eventual result", blockedProbeService.runtimeIsCloudEvicted)
     let service = FlyGymService(mode: .mock, root: fakeRoot)
     service.start()
     let startedRunning = service.state == .running && !service.canRestart && service.port != 0

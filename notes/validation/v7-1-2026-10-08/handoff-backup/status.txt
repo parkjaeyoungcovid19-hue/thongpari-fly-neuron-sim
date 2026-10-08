@@ -1,0 +1,28 @@
+ M EnvironmentPanel.swift
+ M EnvironmentPanelDiagnostics.swift
+ M EnvironmentProperty.swift
+ M LabDiagnostics.swift
+ M LabViewState.swift
+ M LabWindow.swift
+ M WorldEditor.swift
+ M WorldEditorDiagnostics.swift
+ M build.sh
+ M docs/plans/VIRTUAL_FLY_LAB_V6_PLAN.md
+ M docs/reports/V6_PROGRESS.md
+ M flygym_bridge/bridge.py
+ M flygym_bridge/environment_properties.py
+ M flygym_bridge/lab_world.py
+ M flygym_bridge/protocol.py
+ M flygym_bridge/test_environment_edits.py
+?? MUJOCO_LOG.TXT
+?? WorldEditHistory.swift
+?? WorldEditHistoryDiagnostics.swift
+?? flygym_bridge/scene_store.py
+?? flygym_bridge/test_v6_6_pause_edits.py
+?? flygym_bridge/test_v6_6_pause_edits_real.py
+?? notes/validation/refactor-2026-09-22/decode-benchmark/benchmark
+?? notes/validation/v5-6-2026-09-26/tcp-loop/headless-backend.pid
+?? notes/validation/v5-6-2026-09-26/tcp-loop/mock-backend.pid
+?? notes/validation/v5-6-2026-09-26/tcp-loop/mock-labloop-backend.pid
+?? notes/validation/v6-6-2026-10-07/
+?? notes/validation/v7-1-2026-10-08/

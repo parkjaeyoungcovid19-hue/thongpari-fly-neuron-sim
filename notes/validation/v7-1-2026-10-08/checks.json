@@ -1,0 +1,122 @@
+[
+  {
+    "command": [
+      "./ThongpariFlyNeuronSim",
+      "--worldeditortest"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/worldeditortest.log"
+  },
+  {
+    "command": [
+      "./ThongpariFlyNeuronSim",
+      "--labtest"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/labtest.log"
+  },
+  {
+    "command": [
+      "./ThongpariFlyNeuronSim",
+      "--v4test"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/v4test.log"
+  },
+  {
+    "command": [
+      "./ThongpariFlyNeuronSim",
+      "--bridgetest"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/bridgetest.log"
+  },
+  {
+    "command": [
+      "flygym-venv/bin/python",
+      "flygym_bridge/test_scene_store.py"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/test_scene_store.log"
+  },
+  {
+    "command": [
+      "flygym-venv/bin/python",
+      "flygym_bridge/test_scene_store_real.py"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/test_scene_store_real.log"
+  },
+  {
+    "command": [
+      "flygym-venv/bin/python",
+      "flygym_bridge/test_v6_6_pause_edits.py"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/test_v6_6_pause_edits.log"
+  },
+  {
+    "command": [
+      "flygym-venv/bin/python",
+      "flygym_bridge/test_v6_6_pause_edits_real.py"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/test_v6_6_pause_edits_real.log"
+  },
+  {
+    "command": [
+      "flygym-venv/bin/python",
+      "flygym_bridge/test_environment_edits.py"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/test_environment_edits.log"
+  },
+  {
+    "command": [
+      "flygym-venv/bin/python",
+      "flygym_bridge/test_environment_properties.py"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/test_environment_properties.log"
+  },
+  {
+    "command": [
+      "flygym-venv/bin/python",
+      "flygym_bridge/test_lab.py"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/test_lab.log"
+  },
+  {
+    "command": [
+      "flygym-venv/bin/python",
+      "flygym_bridge/test_lab_real.py"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/test_lab_real.log"
+  },
+  {
+    "command": [
+      "flygym-venv/bin/python",
+      "flygym_bridge/test_bridge.py"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/test_bridge.log"
+  },
+  {
+    "command": [
+      "flygym-venv/bin/python",
+      "flygym_bridge/test_v4.py"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/test_v4.log"
+  },
+  {
+    "command": [
+      "flygym-venv/bin/python",
+      "flygym_bridge/test_vision_real.py"
+    ],
+    "exit": 0,
+    "log": "notes/validation/v7-1-2026-10-08/test_vision_real.log"
+  }
+]

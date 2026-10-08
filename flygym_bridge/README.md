@@ -150,3 +150,11 @@ CLI equivalents / diagnostics:
 Use `--flygym-headless` in place of `--flygym` to run the real body without a
 viewer. Measured details are in `../docs/reports/PERFORMANCE_FLYGYM.md`; installed API evidence
 is in `../docs/reference/FLYGYM_API_INSPECTION.md`.
+
+Environment manifest transport: `lab_state.state.environment_capabilities` is sent
+on the first state carrying a manifest on each connection, then only when its
+canonical JSON content changes. Reconnect starts a fresh cache. Omission means
+"retain the last validated manifest on this connection", never deletion. A
+present manifest still receives strict Swift validation; malformed optional
+manifests do not replace the cache. Session/epoch filtering precedes caching.
+ACKs and other state fields keep their existing cadence and meaning.

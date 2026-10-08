@@ -8,6 +8,7 @@ the bridge exit once that process is gone (the app-owned backend never outlives 
 """
 from __future__ import annotations
 import argparse
+import json
 import math
 import socket
 import sys
@@ -374,7 +375,7 @@ class Bridge:
             fly=state["fly"], objects=state["objects"],
             player=state.get("player"))
         # Force strict output validation before caching/sending.
-        response = WorldRenderSnapshotPacket.from_dict(response.to_dict())
+        response._validated_wire = response.to_dict()
         self._remember(self.snapshot_sources, response.snapshot_seq, {
             "session_id": response.session_id,
             "epoch": response.epoch,
@@ -953,7 +954,24 @@ class Bridge:
             event = str(data.pop("event", "lab_event"))[:64]
             self._queue_lab_response(LabEventPacket(event=event, data=data))
 
+    @staticmethod
+    def _encode_connection_response(packet, manifest_cache):
+        if not isinstance(packet, LabStatePacket):
+            return encode(packet)
+        wire = packet.to_dict()
+        state = dict(wire["state"])
+        manifest = state.get("environment_capabilities")
+        if manifest is not None:
+            key = json.dumps(manifest, sort_keys=True, separators=(",", ":"))
+            if manifest_cache.get("key") == key:
+                state.pop("environment_capabilities")
+            else:
+                manifest_cache["key"] = key
+        wire["state"] = state
+        return (json.dumps(wire, separators=(",", ":"), allow_nan=False) + "\n").encode()
+
     def serve_once(self, conn):
+        manifest_cache = {}
         # Receive on its own thread: a slow MuJoCo/viewer tick must never stop
         # the 50-100 Hz BrainSignals stream from reaching the bounded latest
         # packet slot.
@@ -1060,9 +1078,9 @@ class Bridge:
                         smoke_sim_s += float(getattr(result.body, "sim_dt", 0.0))
                 try:
                     for response in self._drain_lab_responses():
-                        conn.sendall(encode(response))
+                        conn.sendall(self._encode_connection_response(response, manifest_cache))
                     if now_mono >= next_lab_state:
-                        conn.sendall(encode(self._lab_state()))
+                        conn.sendall(self._encode_connection_response(self._lab_state(), manifest_cache))
                         next_lab_state = now_mono + lab_state_period
                 except OSError:
                     break
@@ -1085,9 +1103,9 @@ class Bridge:
                     break
                 try:
                     for response in self._drain_lab_responses():
-                        conn.sendall(encode(response))
+                        conn.sendall(self._encode_connection_response(response, manifest_cache))
                     if now_mono >= next_lab_state:
-                        conn.sendall(encode(self._lab_state()))
+                        conn.sendall(self._encode_connection_response(self._lab_state(), manifest_cache))
                         next_lab_state = now_mono + lab_state_period
                 except OSError:
                     break
@@ -1127,9 +1145,9 @@ class Bridge:
                 smoke_sim_s += float(getattr(obs, "sim_dt", 0.0))
                 smoke_wall_s += float(getattr(obs, "wall_dt", 0.0))
                 for response in self._drain_lab_responses():
-                    conn.sendall(encode(response))
+                    conn.sendall(self._encode_connection_response(response, manifest_cache))
                 if now_mono >= next_lab_state:
-                    conn.sendall(encode(self._lab_state()))
+                    conn.sendall(self._encode_connection_response(self._lab_state(), manifest_cache))
                     next_lab_state = now_mono + lab_state_period
             except OSError:
                 break

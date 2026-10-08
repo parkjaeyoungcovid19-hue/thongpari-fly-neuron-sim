@@ -543,6 +543,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             self.mujocoFrameView.show(image)
             if self.mujocoFrameView.isHidden {
                 self.mujocoFrameView.isHidden = false
+                self.worldViewer.isPlaying = false
+                self.worldViewer.rendersContinuously = false
                 self.worldViewer.setAccessibilityLabel(
                     L("Live FlyGym world rendered by MuJoCo (NeuroMechFly body). The backend confirms selections.", "MuJoCo가 그린 실시간 가상 세계 (실제 초파리 몸 모델). 클릭한 대상은 시뮬레이터가 확인합니다."))
                 // Start close on the fly, as MuJoCo's own viewer did.
@@ -1078,7 +1080,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         } catch { sceneMessage(error.localizedDescription, error: true) }
     }
 
-    private func renderViewState() {
+    private func renderViewState(session suppliedSession: LabSessionSnapshot? = nil) {
+        let session = suppliedSession ?? coordinator.sessionSnapshot()
         let sceneSupported = bridge?.connected == true && bridge?.latestLabState()?.worldState?.sceneCapabilities?.supported == true
         saveSceneButton?.isEnabled = sceneSupported && pendingScene == nil
         loadSceneButton?.isEnabled = sceneSupported && pendingScene == nil
@@ -1087,7 +1090,6 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 : L("Scene files need a compatible connected backend", "장면 파일은 연결된 호환 백엔드가 필요합니다")
         }
         if let p = pendingScene {
-            let session = coordinator.sessionSnapshot()
             if bridge?.connectionGeneration != p.generation || session.sessionID != p.sessionID || session.epoch != p.epoch || Date().timeIntervalSince(p.sentAt) > 10 {
                 pendingScene = nil
                 sceneMessage(L("Scene result unavailable — check the connection and retry", "장면 결과를 받지 못했습니다 — 연결 확인 후 다시 시도하세요"), error: true)
@@ -2864,7 +2866,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
 
     /// Assembles the one WorkspaceSnapshot and renders every region that shows
     /// connection, session or recording state from it.
-    private func refreshWorkspace() {
+    private func refreshWorkspace(session suppliedSession: LabSessionSnapshot? = nil) {
+        let session = suppliedSession ?? coordinator.sessionSnapshot()
         let recording: WorkspaceRecording
         switch recorder.state {
         case .recording:
@@ -2881,9 +2884,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 bridgeEnabled: bridge != nil, service: service?.state,
                 connected: bridge?.connected == true,
                 bodyFresh: body?.isFresh == true, bodyAge: body?.ageSeconds,
-                pausedOwnerFresh: coordinator.sessionSnapshot().phase == .paused
+                pausedOwnerFresh: session.phase == .paused
                     && bridge?.labStateFreshness().isFresh == true),
-            session: coordinator.sessionSnapshot(),
+            session: session,
             recording: recording,
             pendingCommands: timeline.pendingCount,
             backendDetail: backendDetail)
@@ -2986,11 +2989,11 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                         noteParticipantContact(snapshot)
                         let pickSuffix = lastPickSummary.isEmpty ? "" : " · \(lastPickSummary)"
                         let playerSuffix = snapshot.player == nil ? "" : L(" · participant body", " · 참여자 있음")
-                        worldViewerStatusLabel.stringValue = L("3D world — snapshot #\(snapshotID) · rev \(revision) · tick \(snapshot.simTick) · \(snapshot.objects.count) objects\(playerSuffix)\(pickSuffix)", "3D 화면 — 시각 \(snapshot.simTick) ms · 물체 \(snapshot.objects.count)개\(playerSuffix)\(pickSuffix)")
-                        worldViewerStatusLabel.textColor = .secondaryLabelColor
+                        setStatus(worldViewerStatusLabel, L("3D world — snapshot #\(snapshotID) · rev \(revision) · tick \(snapshot.simTick) · \(snapshot.objects.count) objects\(playerSuffix)\(pickSuffix)", "3D 화면 — 시각 \(snapshot.simTick) ms · 물체 \(snapshot.objects.count)개\(playerSuffix)\(pickSuffix)"))
+                        if worldViewerStatusLabel.textColor != (.secondaryLabelColor) { worldViewerStatusLabel.textColor = .secondaryLabelColor }
                     } else {
-                        worldViewerStatusLabel.stringValue = L("3D world — snapshot error: ", "3D 화면 — 화면 오류: ") + (snapshot.error ?? L("backend rejected request", "시뮬레이터가 요청을 거절함"))
-                        worldViewerStatusLabel.textColor = .systemRed
+                        setStatus(worldViewerStatusLabel, L("3D world — snapshot error: ", "3D 화면 — 화면 오류: ") + (snapshot.error ?? L("backend rejected request", "시뮬레이터가 요청을 거절함")))
+                        if worldViewerStatusLabel.textColor != (.systemRed) { worldViewerStatusLabel.textColor = .systemRed }
                     }
                 } else {
                     let ownerChanged = lastViewerSessionID != nil &&
@@ -3004,7 +3007,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                     worldViewerStatusLabel.stringValue = worldViewer.currentSnapshotSource == nil
                         ? L("3D world — waiting for atomic backend snapshot…", "3D 화면 — 시뮬레이터 화면을 기다리는 중…")
                         : L("3D world — old frame; controls wait for a fresh backend snapshot", "3D 화면 — 오래된 화면입니다. 새 화면이 오면 조작할 수 있습니다")
-                    worldViewerStatusLabel.textColor = .systemOrange
+                    if worldViewerStatusLabel.textColor != (.systemOrange) { worldViewerStatusLabel.textColor = .systemOrange }
                 }
                 if let pick = bridge.latestRayPickResult() {
                     switch worldViewerPickDisposition(
@@ -3017,8 +3020,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                     case .showError:
                         lastAppliedPickSeq = pick.seq
                         lastPickSummary = L("pick #\(pick.seq) error: ", "선택 오류: ") + (pick.error ?? L("rejected", "거절됨"))
-                        worldViewerStatusLabel.stringValue = "3D world — \(lastPickSummary)"
-                        worldViewerStatusLabel.textColor = .systemRed
+                        setStatus(worldViewerStatusLabel, "3D world — \(lastPickSummary)")
+                        if worldViewerStatusLabel.textColor != (.systemRed) { worldViewerStatusLabel.textColor = .systemRed }
                     case .applySuccess:
                         lastAppliedPickSeq = pick.seq
                         worldViewer.apply(pickResult: pick)
@@ -3043,7 +3046,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 worldViewerStatusLabel.stringValue = bridge.connected
                     ? L("3D world — unavailable: backend does not advertise world_render_snapshot + ray_pick", "3D 화면 — 이 시뮬레이터는 3D 화면을 지원하지 않습니다")
                     : L("3D world — waiting for FlyGym connection…", "3D 화면 — 물리 시뮬레이터 연결을 기다리는 중…")
-                worldViewerStatusLabel.textColor = bridge.connected ? .systemOrange : .secondaryLabelColor
+                if worldViewerStatusLabel.textColor != (bridge.connected ? .systemOrange : .secondaryLabelColor) { worldViewerStatusLabel.textColor = bridge.connected ? .systemOrange : .secondaryLabelColor }
                 // Preserve the V4 minimap when connected to an older backend.
                 if let objects = state?.authoritativeObjects {
                     arenaPlacement.worldObjects = objects
@@ -3062,13 +3065,13 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                     let remain = free[shape] ?? max(0, total - (state?.authoritativeObjects?.filter { $0.shape == shape }.count ?? 0))
                     return "\(shape) \(total - remain)/\(total)"
                 }
-                worldCapacityLabel.stringValue = L("Object capacity — ", "물체 수 (사용/최대) — ") + parts.joined(separator: " · ")
+                setStatus(worldCapacityLabel, L("Object capacity — ", "물체 수 (사용/최대) — ") + parts.joined(separator: " · "))
             }
             refreshToyInspector(objects: state?.authoritativeObjects)
-            let editorSession = coordinator.sessionSnapshot()
+            let editorSession = session
             worldEditor.update(objects: arenaPlacement.worldObjects,
                                selectedID: viewState.selectedObjectID,
-                               capabilities: state?.worldState?.environmentCapabilities,
+                               capabilities: bridge.environmentCapabilities(),
                                identity: WorldEditorIdentity(generation: bridge.connectionGeneration,
                                                              sessionID: editorSession.sessionID, epoch: editorSession.epoch),
                                mode: viewState.mode,
@@ -3089,7 +3092,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 let text = LabToy.eventLine(notice.event, notice.detail)
                     ?? (detail.isEmpty ? notice.event : "\(notice.event) — \(detail)")
                 noteLocal("event", text, kind: .physical, status: .event, tick: notice.detail?.simTickMS)
-                let s = coordinator.sessionSnapshot()
+                let s = session
                 recorder.mark(kind: "lab_event", detail: notice.recordDetail,
                               sessionID: s.sessionID, epoch: s.epoch, simTick: s.simTick)
             }
@@ -3125,8 +3128,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             backendConnected: bridge?.connected == true,
             available: workspace?.acceptsBackendCommands == true, now: now)
         adoptBackendTemperature(state?.worldState?.temperature, local: t, now: now)
-        refreshWorkspace()
-        renderViewState()
+        refreshWorkspace(session: session)
+        renderViewState(session: session)
         refreshGunStatus()
         updateMood(t, now: now)
         activityCards.update(ActivityCardInput(telemetry: t, brainSimLoaded: coordinator.sim != nil))
@@ -3139,16 +3142,16 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             "몸 데이터 %.0f ms 전 · 속도 %.4f m/s · 발 닿음 %.2f · 눈 샘플 t%d · 다가옴 감지 L/R %.3f/%.3f · 뇌 활동 %.1f Hz"),
             max(0, t.bodyPacketAgeS * 1000), t.bodyVX, t.bodyContactMean,
             t.bodyEyeSampleSimTick, t.loomL, t.loomR, t.ratePop)
-        responseLabel.textColor = (bridge?.bodyFreshness().isFresh == true) ? .secondaryLabelColor : .systemOrange
+        if responseLabel.textColor != ((bridge?.bodyFreshness().isFresh == true) ? .secondaryLabelColor : .systemOrange) { responseLabel.textColor = (bridge?.bodyFreshness().isFresh == true) ? .secondaryLabelColor : .systemOrange }
 
         if let result = bridge?.latestPlayerInputResult(),
            result.seq == lastPlayerInputSeq {
             if result.ok {
-                playerInputStatusLabel.stringValue = L("Participant controls — input #\(result.seq) applied at tick \(result.appliedTick ?? result.requestedTick)", "참여 조작 — 입력 적용됨 (시각 \(result.appliedTick ?? result.requestedTick) ms)")
-                playerInputStatusLabel.textColor = .systemGreen
+                setStatus(playerInputStatusLabel, L("Participant controls — input #\(result.seq) applied at tick \(result.appliedTick ?? result.requestedTick)", "참여 조작 — 입력 적용됨 (시각 \(result.appliedTick ?? result.requestedTick) ms)"))
+                if playerInputStatusLabel.textColor != (.systemGreen) { playerInputStatusLabel.textColor = .systemGreen }
             } else {
-                playerInputStatusLabel.stringValue = L("Participant controls — input rejected: ", "참여 조작 — 입력 거절됨: ") + (result.error ?? result.status)
-                playerInputStatusLabel.textColor = .systemRed
+                setStatus(playerInputStatusLabel, L("Participant controls — input rejected: ", "참여 조작 — 입력 거절됨: ") + (result.error ?? result.status))
+                if playerInputStatusLabel.textColor != (.systemRed) { playerInputStatusLabel.textColor = .systemRed }
             }
         }
 
@@ -3283,7 +3286,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             let fresh = { (ok: Bool) in ok ? L("FRESH", "최신") : L("STALE", "오래됨") }
             let bodyStatus = L("body", "몸") + " \(fresh(bodyFreshness.isFresh)) \(bodyAge)"
             let envStatus = L("environment", "환경") + " \(fresh(stateFreshness.isFresh)) \(stateAge)"
-            freshnessLabel.stringValue = L("Packets — ", "데이터 — ") + "\(bodyStatus) · \(envStatus)"
+            setStatus(freshnessLabel, L("Packets — ", "데이터 — ") + "\(bodyStatus) · \(envStatus)")
 
             if let s = state {
                 var bits = [String(format: "%.1f s", s.t)]
@@ -3295,9 +3298,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 if let r = s.rightEyeCovered { bits.append(L("right eye ", "오른눈 ") + eyeState(r)) }
                 if let e = s.error, !e.isEmpty { bits.append(L("error: ", "오류: ") + e) }
                 if let event, !event.event.isEmpty { bits.append(L("last event: ", "최근 알림: ") + event.event) }
-                remoteStateLabel.stringValue = L("Environment — ", "환경 — ") + bits.joined(separator: " · ")
+                setStatus(remoteStateLabel, L("Environment — ", "환경 — ") + bits.joined(separator: " · "))
             } else {
-                remoteStateLabel.stringValue = L("Environment — waiting for FlyGym state…", "환경 — 시뮬레이터 상태를 기다리는 중…")
+                setStatus(remoteStateLabel, L("Environment — waiting for FlyGym state…", "환경 — 시뮬레이터 상태를 기다리는 중…"))
             }
 
             let sleeping = t.brainSleep
@@ -3322,15 +3325,15 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             if let action = state?.lastAction, !action.isEmpty { commandBits.append(L("bridge last action: ", "시뮬레이터 마지막 동작: ") + action) }
             if let error = state?.error, !error.isEmpty { commandBits.append(L("ERROR: ", "오류: ") + error) }
             commandBits.append(L("queue ", "대기열 ") + "\(bridge.pendingLabDepth())")
-            commandDiagnosticsLabel.stringValue = commandBits.joined(separator: "\n")
+            setStatus(commandDiagnosticsLabel, commandBits.joined(separator: "\n"))
         } else {
             freshnessLabel.stringValue = L("Packets — body STALE · bridge disabled · environment STALE · bridge disabled",
                                            "데이터 — 물리 시뮬레이터가 꺼져 있어 몸·환경 데이터가 없습니다")
-            remoteStateLabel.stringValue = L("Environment — local brain/sensory controls are still available", "환경 — 시뮬레이터 없이도 뇌·감각 조작은 쓸 수 있습니다")
+            setStatus(remoteStateLabel, L("Environment — local brain/sensory controls are still available", "환경 — 시뮬레이터 없이도 뇌·감각 조작은 쓸 수 있습니다"))
             let sleeping = t.brainSleep
-            commandDiagnosticsLabel.stringValue = L("Brain state — sleep ", "뇌 상태 — 잠 ") + onOff(sleeping)
+            setStatus(commandDiagnosticsLabel, L("Brain state — sleep ", "뇌 상태 — 잠 ") + onOff(sleeping)
                 + L(" · sensoryGate ×", " · 감각 통과율 ×") + (sleeping ? "0.55" : "1.00")
-                + L("\nCommands — FlyGym bridge disabled", "\n명령 — 물리 시뮬레이터 꺼짐")
+                + L("\nCommands — FlyGym bridge disabled", "\n명령 — 물리 시뮬레이터 꺼짐"))
         }
     }
 }

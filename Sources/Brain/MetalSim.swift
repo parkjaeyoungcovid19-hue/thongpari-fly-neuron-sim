@@ -313,7 +313,7 @@ final class MetalSim {
     /// keeping them outside the fixed ETL role table means they retain their
     /// ordinary connectome edges and, importantly, do not inherit Role.sens's
     /// special giant-fiber weight shortcut.
-    enum ModeledSensoryChannel: String, Hashable {
+    enum ModeledSensoryChannel: String, Hashable, CaseIterable {
         case foodOdorLeft, foodOdorRight
         case thermoWarm, thermoCool
         case windC, windE
@@ -439,20 +439,21 @@ final class MetalSim {
     /// Opt-in taste telemetry on the kernel histogram's single spare slot (15). Off
     /// by default so every sim --gpucheck builds keeps the 15-group ABI its CPU
     /// reference checks. When on, slot 15 is time-multiplexed on sim time: even
-    /// `tasteWindowMs` windows count the sugar GRNs, odd windows MN9, and batches are
-    /// cut at window edges so the phase is a pure function of `simMs`. It only
+    /// `tasteWindowMs` windows count the sugar GRNs, odd windows MN9. Prebuilt tags are bound per step, so batches can
+    /// cross window edges while phase remains a pure function of `simMs`. It only
     /// relabels the histogram — membrane/spike dynamics are bit-identical either way.
     var tasteReadout = false
     private let tasteWindowMs = 32
-    private var tastePhase = -1                   // what groupOf currently tags: -1 none, 0 sugar, 1 MN9
     private let tasteTagSugar, tasteTagMN9: [Int] // members not already in another histogram group
-    private let groupOfPtr: UnsafeMutablePointer<UInt8>
+    private let tasteGroupBuffers: [MTLBuffer]
 
     // "optogenetic" stimulation from brain-window clicks (any thread)
     private struct Stim { let idx: [Int]; let strength: Float; let durationMs: Int; var untilMs = 0 }
-    private struct ModeledDrive { let idx: [Int]; let strength: Float }
+    private struct ModeledDrive: Equatable { let idx: [Int]; let strength: Float }
     private var pendingStims: [Stim] = []
     private var activeStims: [Stim] = []
+    private var deferModeledRebuild = false
+    private var modeledInputChanged = false
     private var modeledDrives: [ModeledSensoryChannel: ModeledDrive] = [:]
     private var extDirty = Set<Int>()
     private let stimLock = NSLock()
@@ -571,7 +572,11 @@ final class MetalSim {
         else { fputs("metal-sim: could not allocate the per-neuron buffers\n", stderr); return nil }
         tasteTagSugar = sugarGRN.filter { groupOf[$0] == 0 }
         tasteTagMN9 = mn9.filter { groupOf[$0] == 0 }
-        groupOfPtr = gB.contents().bindMemory(to: UInt8.self, capacity: n)
+        var sugarGroups = groupOf, mn9Groups = groupOf
+        for i in tasteTagSugar { sugarGroups[i] = Group.taste }
+        for i in tasteTagMN9 { mn9Groups[i] = Group.taste }
+        guard let sugarBuffer = buf(sugarGroups), let mn9Buffer = buf(mn9Groups) else { return nil }
+        tasteGroupBuffers = [sugarBuffer, mn9Buffer]
         vBuf = vB; refrBuf = rB; baselineBuf = bB; inputKindBuf = kB; phaseBuf = phB
         groupOfBuf = gB; extInputBuf = eiB; excBuf = exB; inhBuf = inB; spikeListBuf = slB
         spikeCountBuf = scB; groupCountBuf = gcB; sampleBuf = smB
@@ -652,12 +657,18 @@ final class MetalSim {
     func setModeledSensoryDrive(_ channel: ModeledSensoryChannel,
                                 indices: [Int], strength: Float) {
         let s = min(0.20, max(0, strength))
-        if s <= 0 || indices.isEmpty {
-            modeledDrives.removeValue(forKey: channel)
-        } else {
-            modeledDrives[channel] = ModeledDrive(idx: indices, strength: s)
-        }
-        rebuildExtInput()
+        let next: ModeledDrive? = s <= 0 || indices.isEmpty ? nil : ModeledDrive(idx: indices, strength: s)
+        guard modeledDrives[channel] != next else { return }
+        modeledDrives[channel] = next
+        modeledInputChanged = true
+        if !deferModeledRebuild { rebuildExtInput() }
+    }
+
+    func batchModeledSensoryDrives(_ update: () -> Void) {
+        deferModeledRebuild = true
+        update()
+        deferModeledRebuild = false
+        if modeledInputChanged { rebuildExtInput() }
     }
 
     func clearModeledSensoryDrives() {
@@ -672,7 +683,9 @@ final class MetalSim {
     private func rebuildExtInput() {
         for i in extDirty { extPtr[i] = 0 }
         extDirty.removeAll(keepingCapacity: true)
-        for d in modeledDrives.values {
+        modeledInputChanged = false
+        for channel in ModeledSensoryChannel.allCases {
+            guard let d = modeledDrives[channel] else { continue }
             for i in d.idx where i >= 0 && i < n {
                 extPtr[i] += d.strength
                 extDirty.insert(i)
@@ -712,9 +725,7 @@ final class MetalSim {
         while remaining > 0 {
             // a sub-batch never crosses a stim expiry, so extInput is exact per step
             let room = activeStims.map(\.untilMs).min().map { $0 - simMs - 1 } ?? Int.max
-            // ... nor a taste-readout window edge, so one batch counts one population
-            let window = tasteReadout ? tasteWindowMs - simMs % tasteWindowMs : Int.max
-            let k = min(remaining, maxBatch, max(1, room), window)
+            let k = min(remaining, maxBatch, max(1, room))
             runBatch(k)
             remaining -= k
             dropFinishedStims()
@@ -729,19 +740,8 @@ final class MetalSim {
         }
     }
 
-    /// Retags the spare histogram slot for the batch about to run. Steps
-    /// simMs+1...simMs+k all share window `simMs / tasteWindowMs` (step() cuts there).
-    private func applyTastePhase() {
-        let phase = tasteReadout ? (simMs / tasteWindowMs) & 1 : -1
-        guard phase != tastePhase else { return }
-        tastePhase = phase
-        for i in tasteTagSugar { groupOfPtr[i] = phase == 0 ? Group.taste : 0 }
-        for i in tasteTagMN9 { groupOfPtr[i] = phase == 1 ? Group.taste : 0 }
-    }
-
     private func runBatch(_ k: Int) {
         let t0 = DispatchTime.now()
-        applyTastePhase()
 
         // Per-step parameters. Everything here is CPU state (input levels are held
         // constant across a step() call, the arousal-burst schedule is seeded), so
@@ -788,6 +788,8 @@ final class MetalSim {
         }
         for s in 0..<k {
             var sp = params[s]
+            let phase = (Int(sp.stepIndex) - 1) / tasteWindowMs & 1
+            enc.setBuffer(tasteReadout ? tasteGroupBuffers[phase] : groupOfBuf, offset: 0, index: 5)
             enc.setComputePipelineState(shared.update)
             enc.setBytes(&sp, length: MemoryLayout<StepParams>.stride, index: 16)
             enc.dispatchThreads(gridN, threadsPerThreadgroup: tgUpdate)
@@ -821,6 +823,7 @@ final class MetalSim {
             rateThermoCool += (Float(g[Int(Group.thermoCool)]) * 1000 / nThermoCool - rateThermoCool) * a
             rateWindC += (Float(g[Int(Group.windC)]) * 1000 / nWindC - rateWindC) * a
             rateWindE += (Float(g[Int(Group.windE)]) * 1000 / nWindE - rateWindE) * a
+            let tastePhase = tasteReadout ? ((Int(params[s].stepIndex) - 1) / tasteWindowMs) & 1 : -1
             if tastePhase >= 0 {
                 tasteSpikes[tastePhase] += Int(g[Int(Group.taste)])
                 tasteSampledMs[tastePhase] += 1

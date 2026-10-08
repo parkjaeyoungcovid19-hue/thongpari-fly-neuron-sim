@@ -1436,7 +1436,7 @@ class LabCommandQueue:
             }
 
 def encode(obj) -> bytes:
-    return (json.dumps(obj.to_dict(), separators=(",", ":"), allow_nan=False) + "\n").encode()
+    return (json.dumps(getattr(obj, "_validated_wire", None) or obj.to_dict(), separators=(",", ":"), allow_nan=False) + "\n").encode()
 
 def decode_line(line: bytes):
     """Parse one newline-delimited line. Unknown/malformed packets return None."""

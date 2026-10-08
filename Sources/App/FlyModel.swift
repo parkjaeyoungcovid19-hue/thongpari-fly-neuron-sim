@@ -79,6 +79,7 @@ struct FlyModel {
     let root: SCNNode
     let legs: [Leg]
     let foldedWings: SCNNode
+    let foldedWingNodes: [SCNNode]
     let blurWingL: SCNNode
     let blurWingR: SCNNode
     let abdomen: SCNNode
@@ -243,7 +244,7 @@ func buildFlyModel() -> FlyModel {
     root.addChildNode(bl)
     root.addChildNode(br)
 
-    return FlyModel(root: root, legs: legs, foldedWings: foldedWings,
+    return FlyModel(root: root, legs: legs, foldedWings: foldedWings, foldedWingNodes: foldedWings.childNodes,
                     blurWingL: bl, blurWingR: br, abdomen: abdomen)
 }
 
@@ -353,7 +354,7 @@ final class Fly {
         node.scale = SCNVector3(FLY_SCALE, FLY_SCALE, FLY_SCALE)
         var p = node.position; p.z = 0; node.position = p
         // refold the wings flat over the abdomen
-        for (i, wing) in model.foldedWings.childNodes.enumerated() {
+        for (i, wing) in model.foldedWingNodes.enumerated() {
             let side: CGFloat = i == 0 ? -1 : 1
             wing.eulerAngles = SCNVector3(0, 0, side * 0.13)
         }
@@ -654,7 +655,7 @@ final class Fly {
                     && (liveWing > 0.7 || (brainLive && dartTimer > 0))) ? 1 : 0
                 wingRaise += (raiseTarget - wingRaise) * min(1, 8 * dt)
                 if wingRaise > 0.01 {
-                    for (i, wing) in model.foldedWings.childNodes.enumerated() {
+                    for (i, wing) in model.foldedWingNodes.enumerated() {
                         let side: CGFloat = i == 0 ? -1 : 1
                         wing.eulerAngles = SCNVector3(-0.5 * wingRaise, 0,
                                                       side * (0.13 + 0.3 * wingRaise))
@@ -667,7 +668,7 @@ final class Fly {
         // faster when the live effort is higher
         flapPhase = (flapPhase + dt * (14 + 10 * effortCurrent)).truncatingRemainder(dividingBy: 1)
         let stroke = sin(flapPhase * 2 * .pi)
-        for (i, wing) in model.foldedWings.childNodes.enumerated() {
+        for (i, wing) in model.foldedWingNodes.enumerated() {
             let side: CGFloat = i == 0 ? -1 : 1
             wing.eulerAngles = SCNVector3(stroke * 0.35, 0,
                                           side * (0.45 + 0.35 * (0.5 + 0.5 * stroke)))

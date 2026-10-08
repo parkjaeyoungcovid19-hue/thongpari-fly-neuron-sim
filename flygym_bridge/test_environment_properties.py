@@ -52,6 +52,21 @@ class EnvironmentPropertiesTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         validate_manifest(manifest)
 
+    def test_manifest_connection_cache(self):
+        from bridge import Bridge
+        bridge = Bridge(mode="mock")
+        cache = {}
+        packet = bridge._lab_state()
+        first = json.loads(Bridge._encode_connection_response(packet, cache))
+        second = json.loads(Bridge._encode_connection_response(packet, cache))
+        self.assertIn("environment_capabilities", first["state"])
+        self.assertNotIn("environment_capabilities", second["state"])
+        self.assertIn("environment_capabilities", packet.state)
+        self.assertIn("environment_capabilities", json.loads(Bridge._encode_connection_response(packet, {}))["state"])
+        changed = deepcopy(packet)
+        changed.state["environment_capabilities"]["object_operations"] = ["delete"]
+        self.assertIn("environment_capabilities", json.loads(Bridge._encode_connection_response(changed, cache))["state"])
+
     def test_nominal_fixture_exactly_matches_unbound_state(self):
         fixture = json.loads((FIXTURES / "valid.json").read_text())
         self.assertEqual(LabWorld().state()["environment_capabilities"], fixture)

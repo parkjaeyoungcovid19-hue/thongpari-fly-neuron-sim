@@ -800,7 +800,7 @@ class RealFlyBody:
         if n > self.max_physics_substeps:
             raise ValueError("physics substeps exceed maximum simulation chunk")
         wall_dt = max(0.0, float(wall_dt))
-        sim_dt = max(1e-6, n * self.sim.timestep)
+        sim_dt = max(1e-6, n * self.physics_timestep_s)
         self._apply_controller_tempo(tempo)
         sig = brain_to_descending(cmd)
         self.last_cmd = sig
@@ -811,9 +811,11 @@ class RealFlyBody:
         try:
             for index in range(n):
                 self._controller_substep(sig)
-                self.lab_world._interaction_tick_ms = int(round((self.t + (index + 1) * self.sim.timestep) * 1000.0))
-                self.lab_world.fly_position_mm = self._thorax_position()
-                self.lab_world.pre_step(self.sim.timestep)
+                self.lab_world._interaction_tick_ms = int(round((self.t + (index + 1) * self.physics_timestep_s) * 1000.0))
+                if any(obj.shape == "trap" and obj.trap_state == "armed"
+                       for obj in self.lab_world.objects.values()):
+                    self.lab_world.fly_position_mm = self._thorax_position()
+                self.lab_world.pre_step(self.physics_timestep_s)
                 self.lab_world.player_substep()
                 self.sim.step()
                 self.lab_world.interaction_post_step()

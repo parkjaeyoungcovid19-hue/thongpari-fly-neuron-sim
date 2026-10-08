@@ -15,23 +15,22 @@ enum LabLanguage: String, CaseIterable {
     private static let defaultsKey = "VirtualFlyLabLanguage"
     /// Regression suites compare English strings; they pin the language
     /// without touching the user's saved choice.
-    private static var testOverride: LabLanguage?
+    private static var cached: LabLanguage = {
+        if let raw = UserDefaults.standard.string(forKey: defaultsKey),
+           let saved = LabLanguage(rawValue: raw) { return saved }
+        return (Locale.preferredLanguages.first ?? "en").hasPrefix("ko") ? .korean : .english
+    }()
 
     static var current: LabLanguage {
-        get {
-            if let testOverride { return testOverride }
-            if let raw = UserDefaults.standard.string(forKey: defaultsKey),
-               let saved = LabLanguage(rawValue: raw) { return saved }
-            let preferred = Locale.preferredLanguages.first ?? "en"
-            return preferred.hasPrefix("ko") ? .korean : .english
-        }
+        get { cached }
         set {
+            cached = newValue
             UserDefaults.standard.set(newValue.rawValue, forKey: defaultsKey)
             NotificationCenter.default.post(name: .labLanguageChanged, object: nil)
         }
     }
 
-    static func pinForTests(_ language: LabLanguage) { testOverride = language }
+    static func pinForTests(_ language: LabLanguage) { cached = language }
 
     /// Shown in the language's own script so either reader can find it.
     var menuTitle: String {

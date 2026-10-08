@@ -347,6 +347,8 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     }
 
     private func ensureDeterministicDriver() {
+        let session = labSession.snapshot()
+        guard session.mode == .deterministic || [.starting, .pausing, .resuming, .resetting].contains(session.phase) else { return }
         lock.lock()
         if deterministicTimer != nil { lock.unlock(); return }
         let timer = DispatchSource.makeTimerSource(queue: deterministicQueue)
@@ -521,6 +523,10 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         if snap.mode == .interactive {
             lock.lock()
             localNeuralPaused = snap.phase != .running
+            if [.running, .paused, .failed].contains(snap.phase) {
+                deterministicTimer?.cancel()
+                deterministicTimer = nil
+            }
             lock.unlock()
             return
         }
@@ -924,6 +930,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         let odor = FlyGymSensoryMap.foodOdor(body: bodyFeedback, maxAge: bodyMaxAge)
         labOdorDriveL = SensoryModel.odorCurrent(odor.l, sensoryGate: sim.sensoryGate)
         labOdorDriveR = SensoryModel.odorCurrent(odor.r, sensoryGate: sim.sensoryGate)
+        sim.batchModeledSensoryDrives {
         sim.setModeledSensoryDrive(.foodOdorLeft, indices: sim.foodOdorLeft, strength: labOdorDriveL)
         sim.setModeledSensoryDrive(.foodOdorRight, indices: sim.foodOdorRight, strength: labOdorDriveR)
 
@@ -957,6 +964,8 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         let touchDrive = SensoryModel.touch(sourceDrive: labTouchDrive,
                                             sensoryGate: sim.sensoryGate)
         sim.setModeledSensoryDrive(.touchGeneric, indices: sim.sens, strength: touchDrive)
+
+        }
 
         if let fb = bodyFeedback {
             let fallbackDrive = first.map { Float($0.walkingIntensity) } ?? 0

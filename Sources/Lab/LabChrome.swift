@@ -317,3 +317,9 @@ final class LabInspectorPage: NSViewController {
         view = scroll
     }
 }
+
+/// Avoid invalidating text/layout when a periodic refresh has no new status.
+func setStatus(_ label: NSTextField, _ text: String, _ color: NSColor? = nil) {
+    if label.stringValue != text { label.stringValue = text }
+    if let color, label.textColor != color { label.textColor = color }
+}

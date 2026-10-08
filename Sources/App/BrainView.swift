@@ -158,6 +158,8 @@ func buildBrainScene(connectome: Connectome, sim: MetalSim) -> BrainScene {
 final class BrainRenderDriver: NSObject, SCNSceneRendererDelegate {
     let sim: MetalSim
     let flashPool: [SCNNode]
+    private let flashAction = SCNAction.sequence([.fadeOut(duration: FLASH_FADE), .hide()])
+    private let gfFlashAction = SCNAction.sequence([.fadeOut(duration: FLASH_FADE_GF), .hide()])
     private var next = 0
 
     init(sim: MetalSim, flashPool: [SCNNode]) {
@@ -175,7 +177,7 @@ final class BrainRenderDriver: NSObject, SCNSceneRendererDelegate {
         node.removeAllActions()
         node.opacity = isGF ? 1.0 : 0.8
         node.scale = isGF ? SCNVector3(3.2, 3.2, 3.2) : SCNVector3(1, 1, 1)
-        node.runAction(.sequence([.fadeOut(duration: isGF ? FLASH_FADE_GF : FLASH_FADE), .hide()]))
+        node.runAction(isGF ? gfFlashAction : flashAction)
     }
 
     func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {

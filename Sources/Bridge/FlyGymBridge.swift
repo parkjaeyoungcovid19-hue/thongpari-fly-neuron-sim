@@ -28,6 +28,7 @@ enum FlyGymSendLane: Int {
 fileprivate struct FlyGymPendingSend {
     var lane: FlyGymSendLane
     var data: Data
+    var playerInput: PlayerInputPacket? = nil
 }
 
 // MARK: - TCP client (POSIX, background threads only)
@@ -54,6 +55,17 @@ final class FlyGymBridge {
     static let labStateFreshMaxAge: TimeInterval = 1.5
     static let labDiscreteFreshMaxAge: TimeInterval = 5.0
 
+    private var cachedEnvironmentCapabilities: EnvironmentCapabilities?
+    func environmentCapabilities() -> EnvironmentCapabilities? {
+        lock.lock(); defer { lock.unlock() }
+        return _connected ? cachedEnvironmentCapabilities : nil
+    }
+    private let encoder = JSONEncoder()
+    private let encoderLock = NSLock()
+    private func encodeJSON<T: Encodable>(_ value: T) throws -> Data {
+        encoderLock.lock(); defer { encoderLock.unlock() }
+        return try encoder.encode(value)
+    }
     private let lock = NSLock()
     private var running = false
     private var sock: Int32 = -1
@@ -66,6 +78,7 @@ final class FlyGymBridge {
     private var pendingExperimentStep: Data?
     private var pendingWorldRenderRequest: Data?
     private var pendingRayPicks: [Data] = []
+    private var pendingPlayerInputPacket: PlayerInputPacket?
     private var pendingPlayerInput: Data?
     private var pendingPlayerLookRemainder = [0.0, 0.0]
     private let labQueueCap = 32
@@ -344,7 +357,7 @@ final class FlyGymBridge {
     /// Never touches the socket. Latest-packet-wins, so bursts coalesce.
     func sendBrain(_ s: BrainSignals, simMs: Int) {
         let pkt = FlyGymBrainPacket(signals: s, simMs: simMs)
-        guard let line = try? JSONEncoder().encode(pkt) else { return }
+        guard let line = try? encodeJSON(pkt) else { return }
         var data = line; data.append(0x0A)
         lock.lock()
         if s.escape {
@@ -358,7 +371,7 @@ final class FlyGymBridge {
     }
 
     private func encodeLine<T: Encodable>(_ packet: T) -> Data? {
-        guard var data = try? JSONEncoder().encode(packet) else { return nil }
+        guard var data = try? encodeJSON(packet) else { return nil }
         data.append(0x0A)
         return data
     }
@@ -533,11 +546,11 @@ final class FlyGymBridge {
         return seq
     }
 
-    private func promotePlayerLookRemainderLocked(afterSent data: Data) {
+    private func promotePlayerLookRemainderLocked(afterSent priorPacket: PlayerInputPacket?) {
         guard pendingPlayerInput == nil,
               pendingPlayerLookRemainder.count == 2,
               (pendingPlayerLookRemainder[0] != 0 || pendingPlayerLookRemainder[1] != 0),
-              let prior = decodePlayerInputLine(data),
+              let prior = priorPacket,
               let seq = allocatePlayerInputSeqLocked() else { return }
         let split = splitPlayerLook(pendingPlayerLookRemainder)
         let packet = PlayerInputPacket(
@@ -551,6 +564,7 @@ final class FlyGymBridge {
             lookDelta: split.chunk,
             heldActions: prior.heldActions)
         guard let encoded = encodeLine(packet) else { return }
+        pendingPlayerInputPacket = packet
         pendingPlayerInput = encoded
         pendingPlayerLookRemainder = split.remainder
     }
@@ -589,7 +603,7 @@ final class FlyGymBridge {
             lookDelta[1] + pendingPlayerLookRemainder[1],
         ]
         if let pendingPlayerInput,
-           let previous = decodePlayerInputLine(pendingPlayerInput),
+           let previous = pendingPlayerInputPacket,
            previous.actorID == actorID,
            previous.sessionID == sessionID,
            previous.epoch == max(0, epoch) {
@@ -611,6 +625,7 @@ final class FlyGymBridge {
                                        lookDelta: split.chunk,
                                        heldActions: heldActions)
         guard let data = encodeLine(packet) else { lock.unlock(); return nil }
+        pendingPlayerInputPacket = packet
         pendingPlayerInput = data
         pendingPlayerLookRemainder = split.remainder
         lock.unlock()
@@ -656,7 +671,7 @@ final class FlyGymBridge {
         cmd.id = id
         let action = cmd.action, protocolVersion = cmd.protocolVersion
         let sessionID = cmd.sessionID, epoch = cmd.epoch, requestedTick = cmd.requestedTick
-        guard let line = try? JSONEncoder().encode(cmd) else { return id }
+        guard let line = try? encodeJSON(cmd) else { return id }
         var data = line; data.append(0x0A)
         lock.lock()
         if pendingLab.count >= labQueueCap {
@@ -765,6 +780,8 @@ final class FlyGymBridge {
     }
 
     private func beginConnectionLocked(_ fd: Int32) {
+        cachedEnvironmentCapabilities = nil
+        inboundScanOffset = 0
         sock = fd
         _connected = true
         _connectionGeneration &+= 1
@@ -797,7 +814,7 @@ final class FlyGymBridge {
         // deterministic experiment order must not.
         if pendingExperimentStep != nil, let input = pendingPlayerInput {
             pendingPlayerInput = nil
-            return FlyGymPendingSend(lane: .playerInput, data: input)
+            return FlyGymPendingSend(lane: .playerInput, data: input, playerInput: pendingPlayerInputPacket)
         }
         if pendingExperimentStep != nil, !pendingLab.isEmpty {
             return FlyGymPendingSend(lane: .lab, data: pendingLab.removeFirst())
@@ -817,7 +834,7 @@ final class FlyGymBridge {
         }
         if let input = pendingPlayerInput {
             pendingPlayerInput = nil
-            return FlyGymPendingSend(lane: .playerInput, data: input)
+            return FlyGymPendingSend(lane: .playerInput, data: input, playerInput: pendingPlayerInputPacket)
         }
         if !pendingLab.isEmpty {
             return FlyGymPendingSend(lane: .lab, data: pendingLab.removeFirst())
@@ -866,7 +883,7 @@ final class FlyGymBridge {
         case .playerInput:
             // Continuous state is latest-wins. Never restore an older packet over
             // a newer key/focus transition that arrived during send().
-            if pendingPlayerInput == nil { pendingPlayerInput = item.data }
+            if pendingPlayerInput == nil { pendingPlayerInput = item.data; pendingPlayerInputPacket = item.playerInput }
         }
     }
 
@@ -995,6 +1012,7 @@ final class FlyGymBridge {
                 staleSessionPacketCount += 1
                 return true
             }
+            if let manifest = state.worldState?.environmentCapabilities { cachedEnvironmentCapabilities = manifest }
             _latestLabState = state
             labRecvCount += 1
             if let ackID = state.ack {
@@ -1076,7 +1094,7 @@ final class FlyGymBridge {
         if item.lane == .playerInput {
             // Test dequeue models a successful production send so any bounded
             // look remainder is promoted exactly as sendLoop would do.
-            promotePlayerLookRemainderLocked(afterSent: item.data)
+            promotePlayerLookRemainderLocked(afterSent: item.playerInput)
         }
         return item.lane
     }
@@ -1086,7 +1104,7 @@ final class FlyGymBridge {
         guard let item = dequeueNextLocked(now: now) else { return nil }
         if item.lane == .brain { lastNormalBrainSendAt = now }
         if item.lane == .playerInput {
-            promotePlayerLookRemainderLocked(afterSent: item.data)
+            promotePlayerLookRemainderLocked(afterSent: item.playerInput)
         }
         return (item.lane, item.data)
     }
@@ -1176,7 +1194,7 @@ final class FlyGymBridge {
                     case .worldRender, .rayPick:
                         break
                     case .playerInput:
-                        promotePlayerLookRemainderLocked(afterSent: d)
+                        promotePlayerLookRemainderLocked(afterSent: item.playerInput)
                     }
                     lastSend = sentAt
                 }
@@ -1210,36 +1228,36 @@ final class FlyGymBridge {
 
     /// Split newline-delimited protocol frames, route complete lines through the
     /// production parser/arbitration path, and bound malformed partial input.
+    private var inboundScanOffset = 0
     private func drainInboundBuffer(_ buf: inout Data, fd: Int32, generation: UInt64,
                                     receivedAt: Date = Date()) {
-        while let nl = buf.firstIndex(of: 0x0A) {
-            let lineLength = buf.distance(from: buf.startIndex, to: nl)
-            if lineLength > maxInboundLineBytes {
-                buf.removeSubrange(buf.startIndex...nl)
-                lock.lock()
-                if currentConnectionLocked(fd: fd, generation: generation) {
-                    malformedCount += 1
-                }
-                lock.unlock()
-                continue
+        var consumed = 0
+        var scan = min(inboundScanOffset, buf.count)
+        while scan < buf.count {
+            let newline: Int? = buf.withUnsafeBytes { raw in
+                guard let base = raw.baseAddress,
+                      let found = memchr(base + scan, 0x0A, raw.count - scan) else { return nil }
+                return base.distance(to: UnsafeRawPointer(found))
             }
-            let line = buf.subdata(in: buf.startIndex..<nl)
-            buf.removeSubrange(buf.startIndex...nl)
-            if line.isEmpty { continue }
-            if !acceptInboundLine(line, fd: fd, generation: generation, receivedAt: receivedAt) {
+            guard let nl = newline else { scan = buf.count; break }
+            let length = nl - consumed
+            let line = length <= maxInboundLineBytes
+                ? buf.subdata(in: (buf.startIndex + consumed)..<(buf.startIndex + nl)) : Data()
+            let valid = length <= maxInboundLineBytes &&
+                (line.isEmpty || acceptInboundLine(line, fd: fd, generation: generation, receivedAt: receivedAt))
+            if !valid {
                 lock.lock()
-                if currentConnectionLocked(fd: fd, generation: generation) {
-                    malformedCount += 1
-                }
+                if currentConnectionLocked(fd: fd, generation: generation) { malformedCount += 1 }
                 lock.unlock()
             }
+            consumed = nl + 1; scan = consumed
         }
+        if consumed > 0 { buf.removeFirst(consumed) }
+        inboundScanOffset = scan - consumed
         if buf.count > maxInboundLineBytes {
-            buf.removeAll(keepingCapacity: true)
+            buf.removeAll(keepingCapacity: true); inboundScanOffset = 0
             lock.lock()
-            if currentConnectionLocked(fd: fd, generation: generation) {
-                malformedCount += 1
-            }
+            if currentConnectionLocked(fd: fd, generation: generation) { malformedCount += 1 }
             lock.unlock()
         }
     }
@@ -1248,7 +1266,7 @@ final class FlyGymBridge {
         var buf = Data()
         var bufferFD: Int32 = -1
         var bufferGeneration: UInt64 = 0
-        let tmp = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
+        let tmp = UnsafeMutablePointer<UInt8>.allocate(capacity: 65536)
         defer { tmp.deallocate() }
         while isRunning() {
             lock.lock()
@@ -1257,27 +1275,27 @@ final class FlyGymBridge {
             let generation = _connectionGeneration
             lock.unlock()
             if !ok || fd < 0 {
-                buf.removeAll(keepingCapacity: true)
+                buf.removeAll(keepingCapacity: true); inboundScanOffset = 0
                 bufferFD = -1
                 bufferGeneration = 0
                 Thread.sleep(forTimeInterval: 0.05)
                 continue
             }
             if fd != bufferFD || generation != bufferGeneration {
-                buf.removeAll(keepingCapacity: true)
+                buf.removeAll(keepingCapacity: true); inboundScanOffset = 0
                 bufferFD = fd
                 bufferGeneration = generation
             }
-            let n = Darwin.recv(fd, tmp, 4096, 0)
+            let n = Darwin.recv(fd, tmp, 65536, 0)
             if n > 0 {
                 buf.append(tmp, count: n)
                 drainInboundBuffer(&buf, fd: fd, generation: generation)
             } else if n == 0 {
-                markDown(fd, generation: generation); buf.removeAll() // orderly close -> reconnect
+                markDown(fd, generation: generation); buf.removeAll(); inboundScanOffset = 0 // orderly close -> reconnect
                 bufferFD = -1; bufferGeneration = 0
             } else {
                 if errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR {
-                    markDown(fd, generation: generation); buf.removeAll()
+                    markDown(fd, generation: generation); buf.removeAll(); inboundScanOffset = 0
                     bufferFD = -1; bufferGeneration = 0
                 }
                 // else: timeout tick, socket still alive

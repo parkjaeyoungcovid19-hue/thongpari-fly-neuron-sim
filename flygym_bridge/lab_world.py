@@ -327,6 +327,7 @@ class LabWorld:
     """Bounded dynamic lab state; optionally backed by a compiled MuJoCo model."""
 
     def __init__(self, world=None, slot_counts=None):
+        self.fly_position_mm = None
         counts = dict(DEFAULT_SLOT_COUNTS)
         if slot_counts:
             for shape, count in slot_counts.items():

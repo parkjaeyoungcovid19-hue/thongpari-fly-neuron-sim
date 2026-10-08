@@ -121,7 +121,6 @@ final class ExperimentRecorder {
     }
 
     func append(_ sample: LabTelemetry) {
-        let data = Data(sample.csvLine.utf8)
         lock.lock()
         let active = _state == .recording
         let fh = telemetryHandle
@@ -130,7 +129,7 @@ final class ExperimentRecorder {
             // transitions to `stopping` can only enqueue its finalizer after this
             // accepted write is already ahead of it on the serial writer queue.
             queue.async { [self] in
-                do { try write(data, to: fh) }
+                do { try write(Data(sample.csvLine.utf8), to: fh) }
                 catch { setError("telemetry write", error) }
             }
         }

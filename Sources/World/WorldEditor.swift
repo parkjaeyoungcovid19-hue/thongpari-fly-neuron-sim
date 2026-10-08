@@ -610,14 +610,14 @@ final class WorldEditorInspector: NSStackView, NSTextFieldDelegate {
 final class WorldEditorOverlay: NSView {
     var onCommit: ((WorldEditorTool, EnvironmentPropertyValue, LabWorldObjectRemote) -> Void)?
     var onDraft: ((String) -> Void)?
-    var camera: WorldViewerMuJoCoCamera? { didSet { needsDisplay = true } }
-    var tool: WorldEditorTool = .move { didSet { cancelDrag(); needsDisplay = true } }
+    var camera: WorldViewerMuJoCoCamera? { didSet { if oldValue != camera { needsDisplay = true } } }
+    var tool: WorldEditorTool = .move { didSet { if oldValue != tool { cancelDrag(); needsDisplay = true } } }
     var selected: LabWorldObjectRemote? { didSet {
         if oldValue?.id != selected?.id || oldValue?.revision != selected?.revision { cancelDrag() }
-        needsDisplay = true
+        if oldValue?.id != selected?.id || oldValue?.revision != selected?.revision || oldValue?.positionMM != selected?.positionMM { needsDisplay = true }
     } }
-    var editable = false { didSet { if !editable { cancelDrag() }; needsDisplay = true } }
-    var visibleSelection = false { didSet { needsDisplay = true } }
+    var editable = false { didSet { guard oldValue != editable else { return }; if !editable { cancelDrag() }; needsDisplay = true } }
+    var visibleSelection = false { didSet { if oldValue != visibleSelection { needsDisplay = true } } }
     var scalarSize = false
     private struct Handle { let axis: Int; let point: NSPoint; let center: NSPoint }
     private struct Drag { let object: LabWorldObjectRemote; let axis: Int; let start: NSPoint

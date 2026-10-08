@@ -167,6 +167,7 @@ class ViewStream:
                 return
             if self._scenes is None:
                 self._model = model
+                self._participant_geometry = _participant_geometry(model)
                 self._scenes = [mujoco.MjvScene(model, maxgeom=MAX_GEOMS) for _ in range(2)]
                 self._option = mujoco.MjvOption()
                 # View-only effects (BB tracers) live in geom group 3, which
@@ -200,7 +201,7 @@ class ViewStream:
             self._next_render = now + 2.0
             return
         if camera["anchor"] == "participant_first":
-            _hide_participant_geom(model, scene)
+            _hide_participant_geom(model, scene, self._participant_geometry)
         # Same cosmetic passes the passive viewer disabled on this machine.
         for flag in (mujoco.mjtRndFlag.mjRND_SHADOW,
                      mujoco.mjtRndFlag.mjRND_REFLECTION,
@@ -360,19 +361,28 @@ def _resolve_anchor(camera, anchors):
     return pos, fwd
 
 
-def _hide_participant_geom(model, scene):
+def _participant_geometry(model):
+    import mujoco
+    from player_body import PLAYER_GEOM_NAME
+    head = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, PLAYER_GEOM_NAME)
+    if head < 0:
+        return None
+    body = int(model.geom_bodyid[head])
+    ids = frozenset(i for i in range(model.ngeom) if int(model.geom_bodyid[i]) == body)
+    return head, float(model.geom_size[head][0]) * 1.05 + 0.1, ids
+
+
+def _hide_participant_geom(model, scene, geometry=None):
     """Drop the participant's own head (sphere and face) from a first-person frame.
 
     The eye sits inside the head. Face parts lie on the head surface; the
     limbs and the toy gun lie farther out and stay visible when looking down.
     """
     import mujoco
-    from player_body import PLAYER_GEOM_NAME
-    head = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, PLAYER_GEOM_NAME)
-    if head < 0:
+    geometry = geometry if geometry is not None else _participant_geometry(model)
+    if geometry is None:
         return
-    body = int(model.geom_bodyid[head])
-    reach = float(model.geom_size[head][0]) * 1.05 + 0.1
+    head, reach, ids = geometry
     center = None
     for i in range(scene.ngeom):
         g = scene.geoms[i]
@@ -382,7 +392,7 @@ def _hide_participant_geom(model, scene):
         return
     for i in range(scene.ngeom):
         g = scene.geoms[i]
-        if (g.objtype == mujoco.mjtObj.mjOBJ_GEOM and int(model.geom_bodyid[g.objid]) == body
+        if (g.objtype == mujoco.mjtObj.mjOBJ_GEOM and g.objid in ids
                 and math.dist(center, [float(v) for v in g.pos]) <= reach):
             g.rgba[3] = 0.0
             g.size[:] = 0.0

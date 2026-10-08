@@ -8,6 +8,10 @@ final class LabGraphView: NSView {
         var values: [Double] = []
     }
 
+    private let axisAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular),
+            .foregroundColor: NSColor.tertiaryLabelColor
+        ]
     private let maxSamples: Int
     private var series: [Series]
     var fixedRange: ClosedRange<Double>? { didSet { needsDisplay = true } }
@@ -44,24 +48,11 @@ final class LabGraphView: NSView {
         let background = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
         background.fill()
 
-        let all = series.flatMap(\.values)
-        let range: ClosedRange<Double>
-        if let fixedRange {
-            range = fixedRange
-        } else if let lo = all.min(), let hi = all.max() {
-            let pad = max(1e-6, (hi - lo) * 0.08)
-            range = (lo - pad)...(hi + pad)
-        } else {
-            range = 0...1
-        }
+        let range = fixedRange ?? 0...1
         let span = max(1e-9, range.upperBound - range.lowerBound)
         let colors: [NSColor] = [.systemBlue, .systemOrange, .systemGreen, .systemPink,
                                  .systemPurple, .systemTeal, .systemRed, .systemYellow]
 
-        let axisAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular),
-            .foregroundColor: NSColor.tertiaryLabelColor
-        ]
         let legendLineHeight: CGFloat = 14
         let legendRows: CGFloat = series.count > 5 ? 2 : 1
         let legendHeight = legendRows * legendLineHeight + 4

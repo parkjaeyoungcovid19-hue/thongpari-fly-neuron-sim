@@ -247,18 +247,18 @@ final class ActivityCardView: NSView {
 
     func show(_ value: ActivityCardValue) {
         displayedValue = value
+        var text = "—"
         switch value {
         case .number(let v) where v.isFinite:
-            valueLabel.stringValue = String(format: "%.\(spec.decimals)f", v)
+            text = String(format: "%.\(spec.decimals)f", v)
         case .flag(let on):
-            valueLabel.stringValue = on ? L("yes", "예") : L("no", "아니오")
+            text = on ? L("yes", "예") : L("no", "아니오")
         case .unsupported:
-            valueLabel.stringValue = L("Unsupported", "미지원")
+            text = L("Unsupported", "미지원")
         case .number, .missing:
-            valueLabel.stringValue = "—"
+            text = "—"
         }
-        valueLabel.textColor = value == .unsupported || valueLabel.stringValue == "—"
-            ? .tertiaryLabelColor : .labelColor
+        setStatus(valueLabel, text, value == .unsupported || text == "—" ? .tertiaryLabelColor : .labelColor)
         setAccessibilityValue("\(valueLabel.stringValue) \(spec.unit), \(spec.kind.label)")
     }
 

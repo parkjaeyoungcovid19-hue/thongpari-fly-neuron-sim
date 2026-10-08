@@ -51,11 +51,20 @@ Finder용 앱 bundle이 필요하면 저장소 루트에서 다음을 실행한�
 
 ```sh
 ./ThongpariFlyNeuronSim --bridgetest
-./flygym-venv/bin/python flygym_bridge/test_lab.py
-./flygym-venv/bin/python flygym_bridge/test_lab_real.py
+./flygym-venv/bin/python flygym_bridge/tests/unit/test_lab_world.py
+./flygym-venv/bin/python flygym_bridge/tests/real/test_lab_real.py
 ./flygym-venv/bin/python flygym_bridge/validate_experiment_presets.py
 ```
 
 Swift 소스를 바꾼 뒤 직접 실행 파일이 오래됐다면 `./build.sh`로 갱신한다. 기본 런처와 패키징 스크립트는 실행 파일이 없거나 빌드 입력보다 오래되면 다시 빌드한다.
 
 위 모드 구분은 런처와 인수 처리 소스에서 확인했다. 이 안내를 따라 새 checkout에서 Finder 실행을 다시 검증했는지는 **미확인**이다.
+
+Python mock regression suite (no real physics or performance gates):
+
+```sh
+cd flygym_bridge
+../flygym-venv/bin/python -m unittest discover -s tests/unit
+```
+
+Real-body tests live in `flygym_bridge/tests/real/`; optional timing gates live in `flygym_bridge/tests/perf/`. They are separate from unit discovery.

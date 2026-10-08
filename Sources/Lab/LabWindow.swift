@@ -3,373 +3,182 @@
 import Cocoa
 import UniformTypeIdentifiers
 
-private final class LabArenaPlacementView: NSView {
-    var onPick: ((Double, Double) -> Void)?
-    var selectedShape: String = "box" { didSet { needsDisplay = true } }
-    var selectedPoint: (x: Double, y: Double)? { didSet { needsDisplay = true } }
-    var worldObjects: [LabWorldObjectRemote] = [] { didSet { needsDisplay = true } }
-    var flyPose: (x: Double, y: Double, heading: Double)? { didSet { needsDisplay = true } }
-
-    private let minimumExtentMm = 100.0
-
-    override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: 250) }
-
-    private func visibleExtentMm() -> Double {
-        var required = minimumExtentMm
-        func include(_ x: Double, _ y: Double, pad: Double = 0) {
-            required = max(required, abs(x) + pad, abs(y) + pad)
-        }
-        if let selectedPoint { include(selectedPoint.x, selectedPoint.y, pad: 8) }
-        if let flyPose { include(flyPose.x, flyPose.y, pad: 8) }
-        for obj in worldObjects {
-            let sx = obj.sizeMM.indices.contains(0) ? abs(obj.sizeMM[0]) : 5
-            let sy = obj.sizeMM.indices.contains(1) ? abs(obj.sizeMM[1]) : sx
-            include(obj.positionMM.indices.contains(0) ? obj.positionMM[0] : 0,
-                    obj.positionMM.indices.contains(1) ? obj.positionMM[1] : 0,
-                    pad: max(sx, sy) * 0.75 + 5)
-        }
-        let padded = required * 1.10
-        for candidate in [100.0, 150, 200, 300, 500, 750, 1000, 1500, 2000] where padded <= candidate {
-            return candidate
-        }
-        return ceil(padded / 500.0) * 500.0
-    }
-
-    private func plotGeometry() -> (extent: Double, scale: Double, rect: NSRect) {
-        let extent = visibleExtentMm()
-        let side = max(1.0, min(bounds.width, bounds.height) - 16.0)
-        let rect = NSRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2,
-                          width: side, height: side)
-        return (extent, Double(side) / (2.0 * extent), rect)
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        let p = convert(event.locationInWindow, from: nil)
-        let g = plotGeometry()
-        guard g.scale > 0, g.rect.contains(p) else { return }
-        // Top-down lab convention: screen up = +X (forward), screen left = +Y.
-        let x = max(-g.extent, min(g.extent, Double(p.y - g.rect.midY) / g.scale))
-        let y = max(-g.extent, min(g.extent, Double(g.rect.midX - p.x) / g.scale))
-        selectedPoint = (x, y)
-        onPick?(x, y)
-    }
-
-    private func point(x: Double, y: Double, geometry g: (extent: Double, scale: Double, rect: NSRect)) -> CGPoint {
-        CGPoint(x: g.rect.midX - CGFloat(y * g.scale),
-                y: g.rect.midY + CGFloat(x * g.scale))
-    }
-
-    private func objectPath(_ obj: LabWorldObjectRemote,
-                            geometry g: (extent: Double, scale: Double, rect: NSRect)) -> NSBezierPath {
-        let x = obj.positionMM.indices.contains(0) ? obj.positionMM[0] : 0
-        let y = obj.positionMM.indices.contains(1) ? obj.positionMM[1] : 0
-        let sx = max(0.2, obj.sizeMM.indices.contains(0) ? abs(obj.sizeMM[0]) : 5)
-        let sy = max(0.2, obj.sizeMM.indices.contains(1) ? abs(obj.sizeMM[1]) : sx)
-        if obj.shape == "sphere" || obj.shape == "food" {
-            let c = point(x: x, y: y, geometry: g)
-            let d = max(2.0, CGFloat(sx * g.scale))
-            return NSBezierPath(ovalIn: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d))
-        }
-
-        // A tilted ramp's footprint is its length times cos(tilt).
-        let hx = sx * 0.5 * cos((obj.pitchDeg ?? 0) * Double.pi / 180.0)
-        let hy = sy * 0.5
-        let yaw = obj.yawDeg * Double.pi / 180.0
-        let c = cos(yaw), sn = sin(yaw)
-        let corners = [(-hx, -hy), (-hx, hy), (hx, hy), (hx, -hy)].map { local -> CGPoint in
-            let wx = x + local.0 * c - local.1 * sn
-            let wy = y + local.0 * sn + local.1 * c
-            return point(x: wx, y: wy, geometry: g)
-        }
-        let path = NSBezierPath()
-        if let first = corners.first {
-            path.move(to: first)
-            for p in corners.dropFirst() { path.line(to: p) }
-            path.close()
-        }
-        return path
-    }
-
-    private func drawWorldObjects(geometry g: (extent: Double, scale: Double, rect: NSRect),
-                                  labelAttrs: [NSAttributedString.Key: Any]) {
-        for obj in worldObjects {
-            let path = objectPath(obj, geometry: g)
-            let color: NSColor
-            switch obj.shape {
-            case "food": color = .systemGreen
-            case "wall": color = .systemPurple
-            case "sphere": color = .systemPink
-            case "car": color = .systemRed
-            case "trap": color = .systemCyan
-            case "ramp": color = .systemBrown
-            default: color = .systemIndigo
-            }
-            color.withAlphaComponent(0.22).setFill()
-            color.withAlphaComponent(0.95).setStroke()
-            path.lineWidth = obj.shape == "wall" ? 2.0 : 1.4
-            path.fill(); path.stroke()
-
-            let x = obj.positionMM.indices.contains(0) ? obj.positionMM[0] : 0
-            let y = obj.positionMM.indices.contains(1) ? obj.positionMM[1] : 0
-            let c = point(x: x, y: y, geometry: g)
-            let label = LabToy.objectLine(obj)
-            (label as NSString).draw(at: CGPoint(x: min(bounds.maxX - 140, c.x + 5),
-                                                 y: min(bounds.maxY - 15, c.y + 4)),
-                                     withAttributes: labelAttrs)
-        }
-    }
-
-    private func drawFly(geometry g: (extent: Double, scale: Double, rect: NSRect),
-                         labelAttrs: [NSAttributedString.Key: Any]) {
-        guard let flyPose else { return }
-        let center = point(x: flyPose.x, y: flyPose.y, geometry: g)
-        // Keep the fly legible even when the arena auto-zooms far out. Position
-        // and heading are authoritative; marker pixel size is intentionally UI-sized.
-        let length = max(10.0, min(18.0, CGFloat(4.0 * g.scale)))
-        let worldForward = point(x: flyPose.x + cos(flyPose.heading) * 5.0,
-                                 y: flyPose.y + sin(flyPose.heading) * 5.0,
-                                 geometry: g)
-        let dx = worldForward.x - center.x, dy = worldForward.y - center.y
-        let mag = max(0.001, hypot(dx, dy))
-        let ux = dx / mag, uy = dy / mag
-        let px = -uy, py = ux
-        let tip = CGPoint(x: center.x + ux * length * 0.65, y: center.y + uy * length * 0.65)
-        let tail = CGPoint(x: center.x - ux * length * 0.45, y: center.y - uy * length * 0.45)
-        let left = CGPoint(x: tail.x + px * length * 0.35, y: tail.y + py * length * 0.35)
-        let right = CGPoint(x: tail.x - px * length * 0.35, y: tail.y - py * length * 0.35)
-        let path = NSBezierPath()
-        path.move(to: tip); path.line(to: left); path.line(to: right); path.close()
-        NSColor.systemGreen.withAlphaComponent(0.90).setFill()
-        NSColor.systemGreen.setStroke()
-        path.lineWidth = 1.5
-        path.fill(); path.stroke()
-        let text = String(format: L("fly  %.1f, %.1f", "파리  %.1f, %.1f"), flyPose.x, flyPose.y)
-        (text as NSString).draw(at: CGPoint(x: min(bounds.maxX - 120, center.x + 8),
-                                            y: max(4, center.y - 16)),
-                                withAttributes: labelAttrs)
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        NSColor.controlBackgroundColor.setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 8, yRadius: 8).fill()
-
-        let g = plotGeometry()
-        NSColor.windowBackgroundColor.withAlphaComponent(0.45).setFill()
-        NSBezierPath(roundedRect: g.rect, xRadius: 6, yRadius: 6).fill()
-
-        let grid = NSBezierPath()
-        let step: Double = g.extent <= 100 ? 25 : (g.extent <= 200 ? 50 : (g.extent <= 500 ? 100 : (g.extent <= 1000 ? 250 : 500)))
-        var v = -g.extent
-        while v <= g.extent + 0.001 {
-            let a = point(x: -g.extent, y: v, geometry: g)
-            let b = point(x: g.extent, y: v, geometry: g)
-            grid.move(to: a); grid.line(to: b)
-            let c = point(x: v, y: -g.extent, geometry: g)
-            let d = point(x: v, y: g.extent, geometry: g)
-            grid.move(to: c); grid.line(to: d)
-            v += step
-        }
-        NSColor.separatorColor.withAlphaComponent(0.35).setStroke()
-        grid.lineWidth = 0.7
-        grid.stroke()
-
-        let origin = point(x: 0, y: 0, geometry: g)
-        let axes = NSBezierPath()
-        axes.move(to: CGPoint(x: g.rect.minX, y: origin.y)); axes.line(to: CGPoint(x: g.rect.maxX, y: origin.y))
-        axes.move(to: CGPoint(x: origin.x, y: g.rect.minY)); axes.line(to: CGPoint(x: origin.x, y: g.rect.maxY))
-        NSColor.secondaryLabelColor.withAlphaComponent(0.65).setStroke()
-        axes.lineWidth = 1.2
-        axes.stroke()
-
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
-            .foregroundColor: NSColor.secondaryLabelColor
-        ]
-        let objectAttrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 9, weight: .medium),
-            .foregroundColor: NSColor.labelColor.withAlphaComponent(0.85)
-        ]
-        (L("+X forward", "+X 앞") as NSString).draw(at: CGPoint(x: origin.x + 7, y: g.rect.maxY - 16), withAttributes: attrs)
-        (L("+Y left", "+Y 왼쪽") as NSString).draw(at: CGPoint(x: g.rect.minX + 6, y: origin.y + 5), withAttributes: attrs)
-        (String(format: L("±%.0f mm · %d objects", "±%.0f mm · 물체 %d개"), g.extent, worldObjects.count) as NSString)
-            .draw(at: CGPoint(x: g.rect.maxX - 120, y: g.rect.minY + 5), withAttributes: attrs)
-
-        drawWorldObjects(geometry: g, labelAttrs: objectAttrs)
-        drawFly(geometry: g, labelAttrs: objectAttrs)
-
-        guard let selectedPoint else { return }
-        let p = point(x: selectedPoint.x, y: selectedPoint.y, geometry: g)
-        let markerRect = NSRect(x: p.x - 7, y: p.y - 7, width: 14, height: 14)
-        NSColor.systemOrange.setStroke()
-        NSColor.systemOrange.withAlphaComponent(0.18).setFill()
-        let marker: NSBezierPath
-        if selectedShape == "sphere" || selectedShape == "food" {
-            marker = NSBezierPath(ovalIn: markerRect)
-        } else {
-            marker = NSBezierPath(rect: markerRect)
-        }
-        marker.lineWidth = 2
-        marker.fill(); marker.stroke()
-
-        let coordinate = String(format: L("pick %.1f, %.1f mm", "고른 위치 %.1f, %.1f mm"), selectedPoint.x, selectedPoint.y)
-        (coordinate as NSString).draw(at: CGPoint(x: min(bounds.maxX - 120, p.x + 10),
-                                                  y: max(4, min(bounds.maxY - 16, p.y + 7))),
-                                        withAttributes: attrs)
-    }
-}
-
 final class LabWindowController: NSWindowController, NSWindowDelegate {
-    private unowned let coordinator: Coordinator
-    private let bridge: FlyGymBridge?
-    private let recorder = ExperimentRecorder()
-    private var brainController: BrainWindowController?
-    private var timer: Timer?
+    let participant = LabParticipantController()
+    unowned let coordinator: Coordinator
+    let bridge: FlyGymBridge?
+    let recorder = ExperimentRecorder()
+    var brainController: BrainWindowController?
+    var timer: Timer?
     private let timelineLabel = NSTextField(wrappingLabelWithString: L("No commands yet", "아직 명령 없음"))
     private let responseLabel = NSTextField(wrappingLabelWithString: L("Waiting for body and eye samples", "몸·눈 데이터를 기다리는 중"))
-    private let recordButton = NSButton(title: L("Record", "기록"), target: nil, action: nil)
-    private let runButton = NSButton(title: L("Pause", "일시 정지"), target: nil, action: nil)
-    private let protocolLabel = NSTextField(labelWithString: L("FlyGym bridge — starting…", "물리 시뮬레이터 연결 — 시작 중…"))
-    private let remoteStateLabel = NSTextField(labelWithString: L("Environment — waiting for state…", "환경 — 상태를 기다리는 중…"))
+    let recordButton = NSButton(title: L("Record", "기록"), target: nil, action: nil)
+    let runButton = NSButton(title: L("Pause", "일시 정지"), target: nil, action: nil)
+    let protocolLabel = NSTextField(labelWithString: L("FlyGym bridge — starting…", "물리 시뮬레이터 연결 — 시작 중…"))
+    let remoteStateLabel = NSTextField(labelWithString: L("Environment — waiting for state…", "환경 — 상태를 기다리는 중…"))
     private let recorderLabel = NSTextField(labelWithString: L("not recording", "기록 안 함"))
-    private let freshnessLabel = NSTextField(labelWithString: L("Packets — waiting for body/environment telemetry…", "데이터 — 몸/환경 정보를 기다리는 중…"))
-    private let commandDiagnosticsLabel = NSTextField(wrappingLabelWithString: L("Commands — no command sent yet", "명령 — 아직 보낸 명령 없음"))
-    private let signalPathLabel = NSTextField(wrappingLabelWithString: L("Signal path — waiting for telemetry…", "신호 경로 — 데이터를 기다리는 중…"))
-    private let sessionStatusLabel = NSTextField(wrappingLabelWithString: L("Session — interactive", "세션 — 실시간"))
-    private let viewStateLabel = NSTextField(wrappingLabelWithString: "View — OBSERVE · fly fly · object none · tick 0 ms · RUNNING")
+    let freshnessLabel = NSTextField(labelWithString: L("Packets — waiting for body/environment telemetry…", "데이터 — 몸/환경 정보를 기다리는 중…"))
+    let commandDiagnosticsLabel = NSTextField(wrappingLabelWithString: L("Commands — no command sent yet", "명령 — 아직 보낸 명령 없음"))
+    let signalPathLabel = NSTextField(wrappingLabelWithString: L("Signal path — waiting for telemetry…", "신호 경로 — 데이터를 기다리는 중…"))
+    let sessionStatusLabel = NSTextField(wrappingLabelWithString: L("Session — interactive", "세션 — 실시간"))
+    let viewStateLabel = NSTextField(wrappingLabelWithString: "View — OBSERVE · fly fly · object none · tick 0 ms · RUNNING")
     /// Edit is a later-version contract, so the toolbar offers only these two.
     private let segmentModes: [LabViewMode] = [.observe, .participate, .edit]
-    private let viewModeControl = NSSegmentedControl(labels: ["Observe", "Participate", "Edit"],
+    let viewModeControl = NSSegmentedControl(labels: ["Observe", "Participate", "Edit"],
                                                      trackingMode: .selectOne,
                                                      target: nil, action: nil)
 
-    private let objectID = NSTextField(string: "")
-    private let objectShape = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let objectX = NSTextField(string: "60")
-    private let objectY = NSTextField(string: "0")
-    private let objectZ = NSTextField(string: "5")
-    private let objectSize = NSTextField(string: "5")
-    private let objectSpeed = NSTextField(string: "12")
-    private let objectEndDistance = NSTextField(string: "8")
-    private let worldObjectStatusLabel = NSTextField(wrappingLabelWithString: L("Object status — ready", "물체 상태 — 준비됨"))
-    private let worldCapacityLabel = NSTextField(wrappingLabelWithString: L("Object capacity — waiting for backend…", "물체 수 — 시뮬레이터를 기다리는 중…"))
-    private let worldViewer = WorldViewer(frame: .zero)
+    let objectID = NSTextField(string: "")
+    let objectShape = NSPopUpButton(frame: .zero, pullsDown: false)
+    let objectX = NSTextField(string: "60")
+    let objectY = NSTextField(string: "0")
+    let objectZ = NSTextField(string: "5")
+    let objectSize = NSTextField(string: "5")
+    let objectSpeed = NSTextField(string: "12")
+    let objectEndDistance = NSTextField(string: "8")
+    let worldObjectStatusLabel = NSTextField(wrappingLabelWithString: L("Object status — ready", "물체 상태 — 준비됨"))
+    let worldCapacityLabel = NSTextField(wrappingLabelWithString: L("Object capacity — waiting for backend…", "물체 수 — 시뮬레이터를 기다리는 중…"))
+    let worldViewer = WorldViewer(frame: .zero)
     private let worldViewerStatusLabel = NSTextField(wrappingLabelWithString: L("3D world — waiting for V5.1 backend capability…", "3D 화면 — 시뮬레이터 준비를 기다리는 중…"))
     private let observationCameraMode = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let playerInputStatusLabel = NSTextField(wrappingLabelWithString: L("Participant controls — waiting for V5.5 player_input capability…", "참여 조작 — 시뮬레이터 준비를 기다리는 중…"))
-    private let interactionStatusLabel = NSTextField(wrappingLabelWithString: L("Interaction state unknown", "상호작용 상태 알 수 없음"))
-    private let playerForwardKey = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let playerBackwardKey = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let playerLeftKey = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let playerRightKey = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let playerInteractKey = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let playerGunKey = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let playerFireKey = NSPopUpButton(frame: .zero, pullsDown: false)
+    let playerInputStatusLabel = NSTextField(wrappingLabelWithString: L("Participant controls — waiting for V5.5 player_input capability…", "참여 조작 — 시뮬레이터 준비를 기다리는 중…"))
+    let interactionStatusLabel = NSTextField(wrappingLabelWithString: L("Interaction state unknown", "상호작용 상태 알 수 없음"))
     /// V5.6.2 toys: selected-object actions, object list and BB-gun status.
-    private let driveSpeed = NSTextField(string: String(format: "%.0f", LabToy.driveSpeedMMs))
-    private let driveDistance = NSTextField(string: String(format: "%.0f", LabToy.driveDistanceMM))
+    let driveSpeed = NSTextField(string: String(format: "%.0f", LabToy.driveSpeedMMs))
+    let driveDistance = NSTextField(string: String(format: "%.0f", LabToy.driveDistanceMM))
     /// Rebuilt with the page on a language change.
-    private var driveButton: NSButton?
-    private var rearmButton: NSButton?
-    private let toyTargetLabel = NSTextField(wrappingLabelWithString: L("Selected — none", "선택한 물체 — 없음"))
-    private let objectListLabel = NSTextField(wrappingLabelWithString: L("Objects — none", "물체 목록 — 없음"))
-    private let gunStatusLabel = NSTextField(labelWithString: "")
-    private let gunHUDLabel = NSTextField(labelWithString: "")
-    private var gunHUD: NSVisualEffectView?
-    private var gunCommandPending: (id: Int, equipped: Bool, sentAt: Date)?
-    private var lastFireCommandID: Int?
-    private var lastGunConnectionGeneration: UInt64?
+    var driveButton: NSButton?
+    var rearmButton: NSButton?
+    let toyTargetLabel = NSTextField(wrappingLabelWithString: L("Selected — none", "선택한 물체 — 없음"))
+    let objectListLabel = NSTextField(wrappingLabelWithString: L("Objects — none", "물체 목록 — 없음"))
+    let gunStatusLabel = NSTextField(labelWithString: "")
+    let gunHUDLabel = NSTextField(labelWithString: "")
+    var gunHUD: NSVisualEffectView?
+    var gunCommandPending: (id: Int, equipped: Bool, sentAt: Date)? {
+        get { participant.gunCommandPending }
+        set { participant.gunCommandPending = newValue }
+    }
+    var lastFireCommandID: Int? {
+        get { participant.lastFireCommandID }
+        set { participant.lastFireCommandID = newValue }
+    }
+    var lastGunConnectionGeneration: UInt64? {
+        get { participant.lastGunConnectionGeneration }
+        set { participant.lastGunConnectionGeneration = newValue }
+    }
     /// A rejection/"not sent" note stays readable across the 10 Hz refresh.
-    private var gunNote: (text: String, color: NSColor, until: Date)?
-    private let lookSensitivitySlider = NSSlider(value: PlayerController.defaultLookRadiansPerPoint,
+    var gunNote: (text: String, color: NSColor, until: Date)? {
+        get { participant.gunNote }
+        set { participant.gunNote = newValue }
+    }
+    let lookSensitivitySlider = NSSlider(value: PlayerController.defaultLookRadiansPerPoint,
                                                  minValue: PlayerController.lookSensitivityRange.lowerBound,
                                                  maxValue: PlayerController.lookSensitivityRange.upperBound,
                                                  target: nil, action: nil)
-    private let playerController = PlayerController()
-    private var interactionPresentation = LabInteractionPresentation()
-    private var playerCaptureArmed = false
-    private var lastPlayerInputConnectionGeneration: UInt64?
-    private var lastPlayerInputSeq: Int?
+    var playerController: PlayerController {
+        get { participant.playerController }
+    }
+    var interactionPresentation: LabInteractionPresentation {
+        get { participant.interactionPresentation }
+        set { participant.interactionPresentation = newValue }
+    }
+    var playerCaptureArmed: Bool {
+        get { participant.playerCaptureArmed }
+        set { participant.playerCaptureArmed = newValue }
+    }
+    var lastPlayerInputConnectionGeneration: UInt64? {
+        get { participant.lastPlayerInputConnectionGeneration }
+        set { participant.lastPlayerInputConnectionGeneration = newValue }
+    }
+    var lastPlayerInputSeq: Int? {
+        get { participant.lastPlayerInputSeq }
+        set { participant.lastPlayerInputSeq = newValue }
+    }
     /// F-01: a player-input send that could not be queued already consumed the
     /// local key state. Re-send the current held state until one is queued.
-    private var playerInputReconcilePending = false
-    private let arenaPlacement = LabArenaPlacementView(frame: .zero)
-    private let createOnArenaClick = NSButton(checkboxWithTitle: "Create selected object when clicking arena", target: nil, action: nil)
+    var playerInputReconcilePending: Bool {
+        get { participant.playerInputReconcilePending }
+        set { participant.playerInputReconcilePending = newValue }
+    }
+    let arenaPlacement = LabArenaPlacementView(frame: .zero)
+    let createOnArenaClick = NSButton(checkboxWithTitle: "Create selected object when clicking arena", target: nil, action: nil)
     private var autoObjectSerial: [String: Int] = [:]
     private var lastAutoObjectID: String?
-    private var lastObjectCommandID: Int?
-    private var lastObjectCommandTarget: String?
-    private var lastObjectCommandDescription = ""
+    var lastObjectCommandID: Int?
+    var lastObjectCommandTarget: String?
+    var lastObjectCommandDescription = ""
 
     /// V6.5 environment panel: applied values, in-flight edits, sample at the fly.
-    private let environmentPanel = EnvironmentPanel()
-    private let windDuration = NSTextField(string: "500")
-    private let foodVariant = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let foodStatusLabel = NSTextField(wrappingLabelWithString: "")
-    private var lastFoodCommandID: Int?
+    let environmentPanel = EnvironmentPanel()
+    let windDuration = NSTextField(string: "500")
+    let foodVariant = NSPopUpButton(frame: .zero, pullsDown: false)
+    let foodStatusLabel = NSTextField(wrappingLabelWithString: "")
+    var lastFoodCommandID: Int?
     /// Last backend temperature handed to the brain side (V6.5 authority fix).
     private var adoptedTemperature: (celsius: Double, mode: String, at: Date)?
-    private let touchStrength = NSTextField(string: "0.55")
-    private let touchDuration = NSTextField(string: "150")
-    private let touchTarget = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let flashEye = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let flashIntensity = NSTextField(string: "1.0")
-    private let flashDuration = NSTextField(string: "100")
+    let touchStrength = NSTextField(string: "0.55")
+    let touchDuration = NSTextField(string: "150")
+    let touchTarget = NSPopUpButton(frame: .zero, pullsDown: false)
+    let flashEye = NSPopUpButton(frame: .zero, pullsDown: false)
+    let flashIntensity = NSTextField(string: "1.0")
+    let flashDuration = NSTextField(string: "100")
 
-    private let brainRole = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let brainStrength = NSTextField(string: "0.30")
-    private let brainDuration = NSTextField(string: "300")
-    private let brainRoleDescription = NSTextField(wrappingLabelWithString: "")
+    let brainRole = NSPopUpButton(frame: .zero, pullsDown: false)
+    let brainStrength = NSTextField(string: "0.30")
+    let brainDuration = NSTextField(string: "300")
+    let brainRoleDescription = NSTextField(wrappingLabelWithString: "")
 
-    private let neuralGraph = LabGraphView(frame: .zero,
+    let neuralGraph = LabGraphView(frame: .zero,
                                            names: ["brain", "loom", "walk", "back", "groom"])
-    private let commandGraph = LabGraphView(frame: .zero,
+    let commandGraph = LabGraphView(frame: .zero,
                                            names: ["DNa L", "DNa R", "MDN", "DNp09", "DNg11", "escW"])
-    private let sensoryGraph = LabGraphView(frame: .zero,
+    let sensoryGraph = LabGraphView(frame: .zero,
                                             names: ["loom L", "loom R", "legacy air", "gait"])
-    private let flywireSensoryGraph = LabGraphView(frame: .zero,
+    let flywireSensoryGraph = LabGraphView(frame: .zero,
                                                    names: ["food L", "food R", "warm", "cool", "wind C", "wind E"])
-    private let worldEditor = WorldEditorInspector(frame: .zero)
-    private let bodyGraph = LabGraphView(frame: .zero,
+    let worldEditor = WorldEditorInspector(frame: .zero)
+    let bodyGraph = LabGraphView(frame: .zero,
                                          names: ["speed×20", "turn÷5", "contact", "eye loom", "food L", "food R", "distance÷100"])
-    private let visionGraph = LabGraphView(frame: .zero,
+    let visionGraph = LabGraphView(frame: .zero,
                                            names: ["light L", "light R", "target L", "target R", "expand L", "expand R"])
-    private let bodyTelemetryLabel = NSTextField(labelWithString: "Movement — speed 0.0000 m/s · turn 0.00 rad/s · contact 0.00")
-    private let foodTelemetryLabel = NSTextField(labelWithString: "Food odor — left 0.000 · right 0.000 · nearest source: none")
-    private let visionTelemetryLabel = NSTextField(labelWithString: "Vision — expansion L/R 0.000/0.000 · brightness L/R 0.000/0.000")
-    private var lastPreset: String?
-    private var eyeCommandPendingID: Int?
-    private var eyeCommandStartedAt: Date?
-    private var eyeCommandSide: String?
-    private var eyeCommandCovered: Bool?
-    private var lastCommandID: Int?
-    private var lastCommandAction = "none"
+    let bodyTelemetryLabel = NSTextField(labelWithString: "Movement — speed 0.0000 m/s · turn 0.00 rad/s · contact 0.00")
+    let foodTelemetryLabel = NSTextField(labelWithString: "Food odor — left 0.000 · right 0.000 · nearest source: none")
+    let visionTelemetryLabel = NSTextField(labelWithString: "Vision — expansion L/R 0.000/0.000 · brightness L/R 0.000/0.000")
+    var lastPreset: String?
+    var eyeCommandPendingID: Int?
+    var eyeCommandStartedAt: Date?
+    var eyeCommandSide: String?
+    var eyeCommandCovered: Bool?
+    var lastCommandID: Int?
+    var lastCommandAction = "none"
     private var backendDetail = ""
     private var viewerFrameStale = false
     /// V6.6 undo/redo of applied settings (Edit ▸ Undo, ⌘Z).
-    private let sceneStatus = NSTextField(wrappingLabelWithString: L("Scene settings only — not a checkpoint", "장면 설정만 저장합니다 — 체크포인트 아님"))
+    let sceneStatus = NSTextField(wrappingLabelWithString: L("Scene settings only — not a checkpoint", "장면 설정만 저장합니다 — 체크포인트 아님"))
     private var sceneStatusRender: (() -> String)?
-    private var saveSceneButton: NSButton?
-    private var loadSceneButton: NSButton?
+    var saveSceneButton: NSButton?
+    var loadSceneButton: NSButton?
     private var pendingScene: (id: Int, url: URL?, generation: UInt64, sessionID: String, epoch: Int, sentAt: Date)?
     private var editHistory = WorldEditHistory()
-    private var pendingCommandSchedules: [Int: LabCommandSchedule] = [:]
+    var pendingCommandSchedules: [Int: LabCommandSchedule] = [:]
     private var lastPickRequestSeq: Int?
     private var lastAppliedPickSeq: Int?
     private var lastPickSource: WorldViewerSnapshotSource?
     private var lastPickSummary = ""
-    private var participantCommandPending = ParticipantCommandPendingState()
+    var participantCommandPending: ParticipantCommandPendingState {
+        get { participant.participantCommandPending }
+        set { participant.participantCommandPending = newValue }
+    }
     private var lastViewerConnectionGeneration: UInt64?
     private var lastViewerSessionID: String?
     private var lastViewerEpoch: Int?
-    private var viewState = LabViewState()
-    private let service: FlyGymService?
-    private var timeline = LabCommandTimeline()
+    var viewState = LabViewState()
+    let service: FlyGymService?
+    var timeline = LabCommandTimeline()
     private var ackCursor: UInt64 = 0
     private var eventCursor: UInt64 = 0
-    private var recordingStartedAt: Date?
-    private var lastRecordingOutcome = WorkspaceRecording.idle
-    private var workspace: WorkspaceSnapshot?
+    var recordingPresentation = LabRecordingPresentation()
+    var workspace: WorkspaceSnapshot?
     private let restartBackendButton = NSButton(title: L("Restart Backend", "시뮬레이터 다시 시작"), target: nil, action: nil)
     private let canvasBadge = NSTextField(labelWithString: "")
     private var canvasStatusHUD: NSVisualEffectView?
@@ -385,17 +194,23 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private var hasBuiltUI = false
     private var canvasHUDs: [NSView] = []
     private var selectedSection: LabSection = .world
-    private let moodEstimator = FlyMoodEstimator()
-    private let moodEmoji = NSTextField(labelWithString: "🙂")
-    private let moodTitle = NSTextField(labelWithString: "")
-    private let moodReason = NSTextField(labelWithString: "")
+    let moodEstimator = FlyMoodEstimator()
+    let moodEmoji = NSTextField(labelWithString: "🙂")
+    let moodTitle = NSTextField(labelWithString: "")
+    let moodReason = NSTextField(labelWithString: "")
     private let moodNote = NSTextField(labelWithString: "")
     /// V5.7 read-only activity cards (Data page). Rebuilt with the page on a
     /// language change; fed from the existing 10 Hz refresh, never a new timer.
-    private var activityCards = ActivityCardPanel()
+    var activityCards = ActivityCardPanel()
     /// Edge detector for the participant body touching the fly.
-    private var participantTouchingFly = false
-    private var cameraBeforeParticipate: WorldViewerCameraMode?
+    var participantTouchingFly: Bool {
+        get { participant.participantTouchingFly }
+        set { participant.participantTouchingFly = newValue }
+    }
+    var cameraBeforeParticipate: WorldViewerCameraMode? {
+        get { participant.cameraBeforeParticipate }
+        set { participant.cameraBeforeParticipate = newValue }
+    }
 
     init(coordinator: Coordinator, bridge: FlyGymBridge?, connectome: Connectome? = nil,
          service: FlyGymService? = nil) {
@@ -537,6 +352,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    let playerKeys: [PlayerControlAction: NSPopUpButton] = Dictionary(uniqueKeysWithValues:
+        PlayerControlAction.allCases.map { ($0, NSPopUpButton(frame: .zero, pullsDown: false)) })
+    var graphs: [LabGraphView] { [neuralGraph, commandGraph, sensoryGraph, flywireSensoryGraph, bodyGraph, visionGraph] }
 
     private func startMuJoCoStream() {
         guard let port = service?.renderPort, port != 0 else { return }
@@ -707,7 +526,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         refresh()
     }
 
-    @objc private func languagePicked(_ sender: NSPopUpButton) {
+    @objc func languagePicked(_ sender: NSPopUpButton) {
         guard let raw = sender.selectedItem?.representedObject as? String,
               let language = LabLanguage(rawValue: raw), language != LabLanguage.current else { return }
         LabLanguage.current = language
@@ -1020,7 +839,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         sceneStatus.textColor = error ? .systemRed : .secondaryLabelColor
     }
 
-    @objc private func saveScene() {
+    @objc func saveScene() {
         guard pendingScene == nil, let bridge, bridge.connected, bridge.latestLabState()?.worldState?.sceneCapabilities?.supported == true else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "flyworld") ?? .json]
@@ -1032,7 +851,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    @objc private func loadScene() {
+    @objc func loadScene() {
         guard pendingScene == nil, bridge?.connected == true, bridge?.latestLabState()?.worldState?.sceneCapabilities?.supported == true else { return }
         guard coordinator.sessionSnapshot().phase == .paused else {
             sceneMessage(L("Pause the simulation before loading a scene", "장면을 불러오기 전에 일시정지하세요"), error: true); return
@@ -1083,7 +902,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         } catch { sceneMessage(error.localizedDescription, error: true) }
     }
 
-    private func renderViewState(session suppliedSession: LabSessionSnapshot? = nil) {
+    func renderViewState(session suppliedSession: LabSessionSnapshot? = nil) {
         let session = suppliedSession ?? coordinator.sessionSnapshot()
         let sceneSupported = bridge?.connected == true && bridge?.latestLabState()?.worldState?.sceneCapabilities?.supported == true
         saveSceneButton?.isEnabled = sceneSupported && pendingScene == nil
@@ -1212,7 +1031,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     /// write re-measures the button (SwiftUI sizing plus an SF Symbol lookup):
     /// rewriting unchanged values cost ~13% of the main thread (2026-09-29).
     private var shownButtonSymbols: [ObjectIdentifier: String] = [:]
-    private func show(_ button: NSButton, title: String, symbol: String, tint: NSColor? = nil) {
+    func show(_ button: NSButton, title: String, symbol: String, tint: NSColor? = nil) {
         if button.title != title { button.title = title }
         if shownButtonSymbols[ObjectIdentifier(button)] != symbol {
             shownButtonSymbols[ObjectIdentifier(button)] = symbol
@@ -1247,680 +1066,14 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         worldViewer.setObservationCameraMode(mode)
     }
 
-    private func playerInputFocusAllowsCapture() -> Bool {
-        guard let window else { return false }
-        return PlayerInputFocusPolicy.allowsCapture(
-            windowIsKey: window.isKeyWindow,
-            firstResponder: window.firstResponder,
-            viewer: worldViewer)
-    }
-
-    private func refreshInteractionStatus(state: LabInteractionState?) {
-        var line = interactionPresentation.line(state: state)
-        if viewState.mode == .participate && worldViewer.cameraState.mode == .behindParticipant {
-            line += L(" · Third person: E grabs in the participant's forward direction",
-                      " · 3인칭: E는 참여체 정면을 집습니다")
-        }
-        interactionStatusLabel.stringValue = line
-        interactionStatusLabel.textColor = interactionPresentation.ignoredReason != nil
-            || interactionPresentation.rejection == nil
-            ? .secondaryLabelColor : .systemRed
-    }
-
-    private func showInteractionIgnored(_ reason: LabInteractionPresentation.IgnoredReason,
-                                        state: LabInteractionState? = nil) {
-        interactionPresentation.ignore(reason)
-        refreshInteractionStatus(state: state)
-    }
-
-    private func sendParticipantInteraction() {
-        guard viewState.mode == .participate,
-              playerController.captureEnabled, worldViewer.participateInputEnabled,
-              playerInputFocusAllowsCapture() else { return }
-        guard viewState.pendingMode == nil, viewState.sessionPhase == .running else {
-            showInteractionIgnored(.waitingForSession)
-            return
-        }
-        guard interactionPresentation.canAttempt() else {
-            refreshInteractionStatus(state: bridge?.latestLabState()?.interaction)
-            return
-        }
-        guard let bridge, bridge.labStateFreshness().isFresh,
-              let interaction = bridge.latestLabState()?.interaction else {
-            showInteractionIgnored(.waitingForState)
-            return
-        }
-        guard let envelope = playerInputEnvelope(),
-              let snapshot = bridge.latestWorldRenderSnapshot(maxAge: 1.0),
-              snapshot.ok, let player = snapshot.player,
-              player.id == "player",
-              snapshot.sessionID == envelope.sessionID,
-              snapshot.epoch == envelope.epoch else {
-            showInteractionIgnored(.waitingForWorld, state: interaction)
-            return
-        }
-
-        let toolID = interaction.heldObjectID == nil ? "grab" : "place"
-        let ray = toolID == "grab" ? WorldViewer.participantAimRay(player: player) : nil
-        if toolID == "grab" && ray == nil {
-            showInteractionIgnored(.invalidAim, state: interaction)
-            return
-        }
-        guard let id = send("interaction", target: interaction.heldObjectID,
-                            toolID: toolID, actorID: player.id,
-                            rayOriginMM: ray?.originMM,
-                            rayDirection: ray?.direction,
-                            scheduleOverride: LabCommandSchedule(
-                                sessionID: envelope.sessionID, epoch: envelope.epoch,
-                                requestedTick: envelope.requestedTick)) else {
-            showInteractionIgnored(.queueUnavailable, state: interaction)
-            return
-        }
-        interactionPresentation.begin(id: id, generation: bridge.connectionGeneration)
-        refreshInteractionStatus(state: interaction)
-    }
-
-    private func performParticipantTool(_ action: PlayerToolAction) {
-        switch action {
-        case .grab: sendParticipantInteraction()
-        case .equipGun(let equipped): sendGunEquip(equipped)
-        case .fire: fireBB()
-        }
-    }
-
-    /// The authoritative participant pose and V4 envelope the gun commands use,
-    /// matched to the current session exactly like a grab.
-    private func participantToolContext() -> (player: WorldRenderPose, schedule: LabCommandSchedule)? {
-        guard viewState.mode == .participate, viewState.pendingMode == nil,
-              viewState.sessionPhase == .running, let bridge,
-              let envelope = playerInputEnvelope(),
-              let snapshot = bridge.latestWorldRenderSnapshot(maxAge: 1.0),
-              snapshot.ok, let player = snapshot.player,
-              snapshot.sessionID == envelope.sessionID,
-              snapshot.epoch == envelope.epoch else { return nil }
-        return (player, LabCommandSchedule(sessionID: envelope.sessionID, epoch: envelope.epoch,
-                                           requestedTick: envelope.requestedTick))
-    }
-
-    private func sendGunEquip(_ equipped: Bool) {
-        if let pending = gunCommandPending, Date().timeIntervalSince(pending.sentAt) < 3 { return }
-        guard let context = participantToolContext(),
-              let command = LabCommand.equipGun(actorID: context.player.id, equipped: equipped),
-              let id = sendCommand(command, scheduleOverride: context.schedule) else {
-            showGunNote(L("not sent — waiting for the participant snapshot",
-                          "보내지 못함 — 참여자 화면을 기다리는 중"), color: .systemOrange)
-            return
-        }
-        gunCommandPending = (id, equipped, Date())
-        refreshGunStatus()
-    }
-
-    /// Direction = the participant's current look forward, the same ray a grab uses.
-    private func fireBB() {
-        guard playerController.gunEquipped,
-              let context = participantToolContext(),
-              let ray = WorldViewer.participantAimRay(player: context.player),
-              let command = LabCommand.fireBB(actorID: context.player.id, direction: ray.direction),
-              let id = sendCommand(command, scheduleOverride: context.schedule) else {
-            showGunNote(L("shot not sent — waiting for the participant snapshot",
-                          "발사를 보내지 못함 — 참여자 화면을 기다리는 중"), color: .systemOrange)
-            return
-        }
-        lastFireCommandID = id
-    }
-
-    /// Gun state lives in the backend; the local mirror is dropped whenever the
-    /// backend drops it (Observe mode, world reset, reconnect).
-    private func dropGunState() {
-        playerController.setGunEquipped(false)
-        gunCommandPending = nil
-        lastFireCommandID = nil
-        gunNote = nil
-    }
-
-    private func showGunNote(_ text: String, color: NSColor) {
-        gunNote = (text, color, Date().addingTimeInterval(4))
-        refreshGunStatus()
-    }
-
-    private func refreshGunStatus() {
-        let now = Date()
-        if let pending = gunCommandPending, now.timeIntervalSince(pending.sentAt) > 3 {
-            gunCommandPending = nil
-        }
-        if let note = gunNote, now > note.until { gunNote = nil }
-        let gunKey = PlayerKeyChoice.title(for: playerController.bindings.keyCode(for: .gun))
-        let fireKey = PlayerKeyChoice.title(for: playerController.bindings.keyCode(for: .fire))
-        let participating = viewState.mode == .participate
-        var line: String
-        if !participating {
-            line = L("BB gun — available in Participate", "비비탄총 — 참여 모드에서 사용")
-        } else if gunCommandPending != nil {
-            line = L("BB gun — waiting for backend…", "비비탄총 — 시뮬레이터 확인 중…")
-        } else if playerController.gunEquipped {
-            line = L("Gun equipped · \(fireKey)/click fires · \(gunKey) holsters", "총 장착 · \(fireKey)/클릭 발사 · \(gunKey) 내려놓기")
-        } else {
-            line = L("BB gun — holstered · \(gunKey) equips", "비비탄총 — 내려놓음 · \(gunKey)로 들기")
-        }
-        if let note = gunNote { line += " · " + note.text }
-        gunStatusLabel.stringValue = line
-        gunStatusLabel.textColor = gunNote?.color
-            ?? (playerController.gunEquipped ? .labelColor : .secondaryLabelColor)
-        let showHUD = participating && playerController.gunEquipped
-        gunHUDLabel.stringValue = L("Gun equipped · \(fireKey)/click fires", "총 장착 · \(fireKey)/클릭 발사")
-        gunHUD?.isHidden = !showHUD
-    }
-
-    private func playerInputEnvelope(allowStaleSnapshotForRelease: Bool = false)
-        -> (sessionID: String, epoch: Int, requestedTick: Int)? {
-        guard let bridge, bridge.playerInputV5_5Available else { return nil }
-        let session = coordinator.sessionSnapshot()
-        if session.mode == .deterministic {
-            guard session.phase == .running,
-                  let schedule = coordinator.labCommandSchedule() else { return nil }
-            // The deterministic schedule is already the authoritative exact
-            // owner boundary. Requiring a render snapshot here can strand a held
-            // key when focus is lost during a temporary viewer stall.
-            return (schedule.sessionID, schedule.epoch, schedule.requestedTick)
-        }
-
-        guard coordinator.ensureInteractivePlayerInputSession() else { return nil }
-        let current = coordinator.sessionSnapshot()
-        let maxSnapshotAge = allowStaleSnapshotForRelease
-            ? TimeInterval.greatestFiniteMagnitude : 1.0
-        guard current.mode == .interactive, current.phase == .running else { return nil }
-        if let snapshot = bridge.latestWorldRenderSnapshot(maxAge: maxSnapshotAge),
-           snapshot.ok,
-           snapshot.sessionID == current.sessionID,
-           snapshot.epoch == current.epoch {
-            if !allowStaleSnapshotForRelease && snapshot.player == nil { return nil }
-            return (current.sessionID, current.epoch, snapshot.simTick)
-        }
-        if allowStaleSnapshotForRelease {
-            // Safety neutralization must not depend on view freshness. Tick zero
-            // is a conservative interactive provenance floor: Python still
-            // validates session/epoch and applies at its current owner boundary,
-            // rejecting only client claims that are in the future.
-            return (current.sessionID, current.epoch, 0)
-        }
-        return nil
-    }
-
-    @discardableResult
-    private func sendPlayerInput(_ intent: PlayerInputIntent, reason: String,
-                                 allowStaleSnapshotForRelease: Bool = false,
-                                 discardPendingLook: Bool = false) -> Int? {
-        guard let bridge,
-              let envelope = playerInputEnvelope(
-                allowStaleSnapshotForRelease: allowStaleSnapshotForRelease) else {
-            playerInputStatusLabel.stringValue = L("Participant controls — waiting for authoritative session snapshot before \(reason)", "참여 조작 — 시뮬레이터 화면을 기다리는 중이라 입력을 보내지 못했습니다")
-            playerInputStatusLabel.textColor = .systemOrange
-            playerInputReconcilePending = true
-            return nil
-        }
-        guard let seq = bridge.sendPlayerInput(
-            sessionID: envelope.sessionID,
-            epoch: envelope.epoch,
-            requestedTick: envelope.requestedTick,
-            moveAxes: intent.moveAxes,
-            lookDelta: intent.lookDelta,
-            heldActions: intent.heldActions,
-            discardPendingLook: discardPendingLook) else {
-            playerInputStatusLabel.stringValue = L("Participant controls — \(reason) was not queued", "참여 조작 — 입력을 보내지 못했습니다")
-            playerInputStatusLabel.textColor = .systemOrange
-            playerInputReconcilePending = true
-            return nil
-        }
-        lastPlayerInputSeq = seq
-        playerInputReconcilePending = false
-        return seq
-    }
-
-    /// Called from the 10 Hz refresh. A neutral state may use the stale-snapshot
-    /// release path; a still-moving state needs a fresh snapshot like key down.
-    /// Only an already-running session is reconciled: this timer must never
-    /// begin an interactive session the user did not request.
-    private func reconcilePlayerHeldInputIfNeeded() {
-        guard playerInputReconcilePending else { return }
-        guard bridge?.playerInputV5_5Available == true,
-              viewState.mode == .participate else {
-            // Disconnect releases held input on the backend, and leaving
-            // Participate deactivates the participant; nothing to resend.
-            playerInputReconcilePending = false
-            return
-        }
-        guard coordinator.sessionSnapshot().phase == .running else { return }
-        let held = playerController.heldIntent()
-        // A neutral state is a safety release and drops unsent look, like
-        // key up. A still-moving state keeps any queued look delta (F-03).
-        sendPlayerInput(held, reason: "held-input reconcile",
-                        allowStaleSnapshotForRelease: held.isNeutral,
-                        discardPendingLook: held.isNeutral)
-    }
-
-    private func releasePlayerHeldInput(reason: String) {
-        playerCaptureArmed = false
-        _ = playerController.releaseHeldInput(blockUntilFreshPress: true)
-        _ = playerController.setCaptureEnabled(false)
-        worldViewer.participateInputEnabled = false
-        let neutral = playerController.heldIntent()
-        sendPlayerInput(neutral, reason: reason,
-                        allowStaleSnapshotForRelease: true,
-                        discardPendingLook: true)
-    }
-
-    private func playerKeyPopup(for action: PlayerControlAction) -> NSPopUpButton {
-        switch action {
-        case .forward: return playerForwardKey
-        case .backward: return playerBackwardKey
-        case .left: return playerLeftKey
-        case .right: return playerRightKey
-        case .interact: return playerInteractKey
-        case .gun: return playerGunKey
-        case .fire: return playerFireKey
-        }
-    }
-
-    private func configureLookSensitivitySlider() {
-        lookSensitivitySlider.doubleValue = playerController.lookRadiansPerPoint
-        lookSensitivitySlider.isContinuous = true
-        lookSensitivitySlider.target = self
-        lookSensitivitySlider.action = #selector(lookSensitivityChanged(_:))
-        lookSensitivitySlider.toolTip = L("Mouse-look speed while controlling the participant", "참여 조작 중 마우스로 둘러보는 속도")
-    }
-
-    @objc private func lookSensitivityChanged(_ sender: NSSlider) {
-        playerController.setLookSensitivity(sender.doubleValue)
-    }
-
-    private func configurePlayerKeyPopups() {
-        for action in PlayerControlAction.allCases {
-            let popup = playerKeyPopup(for: action)
-            popup.removeAllItems()
-            for choice in PlayerKeyChoice.remappable {
-                popup.addItem(withTitle: choice.title)
-                popup.lastItem?.representedObject = NSNumber(value: choice.keyCode)
-            }
-            popup.identifier = NSUserInterfaceItemIdentifier(action.rawValue)
-            popup.target = self
-            popup.action = #selector(playerKeyBindingChanged(_:))
-        }
-        syncPlayerKeyPopups()
-    }
-
-    private func syncPlayerKeyPopups() {
-        for action in PlayerControlAction.allCases {
-            let popup = playerKeyPopup(for: action)
-            let code = playerController.bindings.keyCode(for: action)
-            if let item = popup.itemArray.first(where: {
-                ($0.representedObject as? NSNumber)?.uint16Value == code
-            }) {
-                popup.select(item)
-            }
-        }
-    }
-
-    @objc private func playerKeyBindingChanged(_ sender: NSPopUpButton) {
-        guard let raw = sender.identifier?.rawValue,
-              let action = PlayerControlAction(rawValue: raw),
-              let number = sender.selectedItem?.representedObject as? NSNumber else {
-            syncPlayerKeyPopups()
-            return
-        }
-        if let neutral = playerController.rebind(action, to: number.uint16Value) {
-            sendPlayerInput(neutral, reason: "key remap",
-                            allowStaleSnapshotForRelease: true,
-                            discardPendingLook: true)
-        }
-        syncPlayerKeyPopups()
-        refreshGunStatus()
-        playerInputStatusLabel.stringValue = L("Participant controls — key mapping saved · Esc remains fixed safety release", "참여 조작 — 키 설정 저장됨 · Esc는 항상 해제 키입니다")
-        playerInputStatusLabel.textColor = .secondaryLabelColor
-    }
-
-    private func addPopupItems(_ popup: NSPopUpButton, _ items: [(String, String)]) {
-        popup.removeAllItems()
-        for (title, value) in items {
-            popup.addItem(withTitle: title)
-            popup.lastItem?.representedObject = value
-        }
-    }
-
-    private func selectedValue(_ popup: NSPopUpButton, fallback: String) -> String {
-        (popup.selectedItem?.representedObject as? String) ?? fallback
-    }
-
-    private func selectPopupValue(_ popup: NSPopUpButton, _ value: String) {
-        if let item = popup.itemArray.first(where: { ($0.representedObject as? String) == value }) {
-            popup.select(item)
-        }
-    }
-
-    private func button(_ title: String, _ selector: Selector) -> NSButton {
-        let b = NSButton(title: title, target: self, action: selector)
-        b.bezelStyle = .rounded
-        return b
-    }
-
-    private func section(_ title: String, kind: LabInterventionKind? = nil,
-                         help: String? = nil, _ content: [NSView]) -> NSView {
-        LabInspectorSection(title, kind: kind, help: help, content)
-    }
-
-    private func worldPage() -> NSViewController {
-        objectID.placeholderString = L("auto", "자동")
-        constrainSize(objectID, width: 120)
-        _ = LabForm.status(worldObjectStatusLabel)
-        _ = LabForm.status(worldCapacityLabel, mono: true)
-        _ = LabForm.status(playerInputStatusLabel)
-        configurePlayerKeyPopups()
-        configureLookSensitivitySlider()
-        _ = LabForm.status(toyTargetLabel)
-        _ = LabForm.status(objectListLabel, mono: true)
-        _ = LabForm.status(gunStatusLabel)
-        [objectX, objectY, objectZ, objectSize, objectSpeed, objectEndDistance,
-         driveSpeed, driveDistance].forEach { _ = LabForm.number($0) }
-        driveButton = button(L("Drive", "주행"), #selector(driveSelectedCar))
-        rearmButton = button(L("Re-arm", "다시 설치"), #selector(rearmSelectedTrap))
-        driveButton?.isEnabled = false   // enabled per shape by refreshToyInspector
-        rearmButton?.isEnabled = false
-        addPopupItems(objectShape, [(L("Box", "상자"), "box"), (L("Sphere", "공"), "sphere"), (L("Wall", "벽"), "wall"),
-                                    (L("Ramp (fly can climb it)", "경사로 (파리가 오를 수 있음)"), "ramp"),
-                                    (L("Food / odor source", "먹이 (냄새가 나는 곳)"), "food"),
-                                    (L("Toy car", "장난감 자동차"), "car"),
-                                    (L("Cage trap", "유리 함정"), "trap")])
-        objectShape.target = self
-        objectShape.action = #selector(objectShapeChanged)
-        createOnArenaClick.title = L("Create on map click", "지도를 클릭하면 바로 만들기")
-        createOnArenaClick.state = .off
-        arenaPlacement.translatesAutoresizingMaskIntoConstraints = false
-        constrainSize(arenaPlacement, height: 250)
-        arenaPlacement.selectedShape = selectedValue(objectShape, fallback: "box")
-        arenaPlacement.selectedPoint = (d(objectX), d(objectY))
-        saveSceneButton = button(L("Save scene…", "장면 저장…"), #selector(saveScene))
-        loadSceneButton = button(L("Load scene…", "장면 불러오기…"), #selector(loadScene))
-        return LabInspectorPage([
-            section(L("Selection", "선택한 대상"), help: L("Click the fly or an object in the 3D view. A selection is confirmed only by the backend's ray pick; the fly is drawn as a position marker, not its real body geometry.", "3D 화면에서 파리나 물체를 클릭하면 선택됩니다. 드래그하면 카메라가 돌아가고, Shift나 Option을 누른 채 드래그하면 옮겨지며, 스크롤이나 핀치로 확대합니다. 선택은 시뮬레이터가 실제로 맞았는지 확인한 뒤에 확정됩니다."),
-                    [viewStateLabel]),
-            section(L("Scene files", "장면 파일"), help: L("Saves objects and environment settings. Pause before loading; body and neuron state continue from the current time.", "물체와 환경 설정을 저장합니다. 불러오기 전에 일시정지하세요. 몸과 뉴런 상태는 현재 시점에서 이어집니다."),
-                    [LabForm.buttons([saveSceneButton!, loadSceneButton!]), sceneStatus]),
-            section(L("Selected object editor", "선택 물체 편집"), kind: .physical, [worldEditor]),
-            section(L("Place objects", "물체 놓기"), kind: .physical,
-                    help: L("Top-down map of the arena: up is +X (forward), left is +Y. Clicking the map fills X/Y; with “Create on map click” on, the click also creates the object.", "경기장을 위에서 본 지도입니다. 위쪽이 앞(+X), 왼쪽이 +Y입니다. 지도를 클릭하면 X/Y 칸이 채워지고, ‘지도를 클릭하면 바로 만들기’를 켜 두면 클릭과 동시에 물체가 생깁니다."),
-                    [LabForm.grid([(L("Type", "종류"), objectShape), (L("Name", "이름"), objectID)]),
-                     arenaPlacement, createOnArenaClick,
-                     LabForm.grid([("X (mm)", objectX), ("Y (mm)", objectY),
-                                   ("Z (mm)", objectZ), (L("Size (mm)", "크기 (mm)"), objectSize)]),
-                     LabForm.buttons([button(L("Create", "만들기"), #selector(createObject)),
-                                      button(L("Move", "옮기기"), #selector(moveObject)),
-                                      button(L("Resize", "크기 바꾸기"), #selector(resizeObject)),
-                                      button(L("Remove", "지우기"), #selector(deleteObject))]),
-                     worldObjectStatusLabel, worldCapacityLabel, objectListLabel]),
-            section(L("Toys", "장난감"), kind: .physical,
-                    help: L("Acts on the object named above. Drive moves a toy car straight ahead along its heading; it stops at the distance, at the lawn edge, or on contact. Re-arm lifts a cage trap again; an armed trap drops when the fly walks under it. These are physical MuJoCo events only.", "위 ‘이름’ 칸의 물체에 적용됩니다. ‘주행’은 장난감 자동차를 앞쪽으로 곧게 움직이며, 정한 거리·잔디밭 가장자리·부딪힘에서 멈춥니다. ‘다시 설치’는 유리 함정을 다시 들어 올립니다. 설치된 함정은 파리가 아래로 들어오면 떨어집니다. 모두 물리 시뮬레이터의 물리 사건일 뿐입니다."),
-                    [toyTargetLabel,
-                     LabForm.grid([(L("Speed (mm/s)", "속도 (mm/s)"), driveSpeed), (L("Distance (mm)", "거리 (mm)"), driveDistance)]),
-                     LabForm.buttons([driveButton, rearmButton].compactMap { $0 })]),
-            section(L("Approach the fly", "물체를 파리에게 다가가게 하기"), kind: .physical,
-                    help: L("Moves the named object toward the fly. The fly is never commanded; any response comes from the model.", "이름을 적은 물체를 파리 쪽으로 움직입니다. 파리에게 직접 명령하지 않습니다. 파리가 보이는 반응은 모두 뇌·몸 모델이 스스로 만든 것입니다."),
-                    [LabForm.grid([(L("Speed (mm/s)", "속도 (mm/s)"), objectSpeed), (L("Stop at (mm)", "멈출 거리 (mm)"), objectEndDistance)]),
-                     LabForm.buttons([button(L("Start approach", "다가가기 시작"), #selector(approachObject))], columns: 1)]),
-            section(L("Participate", "참여"), kind: .physical,
-                    help: L("Choose Participate, then click the 3D view to capture. Aim with the center mark and press E (or click) once to grab an object; press again to place it. G equips the toy BB gun; while it is equipped, F or a click fires along the view direction. WASD moves, the mouse looks, Esc releases capture. Text fields do not trigger interaction.", "‘참여’를 고르고 3D 화면을 클릭해 조작을 시작하세요. 중앙 조준점으로 물체를 겨누고 E(또는 클릭)를 한 번 누르면 집고, 다시 누르면 놓습니다. G는 장난감 비비탄총을 들고 내리며, 총을 든 동안 F나 클릭으로 보는 방향으로 발사합니다. WASD로 이동하고 마우스로 둘러봅니다. Esc는 조작을 해제합니다. 입력 칸에서는 상호작용하지 않습니다."),
-                    [LabForm.grid([(L("Forward", "앞으로"), playerForwardKey), (L("Backward", "뒤로"), playerBackwardKey),
-                                   (L("Left", "왼쪽"), playerLeftKey), (L("Right", "오른쪽"), playerRightKey),
-                                   (L("Interact", "상호작용"), playerInteractKey),
-                                   (L("BB gun", "비비탄총"), playerGunKey), (L("Fire", "발사"), playerFireKey),
-                                   (L("Release", "해제"), LabForm.note(L("Esc (fixed)", "Esc (고정)"))),
-                                   (L("Look sensitivity", "시점 감도"), lookSensitivitySlider)]),
-                     playerInputStatusLabel, interactionStatusLabel, gunStatusLabel]),
-            section(L("Reset", "초기화"), help: L("Use the smallest reset you need. Everything clears world, body, brain state, modeled stimuli, eye covers and graphs.", "필요한 부분만 초기화하세요. ‘전부’는 세계, 몸, 뇌 상태, 자극, 눈 가리개, 그래프를 모두 처음으로 되돌립니다."),
-                    [LabForm.buttons([button(L("World", "세계"), #selector(resetWorld)),
-                                      button(L("Body", "몸"), #selector(resetBody)),
-                                      button(L("Brain", "뇌"), #selector(resetBrain)),
-                                      button(L("Everything", "전부"), #selector(resetAll))])])
-        ])
-    }
-
-    private func sensesPage() -> NSViewController {
-        [windDuration, touchStrength, touchDuration, flashIntensity, flashDuration].forEach { _ = LabForm.number($0) }
-        let panel = environmentPanel
-        panel.configure()
-        panel.windOffButton.target = self
-        panel.windOffButton.action = #selector(stopWind)
-        panel.onSubmit = { [weak self] command, captured in self?.sendEdit(command, captured: captured) }
-        panel.onLocalTemperature = { [weak self] celsius, mode in
-            guard let self else { return }
-            self.coordinator.labSetTemperature(celsius: celsius, modeledPhysiology: mode == "modeled_physiology",
-                                               flywireSensory: mode == "flywire_sensory")
-            self.recorder.mark(kind: mode == "environment_only" ? "environment_record_only" : "sensory_model",
-                               detail: "temperature_c=\(celsius) mode=\(mode) local")
-        }
-        addPopupItems(touchTarget, [
-            (L("Thorax", "가슴 (흉부)"), "thorax"), (L("Head", "머리"), "head"), (L("Abdomen", "배"), "abdomen"),
-            (L("Left front leg", "왼쪽 앞다리"), "left_front_leg"), (L("Left middle leg", "왼쪽 가운데 다리"), "left_middle_leg"),
-            (L("Left hind leg", "왼쪽 뒷다리"), "left_hind_leg"), (L("Right front leg", "오른쪽 앞다리"), "right_front_leg"),
-            (L("Right middle leg", "오른쪽 가운데 다리"), "right_middle_leg"), (L("Right hind leg", "오른쪽 뒷다리"), "right_hind_leg")
-        ])
-        addPopupItems(flashEye, [(L("Left eye", "왼쪽 눈"), "left"), (L("Right eye", "오른쪽 눈"), "right"), (L("Both eyes", "양쪽 눈"), "both")])
-        addPopupItems(foodVariant, ["apple", "banana", "cheese", "grapes", "cookie", "sugar_cube"].map { (LabToy.foodName($0), $0) })
-        _ = LabForm.status(foodStatusLabel)
-        foodStatusLabel.isHidden = foodStatusLabel.stringValue.isEmpty
-        func row(_ views: NSView...) -> NSStackView {
-            let stack = NSStackView(views: views)
-            stack.orientation = .horizontal
-            stack.spacing = 8
-            return stack
-        }
-        constrainSize(panel.windDirectionDial, width: 36)
-        return LabInspectorPage([
-            section(L("Now at the fly", "지금 파리 위치의 값"),
-                    help: L("Measured, not set: the latest body data from the physics simulator (position, odor, eye brightness, taste) and the receptor current the brain side actually injected this frame. Temperature and wind are the same everywhere in the arena; odor and light depend on where the fly is.", "설정값이 아니라 측정값입니다. 물리 시뮬레이터가 보낸 최신 몸 데이터(위치·냄새·눈 밝기·맛)와, 뇌 쪽이 이번 프레임에 감각 뉴런에 실제로 넣은 전류입니다. 온도와 바람은 사육장 어디서나 같고, 냄새와 빛은 파리가 있는 곳에 따라 달라집니다."),
-                    [panel.sample]),
-            section(L("Temperature", "온도"), kind: .sensoryModel,
-                    help: L("Applies as you drag. ‘Thermosensory neurons’ drives TRN_VP2 (warm) and TRN_VP3a/b (cool); the current saturates 10 °C away from 25 °C. ‘Record only’ stores the value with no neural input. The temperature→current conversion is a modeling assumption. The simulator accepts 0–50 °C; this panel offers 10–40 °C.", "끌면 바로 적용됩니다. ‘온도 감각 뉴런에 전달’은 따뜻함 뉴런(TRN_VP2)과 차가움 뉴런(TRN_VP3a/b)을 자극하며, 25 °C에서 10 °C 넘게 벗어나면 더 세지지 않습니다. ‘기록만’은 값만 저장하고 뇌에는 전달하지 않습니다. 온도를 신경 전류로 바꾸는 비율은 모델이 가정한 값입니다. 시뮬레이터는 0–50 °C를 받지만 이 패널은 10–40 °C를 다룹니다."),
-                    [LabForm.grid([("°C", row(panel.temperatureSlider, panel.temperatureField)),
-                                   (L("Mode", "방식"), panel.temperatureMode)]),
-                     panel.temperatureApplied, panel.temperatureStatus]),
-            section(L("Wind", "바람"), kind: .sensoryModel,
-                    help: L("Strength, direction and the two switches set a continuous wind and apply as you change them; strength 0 or Stop turns it off. Direction is in world coordinates: the dial shows, seen from above, where the wind blows (right = +X, up = +Y). ‘Push the body’ is a MuJoCo force on the thorax; ‘antenna wind sense’ drives the JO-C/E groups using the wind's angle to the fly. The push fades as the fly approaches the wind's speed (30 mm/s at strength 1); strong wind, especially head-on, can tip the fly over. A puff blows once for the set time and then stops — it does not resume a continuous wind. Strength is dimensionless, not m/s.", "세기·방향·두 스위치는 ‘계속 부는 바람’을 정하며, 바꾸는 즉시 적용됩니다. 세기 0이나 ‘바람 끄기’로 끕니다. 방향은 세계 좌표입니다. 다이얼은 위에서 본 바람이 부는 쪽입니다(오른쪽 = +X, 위 = +Y). ‘몸을 실제로 밀기’는 물리 엔진에서 가슴을 미는 힘이고, ‘더듬이 바람 감각’은 파리와 바람의 각도로 JO-C/E 뉴런 그룹을 자극합니다. 파리가 바람 속도(세기 1에서 30 mm/s)에 가까워질수록 미는 힘이 줄어듭니다. 센 바람, 특히 정면 바람은 파리를 넘어뜨릴 수 있습니다. ‘한 번 불기’는 정한 시간만 불고 멈추며, 계속 부는 바람으로 돌아가지 않습니다. 세기는 단위 없는 값이며 m/s가 아닙니다."),
-                    [LabForm.grid([(L("Strength 0–1", "세기 0–1"), row(panel.windStrengthSlider, panel.windStrengthField)),
-                                   (L("Direction (°)", "방향 (°)"), row(panel.windDirectionDial, panel.windDirectionField))]),
-                     panel.windPhysical, panel.windSensory,
-                     LabForm.buttons([panel.windOnButton, panel.windOffButton]),
-                     panel.windApplied, panel.windStatus,
-                     LabForm.grid([(L("Puff (ms)", "한 번 (ms)"), windDuration)]),
-                     LabForm.buttons([button(L("Blow once", "한 번 불기"), #selector(applyWindPuff))], columns: 1)]),
-            section(L("Light", "빛"), kind: .sensoryModel,
-                    help: L("Covering scales the rendered image reaching that eye (100% = dark). Flash raises full-field brightness for a moment; there is no photoreceptor pathway or invented flash-to-escape circuit. The scene lighting itself is fixed and cannot be edited.", "가림은 그 눈에 들어가는 실제 화면 밝기를 줄입니다(100% = 깜깜함). 번쩍임은 잠깐 눈 전체 밝기만 올립니다. 광수용체 경로나 ‘번쩍이면 도망’ 회로를 따로 만들어 넣지 않았습니다. 장면 조명 자체는 고정이라 바꿀 수 없습니다."),
-                    [LabForm.grid([(L("Left eye cover", "왼쪽 눈 가림"), row(panel.leftMaskSlider, panel.leftMaskValue)),
-                                   (L("Right eye cover", "오른쪽 눈 가림"), row(panel.rightMaskSlider, panel.rightMaskValue))]),
-                     panel.lightApplied, panel.lightStatus,
-                     LabForm.grid([(L("Flash", "번쩍임"), flashEye), (L("Intensity 0–1", "세기 0–1"), flashIntensity),
-                                   (L("Duration (ms)", "지속 시간 (ms)"), flashDuration)]),
-                     LabForm.buttons([button(L("Flash", "번쩍이기"), #selector(applyFlash))], columns: 1)]),
-            section(L("Food", "먹이"), kind: .sensoryModel,
-                    help: L("Each food is an odor source: concentration falls off with distance (30 mm decay) and is split between the left and right antennae by direction. There is no wind-carried plume. Touching it with the mouth gives a modeled sugar-taste signal and slowly eats it. Move or delete food in the World page or Edit mode.", "먹이마다 냄새가 납니다. 냄새는 거리에 따라 줄고(30 mm마다 약 1/e), 방향에 따라 왼쪽·오른쪽 더듬이에 나뉘어 들어갑니다. 바람에 실려 퍼지는 냄새는 없습니다. 입이 닿으면 모델이 만든 ‘단맛’ 신호가 나오고 먹이가 조금씩 줄어듭니다. 옮기거나 지우려면 ‘세계’ 화면이나 편집 모드를 쓰세요."),
-                    [panel.foodSummary,
-                     LabForm.grid([(L("Kind", "종류"), foodVariant)]),
-                     LabForm.buttons([button(L("Place 15 mm in front of the fly", "파리 앞 15 mm에 놓기"), #selector(placeFoodInFront))], columns: 1),
-                     foodStatusLabel]),
-            section(L("Touch", "건드리기"), kind: .physical,
-                    help: L("An impulse on the chosen body part. The neural side is a generic touch/startle channel, not body-part-specific transduction.", "고른 몸 부위를 한 번 툭 칩니다. 뇌 쪽 입력은 부위와 상관없는 일반적인 ‘닿음/놀람’ 신호입니다."),
-                    [LabForm.grid([(L("Body part", "몸 부위"), touchTarget), (L("Strength 0–1", "세기 0–1"), touchStrength),
-                                   (L("Duration (ms)", "지속 시간 (ms)"), touchDuration)]),
-                     LabForm.buttons([button(L("Apply touch", "건드리기 실행"), #selector(applyTouch)),
-                                      button(L("Reset stimuli", "자극 모두 끄기"), #selector(resetSenses))])])
-        ])
-    }
-
-    private func brainPage() -> NSViewController {
-        let brainView: NSView
-        if let brainController {
-            let view = brainController.embeddedView
-            view.removeFromSuperview()
-            view.translatesAutoresizingMaskIntoConstraints = false
-            constrainSize(view, height: 280)
-            view.wantsLayer = true
-            view.layer?.cornerRadius = 8
-            view.layer?.masksToBounds = true
-            view.setAccessibilityLabel(L("FlyWire sampled spike visualization. Clicking a cluster stimulates it directly.", "초파리 뇌 표본 발화 시각화. 뉴런 덩어리를 클릭하면 그 부분을 직접 자극합니다."))
-            brainView = view
-        } else {
-            brainView = LabForm.note(L("The brain model is not loaded in this session.", "이번 실행에서는 뇌 모델을 불러오지 않았습니다."))
-        }
-        addPopupItems(brainRole, NeuronGuide.groups.compactMap { group in
-            group.stimulusID.map { (group.name, $0) }
-        })
-        brainRole.target = self
-        brainRole.action = #selector(brainRoleChanged)
-        _ = LabForm.status(brainRoleDescription)
-        updateBrainRoleDescription()
-        _ = LabForm.number(brainStrength); _ = LabForm.number(brainDuration)
-        return LabInspectorPage([
-            section(L("Sampled spike visualization", "표본 발화 시각화"),
-                    help: L("All 139,255 somata are shown. Flashes are a lossy sample, without exact counts or timing. Data rates use exact simulated spike counts per neuron and an approximately 120 ms simulation-time EMA. Clicking applies direct neural stimulation.", "뉴런 139,255개를 표시합니다. 반짝임은 일부 발화만 보여 주며 정확한 횟수·시간을 뜻하지 않습니다. Data 발화율은 실제 시뮬레이션 집계의 뉴런당 평균, 약 120 ms simulation-time EMA입니다. 클릭하면 뉴런을 직접 자극합니다."),
-                    [LabForm.note(L("Sampled flashes — counts and timing are incomplete. Click = direct stimulation.", "표본 반짝임 — 횟수·시간이 불완전합니다. 클릭 = 직접 자극.")), brainView]),
-            section(L("What the colours mean", "색 안내 — 각 뉴런이 하는 일"),
-                    [neuronLegend()]),
-            section(L("Stimulate a population", "뉴런 그룹 직접 자극하기"), kind: .directNeural,
-                    help: L("Bypasses the physical stimulus and sense organs: the chosen FlyWire population is driven directly while the rest of the brain runs normally. Labels describe the modeled readout, not a guaranteed behavior.", "눈·더듬이 같은 감각기관을 거치지 않고 고른 뉴런 그룹만 직접 자극합니다. 나머지 뇌는 평소처럼 돌아갑니다. 이름 옆 설명은 그 뉴런이 모델에서 주로 맡는 일이며, 자극하면 반드시 그 행동이 나온다는 뜻은 아닙니다."),
-                    [LabForm.grid([(L("Population", "뉴런 그룹"), brainRole), (L("Strength", "세기"), brainStrength),
-                                   (L("Duration (ms)", "지속 시간 (ms)"), brainDuration)]),
-                     brainRoleDescription,
-                     LabForm.buttons([button(L("Stimulate", "자극하기"), #selector(stimulateBrain))], columns: 1)])
-        ])
-    }
-
-    @objc private func brainRoleChanged() { updateBrainRoleDescription() }
-
-    private func updateBrainRoleDescription() {
-        let group = NeuronGuide.group(stimulusID: selectedValue(brainRole, fallback: "GF"))
-        brainRoleDescription.stringValue = group.map { "→ " + $0.what } ?? ""
-    }
-
-    /// Colour key for the 3D brain: swatch, name and one plain sentence per row.
-    private func neuronLegend() -> NSView {
-        let rows = NeuronGuide.legend.map { row -> NSView in
-            let swatch = NSView()
-            swatch.wantsLayer = true
-            swatch.layer?.backgroundColor = row.color.cgColor
-            swatch.layer?.cornerRadius = 5
-            swatch.translatesAutoresizingMaskIntoConstraints = false
-            activateUnique([swatch.widthAnchor.constraint(equalToConstant: 10),
-                                         swatch.heightAnchor.constraint(equalToConstant: 10)])
-            let name = NSTextField(labelWithString: row.name)
-            name.font = .systemFont(ofSize: 11, weight: .semibold)
-            let what = NSTextField(wrappingLabelWithString: row.what)
-            what.font = .systemFont(ofSize: 11)
-            what.textColor = .secondaryLabelColor
-            let text = NSStackView(views: [name, what])
-            text.orientation = .vertical
-            text.alignment = .leading
-            text.spacing = 1
-            let line = NSStackView(views: [swatch, text])
-            line.orientation = .horizontal
-            line.alignment = .top
-            line.spacing = 8
-            line.setAccessibilityElement(true)
-            line.setAccessibilityLabel("\(row.name): \(row.what)")
-            return line
-        }
-        let stack = NSStackView(views: rows)
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 7
-        return stack
-    }
-
-    private func metricsPage() -> NSViewController {
-        neuralGraph.fixedRange = 0...220
-        commandGraph.fixedRange = 0...220
-        sensoryGraph.fixedRange = 0...1.2
-        flywireSensoryGraph.fixedRange = 0...0.065
-        flywireSensoryGraph.valueDecimals = 3
-        flywireSensoryGraph.unitLabel = L("injected current · sim units", "넣어 준 전류 · 시뮬레이션 단위")
-        bodyGraph.fixedRange = -1.2...1.2
-        visionGraph.fixedRange = 0...1.05
-        for text in [bodyTelemetryLabel, foodTelemetryLabel, visionTelemetryLabel] {
-            _ = LabForm.status(text, mono: true)
-        }
-        for g in [neuralGraph, commandGraph, sensoryGraph, flywireSensoryGraph, bodyGraph, visionGraph] {
-            g.translatesAutoresizingMaskIntoConstraints = false
-            constrainSize(g, height: 120)
-        }
-        activityCards = ActivityCardPanel(selected: activityCards.selectedCard)
-        return LabInspectorPage([
-            section(L("Activity cards (read-only)", "활동 카드 (읽기 전용)"),
-                    help: ActivityCardPanel.helpText, [activityCards]),
-            section(L("Signal path", "신호 경로 — 감각에서 몸까지"),
-                    help: L("Read top to bottom to find where a response stops. Each line uses only telemetry the runtime actually exposes.", "위에서 아래로 읽으면 자극이 어디까지 전달됐는지 알 수 있습니다: 1 바깥 자극 → 2 감각 신호 → 3 뉴런 반응 → 4 몸에 내린 명령 → 5 실제 움직임. 모두 실제로 측정된 값만 씁니다."),
-                    [signalPathLabel]),
-            section(L("Brain rate (Hz/neuron)", "뇌 발화율 (Hz/뉴런)"),
-                    help: L("Exact simulated spike counts divided by population size; approximately 120 ms simulation-time EMA, not a fixed window or animation count. walk/back/groom are DN rates, not guaranteed behavior.", "실제 시뮬레이션 발화 집계를 그룹 뉴런 수로 나눈 뉴런당 발화율입니다. 약 120 ms simulation-time EMA이며 고정 구간 평균·반짝임 횟수가 아닙니다. walk/back/groom은 운동 뉴런 발화율이며 행동을 보장하지 않습니다."),
-                    [neuralGraph]),
-            section(L("Descending rates (Hz/neuron)", "운동 뉴런 발화율 (Hz/뉴런)"),
-                    help: L("DNa L/R steering, MDN backward, DNp09 forward walking, DNg11 grooming, escW escape/wing.", "뇌에서 몸으로 명령을 내리는 뉴런입니다. DNa L/R=왼쪽/오른쪽으로 돌기, MDN=뒤로 걷기, DNp09=앞으로 걷기, DNg11=몸 손질, escW=도망·날개."),
-                    [commandGraph]),
-            section(L("Compact sensory inputs", "주요 감각 입력"),
-                    help: L("Loom is the left/right visual expansion signal; gait is body feedback; legacy air is the older generic channel, not JO-C/E wind.", "loom L/R=왼쪽/오른쪽 눈에 무언가 커지며 다가오는 신호, gait=다리가 땅을 딛는 감각, legacy air=예전 방식의 바람 신호(더듬이 바람 감각과는 다름)."),
-                    [sensoryGraph]),
-            section(L("FlyWire sensory groups", "감각 뉴런 그룹에 들어가는 신호"),
-                    help: L("Modeled current injected into real receptor groups (ORN food odor, TRN warm/cool, JO-C/E wind). Expected maxima are about 0.055–0.060.", "실제 감각 뉴런 그룹에 넣어 준 신호 세기입니다. food=먹이 냄새(후각 뉴런 ORN), warm/cool=따뜻함/차가움(TRN), wind C/E=더듬이 바람 감각(JO-C/E). 최대 약 0.055–0.060입니다."),
-                    [flywireSensoryGraph, foodTelemetryLabel]),
-            section(L("Body", "몸"),
-                    help: L("Speed ×20, turn ÷5 and nearest-food distance ÷100 share one axis; exact values are listed below.", "속도(×20), 회전(÷5), 가장 가까운 먹이까지 거리(÷100)를 한 그래프에 맞춰 그렸습니다. 정확한 값은 아래에 있습니다."),
-                    [bodyGraph, bodyTelemetryLabel]),
-            section(L("Rendered-eye vision", "파리 눈에 보이는 것"),
-                    help: L("Brightness is mean light; target is configured-color occupancy; expansion is a raw-frame optic-expansion proxy, not reconstructed retinotopy.", "파리 눈 카메라로 본 화면에서 계산합니다. light=밝기, target=표시 색 물체가 차지하는 비율, expand=물체가 커지는 정도(다가옴의 단서)."),
-                    [visionGraph, visionTelemetryLabel]),
-            section(L("Connection", "연결 상태"), [remoteStateLabel, freshnessLabel, commandDiagnosticsLabel,
-                                   LabForm.buttons([button(L("Clear graphs", "그래프 지우기"), #selector(clearGraphs))], columns: 1)])
-        ])
-    }
-
-    private func experimentPage() -> NSViewController {
-        return LabInspectorPage([
-            section(L("Session", "세션"),
-                    help: L("Interactive is the responsive default. Deterministic starts a tick-zero brain/body session: 1 ms neural ticks and one exact 20 ms FlyGym quantum at a time, independent of display FPS. Pause and Resume are in the toolbar.", "기본은 반응이 빠른 실시간 모드입니다. ‘재현 가능한 세션’은 시간을 0부터 다시 시작해 뇌는 1 ms, 몸은 20 ms 단위로 정확히 맞춰 계산하므로 같은 실험을 똑같이 되풀이할 수 있습니다. 일시 정지/재개는 위쪽 막대에 있습니다."),
-                    [sessionStatusLabel,
-                     LabForm.buttons([button(L("Start deterministic session", "재현 가능한 세션 시작"), #selector(startDeterministicSession))],
-                                     columns: 1)]),
-            section(L("Markers", "구간 표시"),
-                    help: L("Markers never change the simulation; they label the timeline and the recording so baseline, stimulus and observation periods line up later. Record from the toolbar; files go to Documents/ThongpariFlyNeuronSimExperiments.", "구간 표시는 시뮬레이션을 바꾸지 않고, 나중에 기록을 볼 때 ‘기준/자극/관찰’ 구간을 구분하도록 이름표만 붙입니다. 기록은 위쪽 막대의 ‘기록’ 버튼으로 하며 파일은 문서/ThongpariFlyNeuronSimExperiments에 저장됩니다."),
-                    [LabForm.buttons([button(L("Baseline", "기준 구간"), #selector(markBaseline)),
-                                      button(L("Stimulus on", "자극 시작"), #selector(markStimulusOn)),
-                                      button(L("Stimulus off", "자극 끝"), #selector(markStimulusOff)),
-                                      button(L("Observation", "관찰 구간"), #selector(markObservation))])]),
-            section(L("Physical & sensory trials", "물리·감각 실험 예시"), kind: .physical,
-                    help: L("Presets use the same World and Stimuli controls. They move objects or apply stimuli; they never command the fly.", "세계·자극 메뉴와 같은 조작을 한 번에 해 주는 예시입니다. 물체를 움직이거나 자극만 줄 뿐, 파리에게 직접 명령하지 않습니다."),
-                    [LabForm.buttons([button(L("Frontal loom", "정면에서 물체 접근"), #selector(presetFrontalLoom)),
-                                      button(L("Loom from left", "왼쪽에서 물체 접근"), #selector(presetLeftLoom)),
-                                      button(L("Loom from right", "오른쪽에서 물체 접근"), #selector(presetRightLoom)),
-                                      button(L("Loom, left eye covered", "왼눈 가리고 물체 접근"), #selector(presetCoveredLoom)),
-                                      button(L("Wind puff", "바람 한 번"), #selector(presetWind)),
-                                      button(L("Thorax touch", "가슴 건드리기"), #selector(presetTouch))])]),
-            section(L("Direct neural trials", "뉴런 직접 자극 실험"), kind: .directNeural,
-                    help: L("Explicit neural probes that bypass the natural stimulus.", "자연스러운 자극 없이 특정 뉴런 그룹만 직접 자극하는 실험입니다."),
-                    [LabForm.buttons([button(L("Escape (GF)", "비상 탈출 (GF)"), #selector(presetGF)),
-                                      button(L("Turn left (DNa)", "왼쪽 돌기 (DNa)"), #selector(presetDNa)),
-                                      button(L("Turn right (DNa)", "오른쪽 돌기 (DNa)"), #selector(presetDNaRight)),
-                                      button(L("Walk backward (MDN)", "뒤로 걷기 (MDN)"), #selector(presetMDN)),
-                                      button(L("Walk forward (DNp09)", "앞으로 걷기 (DNp09)"), #selector(presetDNp09))])]),
-            section(L("Repeat", "반복"),
-                    [LabForm.buttons([button(L("Replay last preset", "마지막 실험 다시 하기"), #selector(replayLastPreset)),
-                                      button(L("Reset everything", "전부 초기화"), #selector(resetAll))])])
-        ])
-    }
-
-    private func d(_ f: NSTextField, fallback: Double = 0) -> Double {
+    func d(_ f: NSTextField, fallback: Double = 0) -> Double {
         let x = f.doubleValue
         return x.isFinite ? x : fallback
     }
-    private func ms(_ f: NSTextField, fallback: Int) -> Int { max(1, min(60_000, f.integerValue == 0 ? fallback : f.integerValue)) }
-    private var target: String { objectID.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "stimulus" : objectID.stringValue }
+    func ms(_ f: NSTextField, fallback: Int) -> Int { max(1, min(60_000, f.integerValue == 0 ? fallback : f.integerValue)) }
+    var target: String { objectID.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "stimulus" : objectID.stringValue }
 
-    private func creationTarget(for shape: String) -> String {
+    func creationTarget(for shape: String) -> String {
         let typed = objectID.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         if !typed.isEmpty && typed != lastAutoObjectID {
             lastAutoObjectID = nil
@@ -1934,7 +1087,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         return generated
     }
 
-    @objc private func objectShapeChanged() {
+    @objc func objectShapeChanged() {
         let shape = selectedValue(objectShape, fallback: "box")
         arenaPlacement.selectedShape = shape
         // If the previous name was auto-generated, switching shape should not
@@ -1994,7 +1147,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
 
-    private func clearEyePending() {
+    func clearEyePending() {
         eyeCommandPendingID = nil
         eyeCommandStartedAt = nil
         eyeCommandSide = nil
@@ -2009,672 +1162,6 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @discardableResult
-    private func send(_ action: String, target: String? = nil,
-                      x: Double? = nil, y: Double? = nil, z: Double? = nil,
-                      size: Double? = nil, speed: Double? = nil,
-                      strength: Double? = nil, durationMs: Int? = nil,
-                      value: Double? = nil, directionDeg: Double? = nil,
-                      endDistance: Double? = nil, physical: Bool? = nil,
-                      sensory: Bool? = nil, continuous: Bool? = nil,
-                      mode: String? = nil,
-                      toolID: String? = nil, actorID: String? = nil,
-                      rayOriginMM: [Double]? = nil,
-                      rayDirection: [Double]? = nil,
-                      scheduleOverride: LabCommandSchedule? = nil) -> Int? {
-        guard let bridge else {
-            protocolLabel.stringValue = L("FlyGym bridge — disabled (launch with --flygym for physical-world controls)", "물리 시뮬레이터 꺼짐 — 물리 세계를 조작하려면 시뮬레이터와 함께 실행하세요")
-            return nil
-        }
-        let schedule = LabCommandSchedule.choose(explicit: scheduleOverride, fallback: coordinator.labCommandSchedule())
-        let id: Int
-        if action == "interaction" {
-            guard let toolID, let actorID, schedule != nil,
-                  let interactionID = bridge.sendInteraction(
-                    toolID: toolID, actorID: actorID, target: target,
-                    rayOriginMM: rayOriginMM, rayDirection: rayDirection,
-                    protocolVersion: schedule == nil ? nil : FlyGymProtocolV4.version,
-                    sessionID: schedule?.sessionID, epoch: schedule?.epoch,
-                    requestedTick: schedule?.requestedTick) else { return nil }
-            id = interactionID
-        } else {
-            id = bridge.sendLab(action: action, target: target, x: x, y: y, z: z,
-                                size: size, speed: speed, strength: strength,
-                                durationMs: durationMs, value: value,
-                                directionDeg: directionDeg, endDistance: endDistance,
-                                physical: physical, sensory: sensory,
-                                continuous: continuous, mode: mode,
-                                protocolVersion: schedule == nil ? nil : FlyGymProtocolV4.version,
-                                sessionID: schedule?.sessionID, epoch: schedule?.epoch,
-                                requestedTick: schedule?.requestedTick)
-        }
-        noteSent(id: id, action: action, target: target, schedule: schedule, bridge: bridge)
-        return id
-    }
-
-    /// Sends a prebuilt V5.6.2 toy command with the same V4 envelope,
-    /// timeline row and recorder mark as `send`.
-    @discardableResult
-    private func sendCommand(_ command: LabCommand,
-                             scheduleOverride: LabCommandSchedule? = nil) -> Int? {
-        guard let bridge else {
-            protocolLabel.stringValue = L("FlyGym bridge — disabled (launch with --flygym for physical-world controls)", "물리 시뮬레이터 꺼짐 — 물리 세계를 조작하려면 시뮬레이터와 함께 실행하세요")
-            return nil
-        }
-        let schedule = LabCommandSchedule.choose(explicit: scheduleOverride, fallback: coordinator.labCommandSchedule())
-        var command = command
-        command.protocolVersion = schedule == nil ? nil : FlyGymProtocolV4.version
-        command.sessionID = schedule?.sessionID
-        command.epoch = schedule?.epoch
-        command.requestedTick = schedule?.requestedTick
-        let id = bridge.sendLabCommand(command)
-        noteSent(id: id, action: command.action, target: command.target ?? command.actorID,
-                 schedule: schedule, bridge: bridge)
-        return id
-    }
-
-    private func noteSent(id: Int, action: String, target: String?,
-                          schedule: LabCommandSchedule?, bridge: FlyGymBridge) {
-        lastCommandID = id
-        lastCommandAction = action
-        if let schedule {
-            pendingCommandSchedules[id] = schedule
-            if pendingCommandSchedules.count > 256,
-               let oldest = pendingCommandSchedules.keys.min() {
-                pendingCommandSchedules.removeValue(forKey: oldest)
-            }
-        }
-        let session = coordinator.sessionSnapshot()
-        timeline.append(LabTimelineEntry(
-            commandID: id, action: action, detail: target ?? "",
-            kind: .of(action: action),
-            sessionID: schedule?.sessionID ?? session.sessionID,
-            epoch: schedule?.epoch ?? session.epoch,
-            requestedTick: schedule?.requestedTick ?? session.simTick,
-            requestedAt: Date(), connectionGeneration: bridge.connectionGeneration,
-            status: .requested))
-        recorder.mark(kind: "lab_command", detail: "\(action) target=\(target ?? "-")", commandID: id,
-                      sessionID: schedule?.sessionID ?? session.sessionID,
-                      epoch: schedule?.epoch ?? session.epoch,
-                      simTick: session.simTick, requestedTick: schedule?.requestedTick)
-    }
-
-    /// Timeline row for something that never waits on a backend ACK: direct
-    /// neural stimulation, markers, session and recording requests.
-    private func noteLocal(_ action: String, _ detail: String = "", kind: LabTimelineKind,
-                           status: LabTimelineStatus = .local, tick: Int? = nil) {
-        let s = coordinator.sessionSnapshot()
-        timeline.append(LabTimelineEntry(
-            commandID: nil, action: action, detail: detail, kind: kind,
-            sessionID: s.sessionID, epoch: s.epoch, requestedTick: tick ?? s.simTick,
-            requestedAt: Date(), connectionGeneration: bridge?.connectionGeneration ?? 0,
-            status: status))
-    }
-
-    /// The backend's own reason, before sending, when every slot of a shape is taken.
-    private func slotBudgetMessage(for shape: String) -> String? {
-        guard let state = bridge?.latestLabState(), let total = state.authoritativeSlotCapacity?[shape],
-              let free = state.authoritativeSlotFree?[shape], free <= 0 else { return nil }
-        return Self.slotBudgetText(shape: shape, total: total)
-    }
-
-    private static func slotBudgetText(shape: String, total: Int?) -> String {
-        let name = LabToy.shapeName(shape)
-        let count = total.map { L(" (\($0) of \($0))", " (\($0)/\($0)개)") } ?? ""
-        return L("every \(name) slot is in use\(count) — the simulator's object pools are fixed; delete one to make another",
-                 "\(name) 자리를 모두 쓰고 있습니다\(count) — 시뮬레이터의 물체 자리 수는 고정이니, 하나를 지우면 다시 만들 수 있습니다")
-    }
-
-    @objc private func createObject() {
-        let shape = selectedValue(objectShape, fallback: "box")
-        if let full = slotBudgetMessage(for: shape) {
-            worldObjectStatusLabel.stringValue = L("Object status — not sent · ", "물체 상태 — 보내지 않음 · ") + full
-            worldObjectStatusLabel.textColor = .systemOrange
-            return
-        }
-        let objectTarget = creationTarget(for: shape)
-        let action: String
-        switch shape {
-        case "sphere": action = "spawn_sphere"
-        case "wall": action = "spawn_wall"
-        case "food": action = "spawn_food"
-        case "car", "trap": action = "spawn_object"
-        default: action = "spawn_box"
-        }
-        let sent: Int?
-        if let range = LabToy.sizeRangeMM(shape: shape) {
-            // Scalar length/side; Z follows the size so a car rests on the lawn
-            // and a trap starts armed, whatever the Z field held.
-            let fallback = shape == "car" ? LabToy.carDefaultLengthMM : LabToy.trapDefaultSideMM
-            let size = min(range.upperBound, max(range.lowerBound, d(objectSize, fallback: fallback)))
-            let z = LabToy.spawnCenterZ(shape: shape, sizeMM: size)
-            objectSize.stringValue = String(format: "%g", size)
-            objectZ.stringValue = String(format: "%.2f", z)
-            sent = LabCommand.spawnToy(shape: shape, target: objectTarget,
-                                       positionMM: [d(objectX), d(objectY), z], sizeMM: size)
-                .flatMap { sendCommand($0) }
-        } else if shape == "ramp" {
-            // Laid flush with the lawn at the default tilt; tilt it later in Edit mode.
-            let size = LabRamp.size(lengthMM: d(objectSize, fallback: LabRamp.defaultLengthMM))
-            let z = LabRamp.flushCenterZ(sizeMM: size, pitchDeg: LabRamp.defaultPitchDeg)
-            objectSize.stringValue = String(format: "%g", size[0])
-            objectZ.stringValue = String(format: "%.2f", z)
-            sent = LabCommand.spawnRamp(target: objectTarget, positionMM: [d(objectX), d(objectY), z],
-                                        sizeMM: size, pitchDeg: LabRamp.defaultPitchDeg)
-                .flatMap { sendCommand($0) }
-        } else {
-            sent = send(action, target: objectTarget, x: d(objectX), y: d(objectY), z: d(objectZ),
-                        size: max(0.1, d(objectSize, fallback: 5)))
-        }
-        trackObjectCommand(sent, target: objectTarget,
-                           describe: L("create \(shape) ‘\(objectTarget)’", "‘\(objectTarget)’ 만들기"))
-    }
-    @objc private func moveObject() {
-        let objectTarget = target
-        selectSent(send("move_object", target: objectTarget, x: d(objectX), y: d(objectY), z: d(objectZ)),
-                   target: objectTarget, describe: L("move ‘\(objectTarget)’", "‘\(objectTarget)’ 옮기기"))
-    }
-    @objc private func resizeObject() {
-        let objectTarget = target
-        selectSent(send("resize_object", target: objectTarget, size: max(0.1, d(objectSize, fallback: 5))),
-                   target: objectTarget, describe: L("resize ‘\(objectTarget)’", "‘\(objectTarget)’ 크기 바꾸기"))
-    }
-    @objc private func deleteObject() {
-        let objectTarget = target
-        selectSent(send("delete_object", target: objectTarget),
-                   target: objectTarget, describe: L("delete ‘\(objectTarget)’", "‘\(objectTarget)’ 지우기"))
-    }
-    @objc private func approachObject() {
-        let objectTarget = target
-        selectSent(send("approach_object", target: objectTarget,
-                        speed: max(0.1, d(objectSpeed, fallback: 12)),
-                        endDistance: max(0.5, d(objectEndDistance, fallback: 8))),
-                   target: objectTarget, describe: L("approach ‘\(objectTarget)’", "‘\(objectTarget)’ 다가가기"))
-    }
-
-    /// Points the object status line at this command, so it shows this
-    /// command's own ACK — never a stale result from an earlier one.
-    private func trackObjectCommand(_ id: Int?, target: String?, describe: String) {
-        guard let id else {
-            worldObjectStatusLabel.stringValue = L("Object status — \(describe) was not sent", "물체 상태 — \(describe) 요청을 보내지 못했습니다")
-            worldObjectStatusLabel.textColor = .systemOrange
-            return
-        }
-        lastObjectCommandID = id
-        lastObjectCommandTarget = target
-        lastObjectCommandDescription = describe
-        worldObjectStatusLabel.stringValue = L("Object status — sending \(describe)…", "물체 상태 — \(describe) 요청 보냄…")
-        worldObjectStatusLabel.textColor = .secondaryLabelColor
-    }
-
-    private func selectSent(_ id: Int?, target: String?, describe: String) {
-        trackObjectCommand(id, target: target, describe: describe)
-        guard id != nil else { return }
-        viewState.selectObject(target)
-        renderViewState()
-    }
-    /// Shape of the object named in the Name field, from the latest lab_state.
-    private func namedObject() -> LabWorldObjectRemote? {
-        let name = objectID.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return nil }
-        return bridge?.latestLabState()?.authoritativeObjects?.first { $0.id == name }
-    }
-
-    private func sendToyAction(_ command: LabCommand?, describe: String) {
-        selectSent(command.flatMap { sendCommand($0) }, target: command?.target, describe: describe)
-    }
-
-    @objc private func driveSelectedCar() {
-        guard let car = namedObject(), LabToy.actions(forShape: car.shape).drive else { return }
-        let speed = min(60, max(1, d(driveSpeed, fallback: LabToy.driveSpeedMMs)))
-        let distance = min(300, max(1, d(driveDistance, fallback: LabToy.driveDistanceMM)))
-        driveSpeed.stringValue = String(format: "%g", speed)
-        driveDistance.stringValue = String(format: "%g", distance)
-        sendToyAction(LabCommand.driveObject(target: car.id, speedMMs: speed, distanceMM: distance),
-                      describe: L("drive ‘\(car.id)’", "‘\(car.id)’ 주행"))
-    }
-
-    @objc private func rearmSelectedTrap() {
-        guard let trap = namedObject(), LabToy.actions(forShape: trap.shape).rearm else { return }
-        sendToyAction(LabCommand.armTrap(target: trap.id),
-                      describe: L("re-arm ‘\(trap.id)’", "‘\(trap.id)’ 다시 설치"))
-    }
-
-    /// Selected-object inspector, object list and toy button enablement (10 Hz).
-    private func refreshToyInspector(objects: [LabWorldObjectRemote]?) {
-        let named = namedObject()
-        let actions = LabToy.actions(forShape: named?.shape)
-        driveButton?.isEnabled = actions.drive
-        rearmButton?.isEnabled = actions.rearm
-        if let named {
-            toyTargetLabel.stringValue = L("Selected — ", "선택한 물체 — ") + LabToy.objectLine(named)
-        } else {
-            toyTargetLabel.stringValue = L("Selected — type or pick a car or trap name above", "선택한 물체 — 위 ‘이름’ 칸에 자동차나 함정 이름을 적거나 3D 화면에서 고르세요")
-        }
-        let rows = (objects ?? []).sorted { $0.id < $1.id }.map(LabToy.objectLine)
-        objectListLabel.stringValue = rows.isEmpty ? L("Objects — none", "물체 목록 — 없음")
-            : (rows.prefix(12) + (rows.count > 12 ? ["… +\(rows.count - 12)"] : [])).joined(separator: "\n")
-    }
-
-    @objc private func resetWorld() {
-        releasePlayerHeldInput(reason: "world reset")
-        dropGunState()   // the backend world reset holsters the gun
-        clearEyePending()
-        environmentPanel.clearFeedback()
-        if !coordinator.requestDeterministicReset(scopes: ["world", "modeled"]) {
-            coordinator.labResetModeledStimuli()
-            send("reset_world")
-        }
-        recorder.mark(kind: "reset", detail: "world+modeled environment")
-    }
-    @objc private func resetBody() {
-        releasePlayerHeldInput(reason: "body reset")
-        if !coordinator.requestDeterministicReset(scopes: ["body"]) { send("reset_body") }
-        recorder.mark(kind: "reset", detail: "body")
-    }
-    @objc private func resetBrain() {
-        if !coordinator.requestDeterministicReset(scopes: ["brain"]) { coordinator.labResetBrain() }
-        recorder.mark(kind: "reset", detail: "brain")
-    }
-    @objc private func resetAll() {
-        releasePlayerHeldInput(reason: "full reset")
-        dropGunState()
-        clearEyePending()
-        environmentPanel.clearFeedback()
-        if !coordinator.requestDeterministicReset(scopes: ["brain", "body", "world", "modeled"]) {
-            coordinator.labResetBrain()
-            coordinator.labResetModeledStimuli()
-            send("reset_world")
-            send("reset_body")
-            send("restore_eyes")
-        }
-        neuralGraph.clear(); sensoryGraph.clear(); flywireSensoryGraph.clear(); bodyGraph.clear(); visionGraph.clear()
-        commandGraph.clear()
-        moodEstimator.reset()
-        recorder.mark(kind: "reset", detail: "all")
-    }
-
-    private func eye(_ side: String, covered: Bool) {
-        guard eyeCommandPendingID == nil else {
-            commandDiagnosticsLabel.stringValue = L("Commands — eye change waiting for previous eye command acknowledgement", "명령 — 이전 눈 명령이 확인되기를 기다리는 중")
-            return
-        }
-        if let id = send("set_eye_state", target: side, value: covered ? 1 : 0) {
-            eyeCommandPendingID = id
-            eyeCommandStartedAt = Date()
-            eyeCommandSide = side
-            eyeCommandCovered = covered
-        }
-    }
-
-    @objc private func applyFlash() {
-        let eye = selectedValue(flashEye, fallback: "both")
-        let intensity = max(0, min(1, d(flashIntensity, fallback: 1)))
-        let duration = ms(flashDuration, fallback: 100)
-        send("flash_eye", target: eye, strength: intensity, durationMs: duration)
-        recorder.mark(kind: "sensory_model", detail: "flash eye=\(eye) intensity=\(intensity) duration_ms=\(duration)")
-    }
-
-    /// A timed puff is an action, not the panel's continuous-wind setting: it
-    /// borrows the panel's strength, direction and switches and then stops.
-    @objc private func applyWindPuff() {
-        let panel = environmentPanel
-        sendWindPuff(strength: max(0.01, (panel.windStrengthSlider.doubleValue * 100).rounded() / 100),
-                     directionDeg: EnvironmentPanel.worldDeg(dialValue: panel.windDirectionDial.doubleValue).rounded(),
-                     durationMs: ms(windDuration, fallback: 500),
-                     physical: panel.windPhysical.state == .on, sensory: panel.windSensory.state == .on)
-    }
-
-    private func sendWindPuff(strength: Double, directionDeg: Double, durationMs: Int,
-                              physical: Bool, sensory: Bool) {
-        if sensory {
-            coordinator.labApplyWind(strength: Float(strength), directionDeg: directionDeg,
-                                     durationMs: durationMs, continuous: false)
-        } else {
-            coordinator.labStopWind()
-        }
-        send("wind", strength: strength, durationMs: durationMs, directionDeg: directionDeg,
-             physical: physical, sensory: sensory, continuous: false)
-        recorder.mark(kind: physical ? "physical" : "sensory_model",
-                      detail: "wind puff strength=\(strength) dir=\(directionDeg) duration_ms=\(durationMs) physical=\(physical) sensory=\(sensory)")
-    }
-
-    @objc private func stopWind() {
-        coordinator.labStopWind()
-        send("stop_wind")
-        recorder.mark(kind: "stimulus_off", detail: "wind")
-    }
-
-    @objc private func placeFoodInFront() {
-        guard let body = bridge?.latestBody() else {
-            foodStatusLabel.stringValue = L("No fresh body data — start the physics simulator first", "새 몸 데이터 없음 — 물리 시뮬레이터를 먼저 실행하세요")
-            foodStatusLabel.textColor = .systemOrange
-            foodStatusLabel.isHidden = false
-            return
-        }
-        let variant = selectedValue(foodVariant, fallback: "apple")
-        var command = LabCommand(id: 0, action: "spawn_food")
-        command.x = body.positionXmm + 15 * cos(body.headingRad)
-        command.y = body.positionYmm + 15 * sin(body.headingRad)
-        command.z = 1.5
-        command.variant = variant
-        lastFoodCommandID = sendCommand(command)
-        foodStatusLabel.stringValue = lastFoodCommandID == nil ? L("Command not sent", "명령 전송 실패")
-            : L("Placing ", "놓는 중: ") + LabToy.foodName(variant) + "…"
-        foodStatusLabel.textColor = .secondaryLabelColor
-        foodStatusLabel.isHidden = false
-    }
-
-    @objc private func applyTouch() {
-        let strength = max(0, min(1, d(touchStrength, fallback: 0.55)))
-        let duration = ms(touchDuration, fallback: 150)
-        let bodyTarget = selectedValue(touchTarget, fallback: "thorax")
-        coordinator.labApplyTouch(strength: Float(strength), durationMs: duration)
-        moodEstimator.registerHit(strength: strength)
-        send("touch", target: bodyTarget, strength: strength, durationMs: duration)
-        recorder.mark(kind: "physical+sensory_model", detail: "touch target=\(bodyTarget) strength=\(strength) duration_ms=\(duration)")
-    }
-
-    @objc private func resetSenses() {
-        coordinator.labResetModeledStimuli()
-        clearEyePending()
-        send("stop_wind")
-        send("restore_eyes")
-        send("temperature", value: 25, mode: "environment_only")
-        recorder.mark(kind: "reset", detail: "modeled sensory interventions")
-    }
-
-    private func recordDirectNeural(detail: String) {
-        let session = coordinator.sessionSnapshot(), schedule = coordinator.labCommandSchedule()
-        recorder.mark(kind: "direct_neural", detail: detail,
-                      sessionID: session.sessionID, epoch: session.epoch, simTick: session.simTick,
-                      requestedTick: schedule?.requestedTick, appliedTick: nil,
-                      appliedEpoch: nil,
-                      status: schedule == nil ? "queued_local" : "scheduled_local_boundary")
-    }
-
-    /// A point-cloud click stimulates neurons directly; record it like the
-    /// population button so every direct neural intervention is on the timeline.
-    private func noteBrainClickStimulus(count: Int, name: String, strength: Float, durationMs: Int) {
-        let schedule = coordinator.labCommandSchedule()
-        noteLocal("stimulate", "brain click \(name) (\(count) neurons) ×\(strength) \(durationMs) ms",
-                  kind: .directNeural, tick: schedule?.requestedTick)
-        recordDirectNeural(detail: "brain_click cluster=\(name) neurons=\(count) strength=\(strength) duration_ms=\(durationMs)")
-    }
-
-    @objc private func stimulateBrain() {
-        let role = selectedValue(brainRole, fallback: "GF")
-        let strength = Float(max(0, min(2, d(brainStrength, fallback: 0.3))))
-        let duration = ms(brainDuration, fallback: 300)
-        let schedule = coordinator.labCommandSchedule()
-        coordinator.labStimulatePopulation(role, strength: strength, durationMs: duration)
-        noteLocal("stimulate", "\(role) ×\(strength) \(duration) ms", kind: .directNeural,
-                  tick: schedule?.requestedTick)
-        recordDirectNeural(detail: "role=\(role) strength=\(strength) duration_ms=\(duration)")
-    }
-
-    private func runPreset(_ name: String) {
-        lastPreset = name
-        recorder.mark(kind: "preset", detail: name)
-        switch name {
-        case "frontal_loom", "left_loom", "right_loom", "left_eye_covered_loom":
-            if coordinator.requestDeterministicReset(
-                scopes: ["brain", "body", "world", "modeled"],
-                after: { [weak self] in self?.runLoomPresetAfterReset(name) }) {
-                return
-            }
-            coordinator.labResetBrain()
-            coordinator.labResetModeledStimuli()
-            send("reset_world"); send("reset_body")
-            runLoomPresetAfterReset(name)
-        case "wind_puff":
-            sendWindPuff(strength: 0.7, directionDeg: 0, durationMs: 500, physical: true, sensory: true)
-        case "thorax_touch":
-            selectPopupValue(touchTarget, "thorax")
-            touchStrength.stringValue = "0.55"; touchDuration.stringValue = "150"
-            applyTouch()
-        case "gf": presetStim(role: "GF", strength: 0.5, duration: 40)
-        case "dna_left": presetStim(role: "DNa-left", strength: 0.3, duration: 900)
-        case "dna_right": presetStim(role: "DNa-right", strength: 0.3, duration: 900)
-        case "mdn": presetStim(role: "MDN", strength: 0.3, duration: 600)
-        case "dnp09": presetStim(role: "DNp09", strength: 0.25, duration: 1200)
-        default: break
-        }
-    }
-
-    private func presetStim(role: String, strength: Float, duration: Int) {
-        if coordinator.requestDeterministicReset(
-            scopes: ["brain"],
-            after: { [weak self] in
-                guard let self else { return }
-                self.coordinator.labStimulatePopulation(role, strength: strength, durationMs: duration)
-                let schedule = self.coordinator.labCommandSchedule()
-                self.noteLocal("stimulate", "preset \(role) ×\(strength) \(duration) ms",
-                               kind: .directNeural, tick: schedule?.requestedTick)
-                self.recordDirectNeural(detail: "preset role=\(role) strength=\(strength) duration_ms=\(duration)")
-            }) {
-            return
-        }
-        coordinator.labResetBrain()
-        coordinator.labStimulatePopulation(role, strength: strength, durationMs: duration)
-        noteLocal("stimulate", "preset \(role) ×\(strength) \(duration) ms", kind: .directNeural)
-        recordDirectNeural(detail: "preset role=\(role) strength=\(strength) duration_ms=\(duration)")
-    }
-
-    private func runLoomPresetAfterReset(_ name: String) {
-        clearEyePending()
-        if name == "left_eye_covered_loom" { eye("left", covered: true) }
-        let y: Double = name == "left_loom" ? 22 : (name == "right_loom" ? -22 : 0)
-        let id = "preset_loom"
-        send("spawn_box", target: id, x: 60, y: y, z: 5, size: 10)
-        send("approach_object", target: id, speed: 80, endDistance: 8)
-    }
-
-    @objc private func presetFrontalLoom() { runPreset("frontal_loom") }
-    @objc private func presetLeftLoom() { runPreset("left_loom") }
-    @objc private func presetRightLoom() { runPreset("right_loom") }
-    @objc private func presetCoveredLoom() { runPreset("left_eye_covered_loom") }
-    @objc private func presetWind() { runPreset("wind_puff") }
-    @objc private func presetTouch() { runPreset("thorax_touch") }
-    @objc private func presetGF() { runPreset("gf") }
-    @objc private func presetDNa() { runPreset("dna_left") }
-    @objc private func presetDNaRight() { runPreset("dna_right") }
-    @objc private func presetMDN() { runPreset("mdn") }
-    @objc private func presetDNp09() { runPreset("dnp09") }
-    @objc private func replayLastPreset() {
-        guard let lastPreset else {
-            noteLocal("preset", "nothing to replay yet", kind: .marker, status: .rejected)
-            return
-        }
-        runPreset(lastPreset)
-    }
-
-    @objc private func clearGraphs() {
-        neuralGraph.clear(); commandGraph.clear(); sensoryGraph.clear(); flywireSensoryGraph.clear(); bodyGraph.clear(); visionGraph.clear()
-        recorder.mark(kind: "ui", detail: "graphs cleared")
-    }
-
-    @objc private func startRecording() {
-        // The workspace status already shows L("Saving…", "저장 중…") until the flush completes.
-        if recorder.isStopping { return }
-        let session = coordinator.sessionSnapshot()
-        var metadata: [String: Any] = [
-            "protocol_version": FlyGymProtocolV4.version,
-            "session_id": session.sessionID,
-            "session_mode": session.mode.rawValue,
-            "initial_epoch": session.epoch,
-            "initial_sim_tick": session.simTick,
-            "neural_tick_ms": 1,
-            "experiment_quantum_ticks": session.quantumTicks,
-            "experiment_quantum_ms": session.quantumTicks,
-        ]
-        if let hello = bridge?.serverHello() {
-            metadata["backend_physics_timestep_s"] = hello.physicsTimestepS as Any
-            metadata["backend_capabilities"] = hello.capabilities
-            metadata["backend_supported_quantum_ticks"] = hello.supportedQuantumTicks
-        }
-        if let p = recorder.start(metadata: metadata) {
-            recordingStartedAt = Date()
-            lastRecordingOutcome = .idle
-            noteLocal("recording", "start → \(p)", kind: .recording)
-        } else {
-            lastRecordingOutcome = .failed(path: nil, message: recorder.lastErrorMessage ?? "see stderr")
-        }
-        refreshWorkspace()
-    }
-
-    @objc private func startDeterministicSession() {
-        releasePlayerHeldInput(reason: "session change")
-        if let error = coordinator.startDeterministicSession() {
-            sessionStatusLabel.stringValue = "Session — deterministic unavailable: \(error)"
-            sessionStatusLabel.textColor = .systemOrange
-            return
-        }
-        let s = coordinator.sessionSnapshot()
-        sessionStatusLabel.textColor = .labelColor
-        noteLocal("session", "deterministic begin", kind: .session)
-        recorder.mark(kind: "session_begin", detail: "deterministic V4",
-                      sessionID: s.sessionID, epoch: s.epoch, simTick: s.simTick,
-                      status: s.phase.rawValue)
-    }
-
-    @objc private func pauseSession() {
-        releasePlayerHeldInput(reason: "pause")
-        let before = coordinator.sessionSnapshot()
-        coordinator.requestSessionPause()
-        noteLocal("session", "pause requested", kind: .session)
-        recorder.mark(kind: "pause_requested", detail: before.mode.rawValue,
-                      sessionID: before.sessionID, epoch: before.epoch, simTick: before.simTick,
-                      status: before.phase.rawValue)
-    }
-
-    @objc private func resumeSession() {
-        let before = coordinator.sessionSnapshot()
-        coordinator.requestSessionResume()
-        noteLocal("session", "resume requested", kind: .session)
-        recorder.mark(kind: "resume_requested", detail: before.mode.rawValue,
-                      sessionID: before.sessionID, epoch: before.epoch, simTick: before.simTick,
-                      status: before.phase.rawValue)
-    }
-    @objc private func stopRecording() {
-        guard recorder.isRecording || recorder.isStopping else { return }
-        noteLocal("recording", "stop requested", kind: .recording)
-        recorder.stop { [weak self] outcome in
-            DispatchQueue.main.async { self?.noteRecordingOutcome(outcome) }
-        }
-        refreshWorkspace()
-    }
-
-    private func noteRecordingOutcome(_ outcome: ExperimentRecorderStopOutcome) {
-        switch outcome {
-        case .saved(let path):
-            lastRecordingOutcome = .saved(path: path)
-            noteLocal("recording", "saved", kind: .recording)
-        case .failed(let path, let message):
-            lastRecordingOutcome = .failed(path: path, message: message)
-            noteLocal("recording", "save failed: \(message)", kind: .recording, status: .rejected)
-        case .notRecording:
-            break
-        }
-        recordingStartedAt = nil
-        refreshWorkspace()
-    }
-
-    @objc private func restartBackend() {
-        guard let service, service.canRestart else { return }
-        noteLocal("backend", "restart \(service.mode.rawValue) on port \(service.port)", kind: .session)
-        service.start()
-        refreshWorkspace()
-    }
-
-    /// App termination waits for the same recorder drain/close completion as the
-    /// manual Stop button. The caller decides when to reply to AppKit's quit request.
-    func prepareForApplicationTermination(completion: @escaping (ExperimentRecorderStopOutcome) -> Void) {
-        guard recorder.isRecording || recorder.isStopping else {
-            // Keep AppDelegate's terminateLater/reply ordering asynchronous even
-            // if a manual Stop finishes in the narrow gap before this call.
-            let outcome = ExperimentRecorderStopOutcome.notRecording(path: recorder.path)
-            DispatchQueue.main.async { completion(outcome) }
-            return
-        }
-        noteLocal("recording", "stop for quit", kind: .recording)
-        recorder.stop(reason: "application quit") { [weak self] outcome in
-            DispatchQueue.main.async {
-                self?.noteRecordingOutcome(outcome)
-                completion(outcome)
-            }
-        }
-        refreshWorkspace()
-    }
-
-    /// A failed recorder drain must not disappear with the app. Keep the Lab
-    /// window alive, show the exact failure/path, and require an explicit choice
-    /// before AppDelegate replies to AppKit's pending termination request.
-    func presentTerminationSaveFailure(path: String?, message: String,
-                                       completion: @escaping (Bool) -> Void) {
-        let whereText = path.map { L("\n\nPartial recording files remain at:\n", "\n\n저장된 일부 기록 파일 위치:\n") + $0 } ?? ""
-        lastRecordingOutcome = .failed(path: path, message: message)
-        refreshWorkspace()
-        show()
-
-        let alert = NSAlert()
-        alert.alertStyle = .critical
-        alert.messageText = L("Recording could not be saved completely", "기록을 완전히 저장하지 못했습니다")
-        alert.informativeText = L("The app will stay open by default so you can inspect the recording and retry a new recording if needed. Already-lost queued data cannot be reconstructed automatically.\n\nError: ", "기록을 확인하고 필요하면 다시 기록할 수 있도록 앱은 기본적으로 열어 둡니다. 이미 잃어버린 데이터는 자동으로 되살릴 수 없습니다.\n\n오류: ") + message + whereText
-        alert.addButton(withTitle: L("Keep App Open", "앱 열어두기"))
-        alert.addButton(withTitle: L("Quit Anyway", "그래도 종료"))
-
-        let finish: (NSApplication.ModalResponse) -> Void = { response in
-            completion(response == .alertSecondButtonReturn)
-        }
-        if let window {
-            alert.beginSheetModal(for: window, completionHandler: finish)
-        } else {
-            finish(alert.runModal())
-        }
-    }
-    private func markTimeline(_ detail: String) {
-        let session = coordinator.sessionSnapshot()
-        noteLocal("marker", detail, kind: .marker, status: .marker)
-        recorder.mark(kind: "marker", detail: detail,
-                      sessionID: session.sessionID, epoch: session.epoch, simTick: session.simTick)
-    }
-    @objc private func markBaseline() { markTimeline("baseline") }
-    @objc private func markStimulusOn() { markTimeline("stimulus_on") }
-    @objc private func markStimulusOff() { markTimeline("stimulus_off") }
-    @objc private func markObservation() { markTimeline("observation") }
-
-    private func updateMood(_ t: LabTelemetry, now: Date) {
-        var inputs = FlyMoodInputs()
-        inputs.foodOdor = max(t.bodyOdorL, t.bodyOdorR)
-        inputs.nearestFoodMM = t.bodyNearestFoodDistanceMm
-        inputs.temperatureC = t.temperatureC
-        inputs.escape = t.brainEscape
-        inputs.nervous = t.brainNervous
-        inputs.sleep = t.brainSleep
-        inputs.grooming = t.brainGroomDrive
-        let reading = moodEstimator.update(inputs, now: now)
-        moodEmoji.stringValue = reading.mood.emoji
-        moodTitle.stringValue = reading.mood.title
-        moodReason.stringValue = reading.reason
-        moodTitle.superview?.superview?.setAccessibilityValue("\(reading.mood.title) — \(reading.reason)")
-    }
-
-    /// The participant body bumping into the fly counts as a hit for the mood
-    /// readout (edge-triggered: one hit per contact, not per frame).
-    private func noteParticipantContact(_ snapshot: WorldRenderSnapshot) {
-        guard let player = snapshot.player, let fly = snapshot.fly,
-              player.positionMM.count == 3, fly.positionMM.count == 3 else {
-            participantTouchingFly = false
-            return
-        }
-        let d = sqrt(zip(player.positionMM, fly.positionMM).map { ($0 - $1) * ($0 - $1) }.reduce(0, +))
-        let touching = d < (player.collisionRadiusMM ?? 2.5) + 1.5
-        if touching && !participantTouchingFly { moodEstimator.registerHit(strength: 0.6) }
-        participantTouchingFly = touching
-    }
-
-    private func onOff(_ on: Bool) -> String { on ? L("ON", "켬") : L("OFF", "끔") }
-
     private func ageString(_ age: TimeInterval) -> String {
         let a = max(0, age)
         return a < 1 ? String(format: "%.0f ms", a * 1000) : String(format: "%.1f s", a)
@@ -2720,7 +1207,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
 
     /// An edit stamped with the session it was made in, sent only while that
     /// session is still running or paused (a paused edit is a V6.6 transaction).
-    private func sendEdit(_ command: LabCommand, captured: WorldEditorIdentity) -> (Int, LabCommandSchedule)? {
+    func sendEdit(_ command: LabCommand, captured: WorldEditorIdentity) -> (Int, LabCommandSchedule)? {
         guard let bridge, workspace?.acceptsBackendCommands == true else { return nil }
         let session = coordinator.sessionSnapshot()
         guard !session.sessionID.isEmpty, session.epoch > 0,
@@ -2861,17 +1348,17 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
 
     /// Assembles the one WorkspaceSnapshot and renders every region that shows
     /// connection, session or recording state from it.
-    private func refreshWorkspace(session suppliedSession: LabSessionSnapshot? = nil) {
+    func refreshWorkspace(session suppliedSession: LabSessionSnapshot? = nil) {
         let session = suppliedSession ?? coordinator.sessionSnapshot()
         let recording: WorkspaceRecording
         switch recorder.state {
         case .recording:
             recording = .recording(path: recorder.path ?? "",
-                                   elapsed: Date().timeIntervalSince(recordingStartedAt ?? Date()))
+                                   elapsed: Date().timeIntervalSince(recordingPresentation.startedAt ?? Date()))
         case .stopping:
             recording = .stopping(path: recorder.path)
         default:
-            recording = lastRecordingOutcome
+            recording = recordingPresentation.outcome
         }
         let body = bridge?.bodyFreshness()
         let snapshot = WorkspaceSnapshot(
@@ -2932,7 +1419,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                       detail: "temperature_c=\(applied.celsius) mode=\(applied.mode) adopted_from_backend")
     }
 
-    private func refresh() {
+    func refresh() {
         let now = Date()
         let t = coordinator.labTelemetry()
         // Every backend command carries the V4 identity, so begin the
@@ -3187,62 +1674,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                                                        t.bodyBrightnessL, t.bodyBrightnessR, eyeSample)
         }
 
-        let nearest = t.bodyNearestFoodDistanceMm >= 0
-            ? String(format: "%.1f mm", t.bodyNearestFoodDistanceMm)
-            : L("none", "없음")
-        // The body packet is the same fresh backend snapshot that drives the
-        // neural model, so source diagnostics cannot disagree with actual
-        // LabWorld timer expiry merely because lab_state arrived at another rate.
-        let windSource = t.bodyPacketAgeS >= 0
-            ? String(format: "%.2f%@", t.bodyWindStrength,
-                     (t.bodyWindStrength > 0 && t.bodyWindSensory) ? L(" sensory", " 감각") : "")
-            : L("unavailable", "없음")
-        let touchSource = t.bodyPacketAgeS >= 0
-            ? String(format: "%.2f%@", t.bodyTouchStrength,
-                     (t.bodyTouchStrength > 0 && t.bodyTouchSensory) ? L(" sensory", " 감각") : "")
-            : L("unavailable", "없음")
-        let sourceLine = String(format: LabLanguage.current == .korean ?
-            "1  바깥 자극 → 감각기관    먹이 %@ → 냄새 %.3f/%.3f  |  눈에 보이는 커짐 %.3f/%.3f → 다가옴 %.3f/%.3f  |  바람 %@  |  닿음 %@  |  온도 %.1f°C" :
-            "1  Source → sensor     food %@ → odor %.3f/%.3f  |  vision expansion %.3f/%.3f → loom %.3f/%.3f  |  wind %@  |  touch %@  |  temp %.1f°C",
-            nearest, t.bodyOdorL, t.bodyOdorR,
-            t.bodyOpticExpansionL, t.bodyOpticExpansionR, t.loomL, t.loomR,
-            windSource, touchSource, t.temperatureC)
-        let currentLine = String(format: LabLanguage.current == .korean ?
-            "2  감각기관 → 신호 세기    먹이 냄새 %.3f/%.3f  |  따뜻함/차가움 %.3f/%.3f  |  더듬이 바람 C/E %.3f/%.3f  (시뮬레이션 단위)" :
-            "2  Sensor → current    ORN food %.3f/%.3f  |  TRN warm/cool %.3f/%.3f  |  JO-C/E wind %.3f/%.3f  (simulation current units)",
-            t.odorDriveL, t.odorDriveR, t.thermoWarmDrive, t.thermoCoolDrive,
-            t.windCDrive, t.windEDrive)
-        let neuralLine = String(format: LabLanguage.current == .korean ?
-            "3  감각 뉴런 → 뇌    후각 L/R %.1f/%.1f Hz  |  따뜻함/차가움 %.1f/%.1f  |  바람 C/E %.1f/%.1f  |  다가옴 감지 %.1f  |  왼쪽/오른쪽 돌기 %.1f/%.1f  |  앞으로 걷기 %.1f" :
-            "3  Receptor → brain    ORN L/R %.1f/%.1f Hz  |  TRN warm/cool %.1f/%.1f  |  JO-C/E %.1f/%.1f  |  loom %.1f  |  DNa L/R %.1f/%.1f  |  DNp09 %.1f",
-            t.rateFoodOdorL, t.rateFoodOdorR, t.rateThermoWarm, t.rateThermoCool,
-            t.rateWindC, t.rateWindE, t.rateLoom, t.rateDNaL, t.rateDNaR, t.rateFwd)
-        let commandLine: String
-        if t.brainSignalsAvailable {
-            commandLine = String(format: LabLanguage.current == .korean ?
-                "4  뇌 → 몸에 내린 명령    걷기 %.2f  |  돌기 %.2f  |  도망 %@  |  뒤로 %@  |  손질 %.2f  |  날개 %.2f  |  흥분도 %.2f  |  긴장 %.2f  |  활동 속도 %.2f  |  잠 %@  |  왼쪽/오른쪽 출력 %.3f/%.3f" :
-                "4  BrainSignals → FlyGym controller    walk %.2f  |  turn %.2f  |  escape %@  |  back %@  |  groom %.2f  |  wing %.2f  |  arousal %.2f  |  nervous %.2f  |  tempo %.2f  |  sleep %@  |  controller L/R %.3f/%.3f",
-                t.brainWalkDrive, t.brainTurnBias, onOff(t.brainEscape),
-                onOff(t.brainBackward), t.brainGroomDrive, t.brainWingDrive,
-                t.brainArousal, t.brainNervous, t.brainTempo, onOff(t.brainSleep),
-                t.bodyControllerLeft, t.bodyControllerRight)
-        } else {
-            commandLine = String(format: LabLanguage.current == .korean ?
-                "4  뇌 → 몸에 내린 명령    이번 순간에는 해석된 명령 없음  |  왼쪽/오른쪽 출력 %.3f/%.3f" :
-                "4  BrainSignals → FlyGym controller    no decoded BrainSignals this frame  |  controller L/R %.3f/%.3f",
-                t.bodyControllerLeft, t.bodyControllerRight)
-        }
-        let bodyPacketDetail = t.bodyPacketAgeS >= 0
-            ? String(format: L("body packet %.0f ms old · MuJoCo t %.3f s · sim/wall %.2fx",
-                               "몸 데이터 %.0f ms 전 · 물리 시각 %.3f s · 실시간 대비 %.2f배"),
-                     t.bodyPacketAgeS * 1000, t.bodySimTime, t.bodySimWallRatio)
-            : L("no fresh body packet used", "새 몸 데이터 없음")
-        let motionLine = String(format: LabLanguage.current == .korean ?
-            "5  실제로 측정한 움직임    앞으로 %.4f m/s  |  회전 %.2f rad/s  |  발 닿음 %.2f  |  %@" :
-            "5  Measured motion     forward %.4f m/s  |  yaw %.2f rad/s  |  contact %.2f  |  %@",
-            t.bodyVX, t.bodyYawRate, t.bodyContactMean, bodyPacketDetail)
-        signalPathLabel.stringValue = [sourceLine, currentLine, neuralLine, commandLine, motionLine]
-            .joined(separator: "\n")
+        signalPathLabel.stringValue = LabStatusText.signalPath(t)
 
         recorder.append(t)
 
@@ -3283,20 +1715,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             let envStatus = L("environment", "환경") + " \(fresh(stateFreshness.isFresh)) \(stateAge)"
             setStatus(freshnessLabel, L("Packets — ", "데이터 — ") + "\(bodyStatus) · \(envStatus)")
 
-            if let s = state {
-                var bits = [String(format: "%.1f s", s.t)]
-                if let n = s.objectCount { bits.append(L("\(n) object\(n == 1 ? "" : "s")", "물체 \(n)개")) }
-                if let w = s.wind { bits.append(String(format: L("wind %.2f", "바람 %.2f"), w)) }
-                if let c = s.temperature { bits.append(String(format: "%.1f°C", c)) }
-                let eyeState = { (covered: Bool) in covered ? L("covered", "가림") : L("open", "뜸") }
-                if let l = s.leftEyeCovered { bits.append(L("left eye ", "왼눈 ") + eyeState(l)) }
-                if let r = s.rightEyeCovered { bits.append(L("right eye ", "오른눈 ") + eyeState(r)) }
-                if let e = s.error, !e.isEmpty { bits.append(L("error: ", "오류: ") + e) }
-                if let event, !event.event.isEmpty { bits.append(L("last event: ", "최근 알림: ") + event.event) }
-                setStatus(remoteStateLabel, L("Environment — ", "환경 — ") + bits.joined(separator: " · "))
-            } else {
-                setStatus(remoteStateLabel, L("Environment — waiting for FlyGym state…", "환경 — 시뮬레이터 상태를 기다리는 중…"))
-            }
+            setStatus(remoteStateLabel, LabStatusText.remoteState(state, event: event?.event))
 
             let sleeping = t.brainSleep
             let gate = sleeping ? 0.55 : 1.0
@@ -3330,60 +1749,6 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
                 + L(" · sensoryGate ×", " · 감각 통과율 ×") + (sleeping ? "0.55" : "1.00")
                 + L("\nCommands — FlyGym bridge disabled", "\n명령 — 물리 시뮬레이터 꺼짐"))
         }
-    }
-}
-
-extension NSToolbarItem.Identifier {
-    static let labMode = NSToolbarItem.Identifier("lab.mode")
-    static let labRun = NSToolbarItem.Identifier("lab.run")
-    static let labRecord = NSToolbarItem.Identifier("lab.record")
-    static let labLanguage = NSToolbarItem.Identifier("lab.language")
-}
-
-extension LabWindowController: NSToolbarDelegate {
-    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        var items: [NSToolbarItem.Identifier] = [.toggleSidebar, .sidebarTrackingSeparator,
-                                                 .labMode, .flexibleSpace, .labRun, .labRecord, .labLanguage]
-        if #available(macOS 14.0, *) { items += [.inspectorTrackingSeparator, .toggleInspector] }
-        return items
-    }
-
-    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
-    }
-
-    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
-                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        let item = NSToolbarItem(itemIdentifier: id)
-        switch id {
-        case .labMode:
-            item.view = viewModeControl
-            item.label = L("Mode", "방식")
-            item.toolTip = L("Observe moves only the camera; Participate puts a controllable body in the world", "관찰은 카메라만 움직이고, 참여는 조종할 수 있는 몸을 세계에 넣습니다")
-        case .labRun:
-            item.view = runButton
-            item.label = L("Pause / Resume", "일시 정지 / 재개")
-        case .labLanguage:
-            let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-            for language in LabLanguage.allCases {
-                popup.addItem(withTitle: language.menuTitle)
-                popup.lastItem?.representedObject = language.rawValue
-            }
-            selectPopupValue(popup, LabLanguage.current.rawValue)
-            popup.bezelStyle = .texturedRounded
-            popup.target = self
-            popup.action = #selector(languagePicked(_:))
-            popup.setAccessibilityLabel(L("Interface language", "화면 언어"))
-            item.view = popup
-            item.label = L("Language", "언어")
-            item.toolTip = L("Interface language — English or Korean", "화면 언어 — 영어 또는 한국어")
-        case .labRecord:
-            item.view = recordButton
-            item.label = L("Record", "기록")
-        default:
-            return nil
-        }
-        return item
     }
 }
 

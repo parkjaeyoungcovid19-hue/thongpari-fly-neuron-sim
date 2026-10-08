@@ -36,7 +36,17 @@ Swift sources live under `Sources/<area>/` (`App`, `Brain`, `Bridge`, `Lab`,
 
 | file | contents |
 |---|---|
-| `main.swift` | overlay scene, CLI dispatch, `Coordinator` (render-loop hub), `AppDelegate` (menu, timers, display switching) |
+| `App/main.swift` / `CLI.swift` | application bootstrap and diagnostic flag table |
+| `App/Coordinator*.swift` | render-loop hub; session, Lab and neural operations in extensions |
+| `App/OverlayScene.swift`, `LabMenu.swift`, `AppDelegate.swift` | overlay, menus, timers and display switching |
+| `Lab/LabWindow*.swift` | window lifecycle/refresh, pages, actions and toolbar |
+| `Lab/LabArenaMap.swift`, `LabParticipantController.swift`, `LabStatusText.swift` | arena presentation, participant state/input and pure status text |
+| `World/WorldEdits.swift` | editor/setting/history owner lifecycles, shared ACK boundary and timeout rules |
+| `Bridge/EnvironmentProperty.swift`, `WireValues.swift` | strict capability/edit descriptors and lossy telemetry helpers |
+| `Lab/LabChrome.swift` | UI helpers and cached localization |
+| `Diagnostics/Suite.swift`, `Snapshots.swift` | shared check harness/sim setup and diagnostic-only rendering |
+| `flygym_bridge/lab_world.py`, `lab_types.py`, `lab_tools.py`, `interaction.py` | world owner/dispatch, shared values, toy mechanics and carry/contact |
+| `flygym_bridge/body.py`, `tests/_support.py`, `tests/unit`, `tests/real`, `tests/perf` | body interface; mock unit runner and separate real/performance gates |
 | `MotorReadout.swift` | `SignalBuilder` (rates→`BrainSignals`) |
 | `SimDiagnostics.swift` | `--simtest` / `--behaviortest` / `--v4timingtest` |
 | `FlyModel.swift` | procedural fly body + `Fly` behavior (states, gait, flight, ledges, sleep) |
@@ -68,6 +78,17 @@ Swift sources live under `Sources/<area>/` (`App`, `Brain`, `Bridge`, `Lab`,
 ./ThongpariFlyNeuronSim --brainshot b.png  # offscreen brain render
 ./ThongpariFlyNeuronSim --seed 0x1234      # pin the sim seed (decimal or 0x hex) for any mode
 ```
+
+The Swift source glob automatically includes split files. `package_app.sh` compiles its own release binary without DIAGNOSTICS and strips it; it also signs/verifies the bundle. Release diagnostic flags exit 2. For headless regression, run all `--simtest`, `--behaviortest`, `--gpucheck`, `--labtest`, `--bridgetest`, `--v4test` (`--v4sessiontest` alias), `--v4timingtest`, `--worldeditortest`, and `--observationaudittest` flags.
+
+Python mock unit checks use one runner (real MuJoCo and flaky timing gates are outside discovery):
+
+```sh
+cd flygym_bridge
+../flygym-venv/bin/python -m unittest discover -s tests/unit
+```
+
+`tests/real/*_real.py` contains real-body checks, including the formerly mixed V5.6.2 sections; `tests/perf/` contains the idle-toy overhead gate. Do not import one unittest TestCase into another discovery module: share setup through `tests/_support.py` instead.
 
 Always run `--simtest`, `--behaviortest` **and** `--gpucheck` after any sim, ETL
 or shader change; they are the ground truth. Key invariants:

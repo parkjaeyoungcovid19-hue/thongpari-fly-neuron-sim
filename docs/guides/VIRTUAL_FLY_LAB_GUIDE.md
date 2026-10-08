@@ -241,9 +241,9 @@ Swift Lab protocol/population mapping만 socket 없이 검사:
 Python 쪽 Lab 자체 검사도 별도로 있다.
 
 ```sh
-python3 flygym_bridge/test_lab.py
-./flygym-venv/bin/python flygym_bridge/test_lab_real.py
-./flygym-venv/bin/python flygym_bridge/test_vision_real.py
+./flygym-venv/bin/python flygym_bridge/tests/unit/test_lab_world.py
+./flygym-venv/bin/python flygym_bridge/tests/real/test_lab_real.py
+./flygym-venv/bin/python flygym_bridge/tests/real/test_vision_real.py
 ```
 
 ## 해석 범위
@@ -261,3 +261,12 @@ python3 flygym_bridge/test_lab.py
 - direct population stimulation은 실험용 전류 주입이며 자연 자극과 등가가 아니다.
 
 따라서 이 Lab은 절대 생리값 주장보다 **같은 모델·같은 seed·같은 reset 조건에서 한 변수씩 바꾼 조건 비교**에 가장 적합하다.
+
+Python mock regression suite (no real physics or performance gates):
+
+```sh
+cd flygym_bridge
+../flygym-venv/bin/python -m unittest discover -s tests/unit
+```
+
+Real-body tests live in `flygym_bridge/tests/real/`; optional timing gates live in `flygym_bridge/tests/perf/`. They are separate from unit discovery.

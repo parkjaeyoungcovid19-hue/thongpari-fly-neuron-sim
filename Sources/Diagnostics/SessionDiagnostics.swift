@@ -1,11 +1,8 @@
 #if DIAGNOSTICS
 import Cocoa
 func runV4SessionTest() {
-    var failures = 0
-    func check(_ name: String, _ ok: Bool, _ detail: String = "") {
-        print((ok ? "PASS" : "FAIL") + "  " + name + (detail.isEmpty ? "" : ": " + detail))
-        if !ok { failures += 1 }
-    }
+    let suite = Suite()
+    func check(_ name: String, _ ok: Bool, _ detail: String = "") { suite.check(name, ok, detail) }
 
     let s = LabSession()
     let start = s.beginNew(mode: .deterministic, initialTick: 0, sessionID: "session-test")
@@ -56,8 +53,8 @@ func runV4SessionTest() {
     _ = s.reserveStep()
     check("old epoch result rejected without advancing", !s.acceptStepResult(stale) && s.snapshot().simTick == 0)
 
-    print(failures == 0 ? "ALL V4 SESSION TESTS PASS" : "\(failures) V4 SESSION FAILURES")
-    exit(failures == 0 ? 0 : 1)
+    print(suite.failures == 0 ? "ALL V4 SESSION TESTS PASS" : "\(suite.failures) V4 SESSION FAILURES")
+    suite.finish()
 }
 
 #endif

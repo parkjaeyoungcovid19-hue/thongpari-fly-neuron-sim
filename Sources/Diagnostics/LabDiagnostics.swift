@@ -8,11 +8,8 @@ import SceneKit
 /// Headless lab protocol test. No socket is opened; queue behavior, tolerant
 /// state parsing and direct-neural population selection are exercised directly.
 func runLabTest() {
-    var failures = 0
-    func check(_ name: String, _ ok: Bool, _ detail: String = "") {
-        print((ok ? "PASS" : "FAIL") + "  " + name + (detail.isEmpty ? "" : ": " + detail))
-        if !ok { failures += 1 }
-    }
+    let suite = Suite()
+    func check(_ name: String, _ ok: Bool, _ detail: String = "") { suite.check(name, ok, detail) }
 
     let bridge = FlyGymBridge()
     for i in 0..<100 {
@@ -433,7 +430,7 @@ func runLabTest() {
         check("body timing reaches lab telemetry", false, "body packet did not parse")
     }
 
-    if let c = loadConnectome(), let sim = MetalSim(connectome: c, spikeBus: nil, seed: SIM_SEED) {
+    if let c = loadConnectome(), let sim = makeDiagSim(connectome: c, spikeBus: nil) {
         sim.perfLogIntervalMs = 0
         let roles = ["GF", "DNa-left", "DNa-right", "MDN", "DNp09", "DNg11", "escW",
                      "LC4/LPLC2-left", "LC4/LPLC2-right", "LC4/LPLC2", "ascend", "sens",
@@ -546,7 +543,7 @@ func runLabTest() {
         // and another through the frozen V2 equations, then require identical
         // neural state/spikes. This catches an arithmetic-order change that a
         // source-only comparison could otherwise miss.
-        if let legacySim = MetalSim(connectome: c, spikeBus: nil, seed: SIM_SEED) {
+        if let legacySim = makeDiagSim(connectome: c, spikeBus: nil) {
             legacySim.perfLogIntervalMs = 0
             sim.reset(seed: SIM_SEED); legacySim.reset(seed: SIM_SEED)
             let sequence: [(Float, Double, Bool, Float, Double, Double, Float)] = [
@@ -1122,8 +1119,8 @@ func runLabTest() {
     let missingRadius = try? JSONDecoder().decode(WorldRenderPose.self, from: Data(#"{"id":"player","position_mm":[0,0,2.5],"orientation_quat_xyzw":[0,0,0,1]}"#.utf8))
     var explicitRadius = missingRadius; explicitRadius?.collisionRadiusMM = 2.5
     check("participant aim defaults to the pose path's 2.5 mm radius", missingRadius.flatMap(WorldViewer.participantAimRay(player:))?.originMM == explicitRadius.flatMap(WorldViewer.participantAimRay(player:))?.originMM && missingRadius.flatMap(WorldViewer.participantAimRay(player:)) != nil)
-    print(failures == 0 ? "ALL LAB TESTS PASS" : "\(failures) LAB TEST FAILURES")
-    exit(failures == 0 ? 0 : 1)
+    print(suite.failures == 0 ? "ALL LAB TESTS PASS" : "\(suite.failures) LAB TEST FAILURES")
+    suite.finish()
 }
 
 /// V6.1 shared fixtures: strict standalone decode; tolerant optional telemetry.

@@ -648,10 +648,10 @@ extension LabWorldObjectRemote {
         positionMM = try c.decode([Double].self, forKey: .positionMM)
         sizeMM = try c.decode([Double].self, forKey: .sizeMM)
         yawDeg = try c.decode(Double.self, forKey: .yawDeg)
-        trapState = (try? c.decodeIfPresent(String.self, forKey: .trapState)) ?? nil
-        foodVariant = (try? c.decodeIfPresent(String.self, forKey: .foodVariant)) ?? nil
-        revision = (try? c.decodeIfPresent(Int.self, forKey: .revision)) ?? nil
-        pitchDeg = (try? c.decodeIfPresent(Double.self, forKey: .pitchDeg)) ?? nil
+        trapState = c.lossy(String.self, forKey: .trapState)
+        foodVariant = c.lossy(String.self, forKey: .foodVariant)
+        revision = c.lossy(Int.self, forKey: .revision)
+        pitchDeg = c.lossy(Double.self, forKey: .pitchDeg)
     }
 
     /// The editor's view of one atomic render object. Yaw and (ramps) tilt
@@ -758,8 +758,8 @@ struct LabRemoteWorldState: Decodable {
         environmentCapabilities = try? c.decode(EnvironmentCapabilities.self, forKey: .environmentCapabilities)
         sceneCapabilities = try? c.decode(SceneCapabilities.self, forKey: .sceneCapabilities)
         // Optional V5.6.2 field; older backends omit it and a bad one is dropped.
-        projectiles = (try? c.decodeIfPresent([LabProjectileRemote].self, forKey: .projectiles)) ?? nil
-        environmentRevision = (try? c.decodeIfPresent(Int.self, forKey: .environmentRevision)) ?? nil
+        projectiles = c.lossy([LabProjectileRemote].self, forKey: .projectiles)
+        environmentRevision = c.lossy(Int.self, forKey: .environmentRevision)
         wind = Self.finite(try? c.decodeIfPresent(LabRemoteWind.self, forKey: .wind)) {
             [$0.strength, $0.directionDeg, $0.remainingMS ?? 0] }
         temperature = Self.finite(try? c.decodeIfPresent(LabRemoteTemperature.self, forKey: .temperature)) {
@@ -1014,7 +1014,7 @@ struct WorldRenderObject: Decodable {
         }
         collidable = try c.decodeIfPresent(Bool.self, forKey: .collidable) ?? true
         classification = try c.decodeIfPresent(String.self, forKey: .classification)
-        trapState = (try? c.decodeIfPresent(String.self, forKey: .trapState)) ?? nil
+        trapState = c.lossy(String.self, forKey: .trapState)
     }
 }
 

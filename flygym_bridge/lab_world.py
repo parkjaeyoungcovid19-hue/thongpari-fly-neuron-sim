@@ -31,299 +31,11 @@ from interaction import (InteractionState, InteractionError, parse_interaction_a
                          CARRY_CONTACT_SKIN_MM)
 
 
-PHYSICAL = "PHYSICAL"
-SENSORY_MODEL = "SENSORY-MODEL"
+from lab_types import *
+from lab_tools import LabTools
+from interaction import WorldInteraction
 
-FAR_POS = (0.0, 0.0, -500.0)
-MAX_OBJECT_ID_LEN = 64
-MAX_EVENTS = 64
-# Engineering lab-force scale, not a biological wind law. Leg adhesion holds a
-# standing fly, so the old 10000 mm/s² moved it only ~0.08 mm/s at strength 1.
-# V6.5 (user request "강화"): 60000 mm/s² on the thorax, fading to zero as the
-# thorax reaches WIND_SPEED_MAX_MM_S × strength along the wind, so a fly that
-# loses its footing drifts with the wind instead of being flung away. Measured
-# on the shipped NeuroMechFly (2 s, standing): strength .25 → 0.8 mm, .5 → 5 mm,
-# 1 → 18 mm; side and tail winds stay upright, a strong head-on wind tips the
-# fly over (accepted by the user), and no run raised a MuJoCo instability warning.
-WIND_ACCEL_MAX_MM_S2 = 60000.0
-WIND_SPEED_MAX_MM_S = 30.0
-TOUCH_ACCEL_MAX_MM_S2 = 16000.0
-FOOD_ODOR_DECAY_MM = 30.0
-# V6.5 continuous-wind edit properties -> the _wind_state() key holding the
-# applied value. wind.continuous/duration_ms describe puffs and have no applier.
-WIND_EDIT_FIELDS = {"wind.strength": "strength", "wind.direction_deg": "direction_deg",
-                    "wind.physical": "physical_enabled", "wind.sensory": "sensory_enabled"}
-# V5.6.2 feeding (engineering rule, not a feeding motor program: the proboscis
-# is not actuated). While the haustellum geom is within FEED_CONTACT_MM of a
-# food model's surface, the food shrinks at FEED_SHRINK_MM_S (diameter) and a
-# modeled sugar-contact signal is reported; below FEED_MIN_DIAMETER_MM it is gone.
-FEED_CONTACT_MM = 0.15
-FEED_SHRINK_MM_S = 1.2
-FEED_MIN_DIAMETER_MM = 0.4
-MOUTH_SEGMENT = "c_haustellum"
-TRAP_LIFT_MM = 4.0
-TRAP_FLOOR_GAP_MM = 0.02
-TRAP_DROP_SPEED_MM_S = 60.0
-# 2000 mm/s moves 0.2 mm per 0.1 ms substep (pellet radius 0.6 mm: no tunnelling)
-# and reaches v^2/g ~ 408 mm, so every crosshair point in range has a flat arc.
-BB_SPEED_MM_S = 2000.0
-# The pellet leaves the muzzle (right hand) but is aimed at the point under the
-# crosshair: the look ray from the eye, up to BB_AIM_RANGE_MM, with the launch
-# angle solved for real gravity. A parallel shot from the hand lands ~3 mm low
-# and then drops (2026-09-27 user report: "총이 제대로 안 나감").
-BB_AIM_RANGE_MM = 150.0
-BB_LIFETIME_S = 2.0
-BB_POOL_SIZE = 8
-BB_RATE_LIMIT_S = 0.15
-
-# Fixed topology, bounded memory. Food uses non-colliding sphere slots. Its
-# odor field is a bounded sensory model only; taste/reward/feeding and direct
-# neural wiring remain intentionally absent.
-DEFAULT_SLOT_COUNTS = {
-    # Runtime MuJoCo topology is fixed after compilation, so keep a generous
-    # preallocated pool. These mocap geoms are hidden/inactive until used, but
-    # MuJoCo still poses every geom on every substep, so the pools are not free.
-    "box": 64,
-    "sphere": 64,
-    "wall": 64,
-    # Each food slot carries the whole food palette (~17 hidden geoms), and
-    # every geom is posed on every substep: 32 slots cost ~11% of a body step
-    # (2026-09-28 paired measurement), so the pool is kept small.
-    "food": 8,
-    # Toy slots are multi-part too; 8 cars + 4 traps cost ~10% idle, 4 + 2 ~3%.
-    "car": 4,
-    "trap": 2,
-    # V6.4 walkable terrain: unlike the obstacle pools, every ramp slot carries
-    # explicit pairs with the fly's tibiae, tarsi and body (43 geoms), so its
-    # pool stays small.
-    "ramp": 4,
-}
-
-MAX_SLOT_COUNT_PER_SHAPE = 256
-
-# V6.4 ramp: a fixed (never carried/approached) box tilted by pitch_deg about
-# its own Y axis after yaw, raising its +X end. Pitch and size edits pivot about
-# the middle of the low top edge, so a ramp laid flush with the lawn stays flush.
-RAMP_PITCH_MAX_DEG = 45.0
-RAMP_DEFAULT_SIZE_MM = (40.0, 20.0, 1.0)
-RAMP_DEFAULT_PITCH_DEG = 15.0
-RAMP_SIZE_RANGE_MM = ((5.0, 200.0), (2.0, 200.0), (0.2, 20.0))
-
-DEFAULT_COLORS = {
-    # Match VisionLoomDetector's configured magenta target for ordinary lab
-    # objects, so looming still comes from rendered eye pixels.
-    "box": (0.92, 0.08, 0.72, 1.0),
-    "sphere": (0.92, 0.08, 0.72, 1.0),
-    "wall": (0.92, 0.08, 0.72, 1.0),
-    # Food is a visible odor-source marker. Green excludes it from the legacy
-    # configured-color occupancy path; the generic raw-frame motion estimator
-    # may still report expansion if its rendered geometry actually approaches.
-    "food": (0.18, 0.82, 0.22, 1.0),
-    "car": (1.0, 1.0, 1.0, 0.0),
-    "trap": (1.0, 1.0, 1.0, 0.0),
-    # Terrain, not a looming target: kept off the configured magenta.
-    "ramp": (0.62, 0.52, 0.38, 1.0),
-}
-
-
-class LabError(ValueError):
-    pass
-
-
-class CapacityError(LabError):
-    """A shape's fixed slot pool is full; the world is unchanged."""
-    status = "rejected_capacity"
-
-
-def ramp_flush_center_z(size_mm, pitch_deg):
-    """Center height that puts a ramp's low top edge on the lawn (z = 0)."""
-    p = math.radians(pitch_deg)
-    return 0.5 * size_mm[0] * math.sin(p) - 0.5 * size_mm[2] * math.cos(p)
-
-
-def _finite(value, default=0.0):
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return float(default)
-    return out if math.isfinite(out) else float(default)
-
-
-def _clamp(value, lo, hi, default=0.0):
-    return max(lo, min(hi, _finite(value, default)))
-
-
-def _vec3(value, default):
-    # Any 3+ sequence, including the NumPy arrays MuJoCo poses arrive as;
-    # strings and mappings fall back to the default.
-    try:
-        if isinstance(value, (str, bytes)) or len(value) < 3:
-            raise TypeError
-        value = [value[i] for i in range(3)]
-    except (TypeError, KeyError, IndexError):
-        value = default
-    return [_finite(value[i], default[i]) for i in range(3)]
-
-
-def _normalize3(value, default=(0.0, 1.0, 0.0)):
-    vec = _vec3(value, default)
-    mag = math.sqrt(sum(v * v for v in vec))
-    if mag < 1e-9:
-        vec = list(default)
-        mag = math.sqrt(sum(v * v for v in vec))
-    return [v / mag for v in vec]
-
-
-def _tool_number(value, name, lo, hi):
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise LabError(f"{name} must be numeric")
-    value = float(value)
-    if not math.isfinite(value) or not lo < value <= hi:
-        raise LabError(f"{name} out of range")
-    return value
-
-
-def _tool_id(args):
-    value = args.get("id")
-    if not isinstance(value, str) or not value.strip() or len(value.strip()) > MAX_OBJECT_ID_LEN:
-        raise LabError("id is required")
-    return value.strip()
-
-
-def _tool_actor(args):
-    value = args.get("actor_id")
-    if not isinstance(value, str) or not value.strip() or len(value.strip()) > 64:
-        raise LabError("actor_id is required")
-    return value.strip()
-
-
-def _ballistic_velocity(start, target, speed, gravity):
-    """Launch velocity reaching `target` from `start` at `speed` under gravity.
-
-    Takes the flatter of the two ballistic arcs; out of reach, straight at it.
-    """
-    dx, dy, dz = (t - s for s, t in zip(start, target))
-    horizontal = math.hypot(dx, dy)
-    if horizontal < 1e-9:
-        return [0.0, 0.0, speed if dz >= 0.0 else -speed]
-    v2 = speed * speed
-    root = v2 * v2 - gravity * (gravity * horizontal * horizontal + 2.0 * dz * v2)
-    angle = (math.atan2(v2 - math.sqrt(root), gravity * horizontal) if root >= 0.0
-             else math.atan2(dz, horizontal))
-    ux, uy = dx / horizontal, dy / horizontal
-    return [speed * math.cos(angle) * ux, speed * math.cos(angle) * uy, speed * math.sin(angle)]
-
-
-def _tool_direction(value):
-    if not isinstance(value, (tuple, list)) or len(value) != 3:
-        raise LabError("direction must be a unit 3-vector")
-    xyz = []
-    for i, v in enumerate(value):
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
-            raise LabError(f"direction[{i}] must be finite")
-        xyz.append(float(v))
-    if abs(math.sqrt(sum(v * v for v in xyz)) - 1.0) > 1e-3:
-        raise LabError("direction must be a unit 3-vector")
-    return xyz
-
-
-@dataclass
-class LabObject:
-    object_id: str
-    shape: str
-    slot: str
-    position_mm: list
-    size_mm: list
-    yaw_deg: float = 0.0
-    revision: int = 0
-    variant: str | None = None
-    trap_state: str | None = None
-    pitch_deg: float = 0.0
-
-    def quat_wxyz(self):
-        """Yaw about world Z, then (ramps) pitch about the local Y axis."""
-        cy, sy = math.cos(math.radians(self.yaw_deg) * 0.5), math.sin(math.radians(self.yaw_deg) * 0.5)
-        cp, sp = math.cos(math.radians(self.pitch_deg) * 0.5), math.sin(math.radians(self.pitch_deg) * 0.5)
-        return [cy * cp, sy * sp, -cy * sp, sy * cp]
-
-    def local_to_world(self, local):
-        y, p = math.radians(self.yaw_deg), math.radians(self.pitch_deg)
-        x = math.cos(p) * local[0] - math.sin(p) * local[2]
-        z = math.sin(p) * local[0] + math.cos(p) * local[2]
-        return [self.position_mm[0] + math.cos(y) * x - math.sin(y) * local[1],
-                self.position_mm[1] + math.sin(y) * x + math.cos(y) * local[1],
-                self.position_mm[2] + z]
-
-    def ramp_anchor(self):
-        """World point at the middle of the low top edge."""
-        return self.local_to_world((-0.5 * self.size_mm[0], 0.0, 0.5 * self.size_mm[2]))
-
-    def state(self):
-        food = self.shape == "food"
-        out = {
-            "id": self.object_id,
-            "shape": self.shape,
-            "position_mm": [float(v) for v in self.position_mm],
-            "size_mm": [float(v) for v in self.size_mm],
-            "yaw_deg": float(self.yaw_deg),
-            "revision": int(self.revision),
-            "classification": PHYSICAL,
-            "visual_marker_only": False,
-        }
-        if not food:
-            out["neural_connected"] = True
-        if food:
-            out.update(
-                odor_source_modeled=True,
-                odor_classification=SENSORY_MODEL,
-                backend_direct_neural=False,
-                integrated_neural_target="ORN_DM1/VA2 via Swift",
-                food_variant=self.variant,
-                sugar_content=sm.FOOD_SUGAR.get(self.variant, 0.0),
-                taste_modeled=True,
-                taste_classification=SENSORY_MODEL,
-                reward_modeled=False,
-                feeding_modeled=True,
-                behavior_scripted=False,
-                note=("Odor source modeled; haustellum contact shrinks the food and reports a "
-                      "modeled sugar-contact signal; no reward/hunger; no scripted seeking"),
-            )
-        if self.shape == "trap":
-            out["trap_state"] = self.trap_state
-        if self.shape == "ramp":
-            out.update(pitch_deg=float(self.pitch_deg), fixed_terrain=True,
-                       fly_leg_contact=True)
-        return out
-
-
-@dataclass
-class ApproachMotion:
-    object_id: str
-    target_xy_mm: tuple
-    end_distance_mm: float
-    speed_mm_s: float
-
-
-@dataclass
-class DriveMotion:
-    object_id: str
-    speed_mm_s: float
-    remaining_mm: float
-
-
-@dataclass
-class Projectile:
-    id: str
-    index: int
-    position_mm: list
-    velocity_mm_s: list
-    fired_s: float
-    hit_fly: bool = False
-    hit_object: bool = False
-    trail: list = field(default_factory=list)  # (sim s, position) for the tracer
-
-
-class LabWorld:
+class LabWorld(LabTools, WorldInteraction):
     """Bounded dynamic lab state; optionally backed by a compiled MuJoCo model."""
 
     def __init__(self, world=None, slot_counts=None):
@@ -947,319 +659,15 @@ class LabWorld:
     # ------------------------------------------------------------------
     # V5.6 interaction and contact lifecycle
     # ------------------------------------------------------------------
-    def _interaction_event(self, name, **fields):
-        self.events.append({"event": name, "classification": PHYSICAL,
-                            "sim_tick_ms": int(self._interaction_tick_ms), **fields})
 
-    def _append_event(self, event):
-        event["sim_tick_ms"] = int(self._interaction_tick_ms)
-        self.events.append(event)
 
-    def release_interaction(self, reason):
-        held = self.interaction.held_object_id
-        if held is None:
-            return
-        obj = self.objects.get(held)
-        self.interaction.held_object_id = None
-        self.interaction.previous_position = None
-        self.interaction.previous_distances = None
-        self.interaction.carry_blocked = False
-        self.interaction.blocking_geom_kind = None
-        self.interaction.limited_by = None
-        self._interaction_event("object_placed", id=held, actor_id=self.player.actor_id,
-                                position_mm=(list(obj.position_mm) if obj else None), reason=reason)
 
-    def apply_interaction(self, command, *, ray_pick=None):
-        tool = command.args.get("tool_id") if isinstance(command.args, dict) else None
-        try:
-            try:
-                args = parse_interaction_args(command.args)
-            except ValueError as exc:
-                raise InteractionError(f"invalid_interaction: {exc}") from exc
-            if not self.player.active:
-                raise InteractionError("not_participating")
-            if args.actor_id != self.player.actor_id:
-                raise InteractionError("wrong_actor")
-            held = self.interaction.held_object_id
-            if args.tool_id == "place":
-                if held is None:
-                    raise InteractionError("not_holding")
-                if args.target_id is not None and args.target_id != held:
-                    raise InteractionError("target_mismatch")
-                self.release_interaction("place")
-                self.interaction.record(command.seq, args.tool_id, True, target_id=held)
-                return self.interaction.state()
-            if held is not None:
-                raise InteractionError("already_holding")
-            center = participant_center(self.player)
-            if math.dist(center, args.ray_origin_mm) > (
-                    INTERACTION_RAY_ORIGIN_TOL_FACTOR * self.player.radius_mm):
-                raise InteractionError("ray_origin_not_at_participant")
-            if ray_pick is None:
-                raise RuntimeError("interaction ray picker unavailable")
-            hit = ray_pick(args.ray_origin_mm, args.ray_direction)
-            if not hit.get("hit"):
-                raise InteractionError("ray_miss")
-            if hit.get("target_kind") != "lab_object":
-                raise InteractionError(f"unsupported_target: {hit.get('target_kind', 'unknown')}")
-            distance = math.dist(center, hit["point_mm"])
-            if distance > INTERACTION_REACH_MM:
-                raise InteractionError(f"out_of_reach: {distance:.3f}mm")
-            object_id = hit["target_id"]
-            if args.target_id is not None and args.target_id != object_id:
-                raise InteractionError("target_mismatch")
-            if object_id not in self.objects:
-                raise InteractionError("ray_miss")
-            if self.objects[object_id].shape == "ramp":
-                raise InteractionError("fixed_terrain")
-            self.approaches.pop(object_id, None)
-            self.drives.pop(object_id, None)
-            self.interaction.held_object_id = object_id
-            self.interaction.previous_distances = None
-            self.interaction.carry_blocked = False
-            self.interaction.limited_by = None
-            self.interaction.record(command.seq, args.tool_id, True,
-                                    target_id=object_id, hit_distance_mm=distance)
-            self._interaction_event("object_grabbed", id=object_id,
-                                    actor_id=self.player.actor_id, hit_distance_mm=distance)
-            return self.interaction.state()
-        except InteractionError as exc:
-            self.interaction.record(command.seq, tool, False, str(exc).split(":", 1)[0])
-            raise
 
-    def interaction_pre_step(self, dt):
-        held = self.interaction.held_object_id
-        if held is None:
-            return
-        obj = self.objects.get(held)
-        if obj is None:
-            self.release_interaction("object_removed")
-            return
-        if not self.player.active:
-            self.release_interaction("participant_inactive")
-            return
-        # Contract §1 compares the post-step signed distance with the last
-        # committed pose. An external resize/move invalidates that baseline.
-        self.interaction.distance_limit_mm = (CARRY_PENETRATION_TOL_MM +
-                                               CARRY_SPEED_MM_S * dt + 0.01)
-        if self._bound and self.interaction.previous_distances is None:
-            self._mujoco.mj_forward(self.model, self.data)
-            held_gid, candidates = self._carry_candidates()
-            self.interaction.previous_distances = self._carry_distances(held_gid, candidates)
-        constraints = self._carry_constraints if self._bound else ()
-        x, y = self.interaction.carry_step_xy(self.player, obj, CARRY_SPEED_MM_S * dt, constraints)
-        self.interaction.previous_position = list(obj.position_mm)
-        if math.hypot(x - obj.position_mm[0], y - obj.position_mm[1]) > 1e-12:
-            obj.position_mm[0] = x
-            obj.position_mm[1] = y
-            self._bump_revision(obj)
-            self._sync_object(obj)
 
-    def _carry_candidates(self):
-        held = self.interaction.held_object_id
-        held_gids = (self._object_solid_geoms(self.objects[held])
-                     if held is not None and held in self.objects else [])
-        if not held_gids:
-            return [], []
-        obj = self.objects[held]
-        anchor = self.interaction.carry_filter_anchor
-        if (self.interaction.previous_distances is None or anchor is None or
-                math.dist(anchor, obj.position_mm) > 0.5):
-            # A candidate excluded at this anchor is farther than the sum of
-            # both bounding spheres plus 0.5 mm travel and the query horizon.
-            # The filter is rebuilt before the held center travels 0.5 mm;
-            # external object edits and approach motion invalidate the cache.
-            held_radius = (obj.size_mm[0] * 0.5 if obj.shape == "sphere" else
-                           math.sqrt(sum((v * 0.5) ** 2 for v in obj.size_mm)))
-            near = []
-            for other in self.objects.values():
-                if other.object_id == held or other.shape == "food":
-                    continue
-                radius = (other.size_mm[0] * 0.5 if other.shape == "sphere" else
-                          math.sqrt(sum((v * 0.5) ** 2 for v in other.size_mm)))
-                reach = held_radius + radius + 0.5 + self.interaction.distance_limit_mm
-                if math.dist(obj.position_mm, other.position_mm) <= reach:
-                    near.extend((gid, "lab_object", other)
-                                for gid in self._object_solid_geoms(other))
-            self.interaction.carry_filter_anchor = tuple(obj.position_mm)
-            self.interaction.carry_filter_candidates = near
-        candidates = ([(gid, "ground", None) for gid in self._ground_geom_ids] +
-                      self.interaction.carry_filter_candidates +
-                      ([(gid, "player", None) for gid in self.player.solid_geom_ids()]
-                       if self.player.active else []))
-        return held_gids, candidates
 
-    def _object_solid_geoms(self, obj):
-        if obj.shape == "food" or not self._bound:
-            return []
-        if obj.shape in ("car", "trap"):
-            return self._solid_by_slot.get(obj.slot, [])
-        return [self._slot_ids[obj.slot][1]]
 
-    def _carry_constraints(self):
-        """Surfaces near the held object at its committed pose, as carry_step_xy constraints.
 
-        The participant keeps CARRY_GAP_MM of clearance; other LabObjects are
-        approached to CARRY_CONTACT_SKIN_MM. Floors are skipped: a horizontal
-        step does not deepen a plane contact (the post-step guard still checks).
-        """
-        held_gids, candidates = self._carry_candidates()
-        if not held_gids:
-            return ()
-        fromto = self._fromto
-        constraints = []
-        for gid, kind, _ in candidates:
-            if kind == "ground":
-                continue
-            margin = CARRY_GAP_MM if kind == "player" else CARRY_CONTACT_SKIN_MM
-            horizon = margin + self.interaction.distance_limit_mm
-            for held_gid in held_gids:
-                distance = float(self._mujoco.mj_geomDistance(
-                    self.model, self.data, held_gid, gid, horizon, fromto))
-                if distance >= horizon or abs(distance) < 1e-9:
-                    continue
-            # With the held geom first, (from - to) / distance points from the
-            # other surface to the held object whether or not they overlap.
-                nx = float(fromto[0] - fromto[3]) / distance
-                ny = float(fromto[1] - fromto[4]) / distance
-                horizontal = math.hypot(nx, ny)
-                if horizontal < 0.1:
-                    continue
-                constraints.append((nx / horizontal, ny / horizontal,
-                                    max(0.0, distance - margin) / horizontal, kind))
-        return constraints
 
-    def _carry_distances(self, held_gids, candidates):
-        # MuJoCo 3.9.0 returns distmax for separated geoms beyond this limit,
-        # while penetrating pairs still return their full negative distance.
-        limit = self.interaction.distance_limit_mm
-        return {(held_gid, gid): float(self._mujoco.mj_geomDistance(
-                self.model, self.data, held_gid, gid, limit, None))
-                for held_gid in held_gids for gid, _, _ in candidates}
-
-    def interaction_post_step(self):
-        """Read real fly contacts and apply the contract §1 geometry guard."""
-        if not self._bound or (not self.objects and not self.interaction.contacts and not self.projectiles):
-            return
-        import numpy as np
-        mujoco = self._mujoco
-        contact_now = {}
-        car_hits = {}
-        bb_fly_hits = {}
-        bb_object_hits = {}
-        held = self.interaction.held_object_id
-        blocked_kind = None
-        moved = (held is not None and held in self.objects and
-                 self.interaction.previous_position is not None and
-                 math.dist(self.interaction.previous_position,
-                           self.objects[held].position_mm) > 1e-12)
-        held_gids, candidates = self._carry_candidates() if moved else ([], [])
-        # Both branches below need a penetrating contact on a fly-segment or BB
-        # geom. Selecting those in numpy skips building a Python contact object
-        # for every leg/floor contact on every 0.1 ms substep.
-        contacts = self.data.contact              # sized to ncon
-        hit = self._post_step_watch[contacts.geom]
-        watched = (np.flatnonzero((contacts.dist <= 0.0) & hit.any(axis=1)).tolist()
-                   if hit.any() else [])
-        if watched:
-            bb_by_geom = {self._bb_ids[p.index][1]: p for p in self.projectiles.values()}
-            object_by_geom = {gid: obj.object_id for obj in self.objects.values()
-                              for gid in self._object_solid_geoms(obj)}
-        for index in watched:
-            contact = contacts[index]
-            g1, g2 = int(contact.geom1), int(contact.geom2)
-            if float(contact.dist) <= 0.0:
-                for bb_gid, other_gid in ((g1, g2), (g2, g1)):
-                    pellet = bb_by_geom.get(bb_gid)
-                    if pellet is None:
-                        continue
-                    segment = self._fly_contact_geoms.get(other_gid)
-                    object_id = object_by_geom.get(other_gid)
-                    if segment is not None and not pellet.hit_fly:
-                        import numpy as np
-                        force = np.zeros(6, dtype=float)
-                        mujoco.mj_contactForce(self.model, self.data, index, force)
-                        peak = max(0.0, float(force[0]))
-                        if pellet.id not in bb_fly_hits or peak > bb_fly_hits[pellet.id][2]:
-                            bb_fly_hits[pellet.id] = (pellet, segment, peak)
-                    elif object_id is not None and not pellet.hit_object:
-                        bb_object_hits[pellet.id] = (pellet, object_id)
-            for object_gid, fly_gid in ((g1, g2), (g2, g1)):
-                object_id = object_by_geom.get(object_gid)
-                segment = self._fly_contact_geoms.get(fly_gid)
-                if object_id is not None and segment is not None and float(contact.dist) <= 0.0:
-                    import numpy as np
-                    force = np.zeros(6, dtype=float)
-                    mujoco.mj_contactForce(self.model, self.data, index, force)
-                    key = (object_id, segment)
-                    contact_now[key] = max(contact_now.get(key, 0.0), max(0.0, float(force[0])))
-                    if object_id in self.drives:
-                        car_hits[object_id] = max(car_hits.get(object_id, 0.0),
-                                                  max(0.0, float(force[0])))
-        for object_id, force in car_hits.items():
-            self.drives.pop(object_id, None)
-            self._interaction_event("car_hit_fly", id=object_id,
-                                    peak_normal_force=force, force_units="mujoco_model")
-        for pellet, segment, peak in bb_fly_hits.values():
-            pellet.hit_fly = True
-            self._interaction_event("bb_hit_fly", id=pellet.id, fly_segment=segment,
-                                    peak_normal_force=peak, force_units="mujoco_model")
-        for pellet, object_id in bb_object_hits.values():
-            pellet.hit_object = True
-            self._interaction_event("bb_hit_object", id=pellet.id, object_id=object_id)
-        # Contract §1: mocap pairs and mocap/fixed-plane pairs need explicit
-        # mj_geomDistance checks. Only a *deeper* penetration beyond tolerance
-        # blocks carry; an initial overlap may move sideways or out of contact.
-        if held_gids and self.interaction.previous_position is not None:
-            previous = self.interaction.previous_distances or {}
-            distances = self._carry_distances(held_gids, candidates)
-            for (held_gid, other_gid), distance in distances.items():
-                kind = next(k for gid, k, _ in candidates if gid == other_gid)
-                if (distance < -CARRY_PENETRATION_TOL_MM and
-                        distance < previous.get((held_gid, other_gid), distance) - 1e-9):
-                    blocked_kind = kind
-                    break
-            self.interaction.previous_distances = distances
-        if blocked_kind is not None:
-            # Safety net behind the pre-step constraints: undo a deepening step.
-            obj = self.objects.get(held)
-            if obj is not None:
-                obj.position_mm = self.interaction.previous_position
-                self._bump_revision(obj)
-                self._sync_object(obj)
-                mujoco.mj_forward(self.model, self.data)
-                # The next comparison must use the restored pose, not the
-                # rejected pose from the just-completed physics substep.
-                self.interaction.previous_distances = self._carry_distances(held_gids, candidates)
-        elif held is not None:
-            # A step the pre-step constraints cut to under half is blocked too.
-            blocked_kind = self.interaction.limited_by
-        if blocked_kind is not None:
-            if not self.interaction.carry_blocked:
-                self._interaction_event("carry_blocked", id=held, blocking_geom_kind=blocked_kind)
-            self.interaction.carry_blocked = True
-            self.interaction.blocking_geom_kind = blocked_kind
-        elif self.interaction.carry_blocked:
-            self._interaction_event("carry_unblocked", id=held,
-                                    blocking_geom_kind=self.interaction.blocking_geom_kind)
-            self.interaction.carry_blocked = False
-            self.interaction.blocking_geom_kind = None
-        old = self.interaction.contacts
-        for key, force in contact_now.items():
-            if key not in old:
-                old[key] = (self._interaction_tick_ms, force)
-                self._interaction_event("object_contact_begin", id=key[0], fly_segment=key[1],
-                                        normal_force=force, force_units="mujoco_model")
-            else:
-                begin, peak = old[key]
-                old[key] = (begin, max(peak, force))
-        for key in list(old):
-            if key not in contact_now:
-                begin, peak = old.pop(key)
-                self._interaction_event("object_contact_end", id=key[0], fly_segment=key[1],
-                                        peak_normal_force=peak,
-                                        duration_ms=max(0, self._interaction_tick_ms - begin),
-                                        force_units="mujoco_model")
 
     # ------------------------------------------------------------------
     # Motion / stimuli
@@ -1604,151 +1012,199 @@ class LabWorld:
         return dict(kind=scenes.SCENE_KIND, content_sha256=document["content_sha256"],
                     world_revision=self.revision, environment_revision=self.environment_revision)
 
+    _command_handlers = {'export_scene': '_command_export_scene', 'load_scene': '_command_load_scene', 'edit_object': '_command_edit_object', 'drive_object': '_command_drive_object', 'arm_trap': '_command_arm_trap', 'equip_gun': '_command_equip_gun', 'fire_bb': '_command_fire_bb', 'interaction': '_command_interaction', 'edit_property': '_command_edit_property', 'spawn_object': '_command_spawn_object', 'spawn_box': '_command_spawn_object', 'spawn_sphere': '_command_spawn_object', 'spawn_wall': '_command_spawn_object', 'spawn_ramp': '_command_spawn_object', 'spawn_food': '_command_spawn_food', 'spawn_food_marker': '_command_spawn_food', 'move_object': '_command_move_object', 'resize_object': '_command_resize_object', 'delete_object': '_command_delete_object', 'remove_object': '_command_delete_object', 'reset_world': '_command_reset_world', 'approach_object': '_command_approach_object', 'approach': '_command_approach_object', 'wind': '_command_wind', 'wind_puff': '_command_wind', 'stop_wind': '_command_stop_wind', 'touch': '_command_touch', 'set_eye_state': '_command_set_eye_state', 'eye_state': '_command_set_eye_state', 'restore_eyes': '_command_restore_eyes', 'flash_eye': '_command_flash_eye', 'temperature': '_command_temperature', 'set_temperature': '_command_temperature'}
     def apply_command(self, command, *, fly_position_mm=(0.0, 0.0, 0.0)):
-        """Apply one parsed LabCommand on the simulation-owner thread."""
-        op = command.op
-        a = command.args
-        if op == "export_scene":
-            document = self.export_scene()
-            return {"document_text": scenes.document_text(document), "kind": scenes.SCENE_KIND,
-                    "canonical_scene": scenes.canonical_bytes(document["scene"]).decode("utf-8")}
-        if op == "load_scene":
-            return self.load_scene(a.get("scene_document"), fly_position_mm=fly_position_mm)
-        if op == "edit_object":
-            return self.edit_object(a.get("object_edit"))
-        if op == "drive_object":
-            object_id = _tool_id(a)
-            speed = _tool_number(a.get("speed_mm_s", 20), "speed_mm_s", 0, 60)
-            distance = _tool_number(a.get("distance_mm", 80), "distance_mm", 0, 300)
-            obj = self._require_object(object_id)
-            if obj.shape != "car":
-                raise LabError("drive_object requires a car")
-            if self.interaction.held_object_id == object_id:
-                raise LabError("cannot drive held car")
-            self.approaches.pop(object_id, None)
-            self.drives[object_id] = DriveMotion(object_id, speed, distance)
+        handler = self._command_handlers.get(command.op)
+        if handler is None:
+            raise LabError(f"unknown lab op: {command.op}")
+        return getattr(self, handler)(command, fly_position_mm)
+
+    def _command_export_scene(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        document = self.export_scene()
+        return {"document_text": scenes.document_text(document), "kind": scenes.SCENE_KIND,
+                "canonical_scene": scenes.canonical_bytes(document["scene"]).decode("utf-8")}
+
+    def _command_load_scene(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.load_scene(a.get("scene_document"), fly_position_mm=fly_position_mm)
+
+    def _command_edit_object(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.edit_object(a.get("object_edit"))
+
+    def _command_drive_object(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        object_id = _tool_id(a)
+        speed = _tool_number(a.get("speed_mm_s", 20), "speed_mm_s", 0, 60)
+        distance = _tool_number(a.get("distance_mm", 80), "distance_mm", 0, 300)
+        obj = self._require_object(object_id)
+        if obj.shape != "car":
+            raise LabError("drive_object requires a car")
+        if self.interaction.held_object_id == object_id:
+            raise LabError("cannot drive held car")
+        self.approaches.pop(object_id, None)
+        self.drives[object_id] = DriveMotion(object_id, speed, distance)
+        return obj.state()
+
+    def _command_arm_trap(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        obj = self._require_object(_tool_id(a))
+        if obj.shape != "trap":
+            raise LabError("arm_trap requires a trap")
+        target = 0.5 * obj.size_mm[2] + TRAP_LIFT_MM
+        target_pose = [obj.position_mm[0], obj.position_mm[1], target]
+        if (not self._tool_path_clear(obj, target_pose, TRAP_FLOOR_GAP_MM) or
+                not self._try_tool_pose(obj, target_pose, margin=TRAP_FLOOR_GAP_MM)):
+            self._interaction_event("trap_blocked", id=obj.object_id)
             return obj.state()
-        if op == "arm_trap":
-            obj = self._require_object(_tool_id(a))
-            if obj.shape != "trap":
-                raise LabError("arm_trap requires a trap")
-            target = 0.5 * obj.size_mm[2] + TRAP_LIFT_MM
-            target_pose = [obj.position_mm[0], obj.position_mm[1], target]
-            if (not self._tool_path_clear(obj, target_pose, TRAP_FLOOR_GAP_MM) or
-                    not self._try_tool_pose(obj, target_pose, margin=TRAP_FLOOR_GAP_MM)):
-                self._interaction_event("trap_blocked", id=obj.object_id)
-                return obj.state()
-            obj.trap_state = "armed"
-            self._trap_blocked.discard(obj.object_id)
-            self._interaction_event("trap_armed", id=obj.object_id)
-            return obj.state()
-        if op == "equip_gun":
-            actor = _tool_actor(a)
-            equipped = a.get("equipped")
-            if not isinstance(equipped, bool):
-                raise LabError("equipped must be boolean")
-            if actor != self.player.actor_id or not self.player.active:
-                raise LabError("active participant required")
-            self.player.set_gun_visible(equipped)
-            self._bump_revision(structural=True)
-            return {"actor_id": actor, "equipped": equipped}
-        if op == "fire_bb":
-            actor = _tool_actor(a)
-            direction = _tool_direction(a.get("direction"))
-            return self._fire_bb(actor, direction)
-        if op == "interaction":
-            return self.apply_interaction(command)
-        if op == "edit_property":
-            return self.apply_edit(a.get("edit"))
-        if op in ("spawn_object", "spawn_box", "spawn_sphere", "spawn_wall", "spawn_ramp"):
-            shape = a.get("shape", "box")
-            if op.startswith("spawn_") and op != "spawn_object":
-                shape = op.removeprefix("spawn_")
-            if isinstance(shape, str):
-                shape = shape.strip().lower()
-            if shape in ("car", "trap"):
-                raw_size = a.get("size_mm", 14 if shape == "car" else 20)
-                if isinstance(raw_size, (tuple, list)):
-                    if len(raw_size) != 1:
-                        raise LabError("toy size_mm must be scalar length")
-                    raw_size = raw_size[0]
-                lower = 4 if shape == "car" else 8
-                raw_size = _tool_number(raw_size, "size_mm", lower - 1, 60)
-                if raw_size < lower:
-                    raise LabError("size_mm out of range")
-                pos = a.get("position_mm")
-                if pos is not None:
-                    if not isinstance(pos, (tuple, list)) or len(pos) != 3:
-                        raise LabError("position_mm must be a 3-vector")
-                    if any(isinstance(v, bool) or not isinstance(v, (int, float)) or
-                           not math.isfinite(v) or abs(v) > 1000 for v in pos):
-                        raise LabError("position_mm must contain finite coordinates")
-                    pos = [float(v) for v in pos]
-                yaw = a.get("yaw_deg", 0)
-                if isinstance(yaw, bool) or not isinstance(yaw, (int, float)) or not math.isfinite(yaw):
-                    raise LabError("yaw_deg must be finite")
-                return self.spawn_object(shape=shape, object_id=a.get("id"),
-                                         position_mm=pos, size_mm=raw_size, yaw_deg=yaw)
-            return self.spawn_object(
-                shape=shape, object_id=a.get("id"),
-                position_mm=a.get("position_mm"), size_mm=a.get("size_mm"),
-                yaw_deg=a.get("yaw_deg", 0.0), pitch_deg=a.get("pitch_deg"))
-        if op in ("spawn_food", "spawn_food_marker"):
-            return self.spawn_object(
-                shape="food", object_id=a.get("id"), position_mm=a.get("position_mm"),
-                size_mm=a.get("size_mm", 3.0), yaw_deg=a.get("yaw_deg", 0.0),
-                variant=a.get("variant"))
-        if op == "move_object":
-            return self.move_object(a.get("id"), position_mm=a.get("position_mm"),
-                                    yaw_deg=a.get("yaw_deg"))
-        if op == "resize_object":
-            return self.resize_object(a.get("id"), size_mm=a.get("size_mm"))
-        if op in ("delete_object", "remove_object"):
-            return self.remove_object(a.get("id"))
-        if op == "reset_world":
-            self.reset()
-            return {"reset": True}
-        if op in ("approach_object", "approach"):
-            return self.start_approach(
-                a.get("id"), fly_position_mm=fly_position_mm,
-                end_distance_mm=a.get("end_distance_mm", 8.0),
-                speed_mm_s=a.get("speed_mm_s", 80.0))
-        if op in ("wind", "wind_puff"):
-            kwargs = dict(
-                direction_deg=a.get("direction_deg", 0.0),
-                strength=a.get("strength", 0.0),
-                duration_ms=a.get("duration_ms"),
-                continuous=a.get("continuous"),
-                physical=a.get("physical", True),
-                sensory=a.get("sensory", True),
-            )
-            if op == "wind_puff" and "continuous" not in a:
-                kwargs["continuous"] = False
-            return self.set_wind(**kwargs)
-        if op == "stop_wind":
-            self.stop_wind()
-            return self._wind_state()
-        if op == "touch":
-            return self.apply_touch(
-                target=a.get("target", "thorax"), strength=a.get("strength", 0.5),
-                duration_ms=a.get("duration_ms", 20.0),
-                direction_world=a.get("direction_world"), sensory=a.get("sensory", True))
-        if op in ("set_eye_state", "eye_state"):
-            return self.set_eye_state(
-                left_enabled=a.get("left_enabled"), right_enabled=a.get("right_enabled"),
-                left_mask=a.get("left_mask"), right_mask=a.get("right_mask"))
-        if op == "restore_eyes":
-            return self.set_eye_state(left_enabled=True, right_enabled=True,
-                                      left_mask=0.0, right_mask=0.0)
-        if op == "flash_eye":
-            return self.flash_eye(
-                eye=a.get("eye", a.get("target", "both")),
-                intensity=a.get("intensity", a.get("strength", a.get("value", 1.0))),
-                duration_ms=a.get("duration_ms", 100.0))
-        if op in ("temperature", "set_temperature"):
-            return self.set_temperature(celsius=a.get("celsius", 25.0),
-                                        mode=a.get("mode", "environment_only"))
-        raise LabError(f"unknown lab op: {op}")
+        obj.trap_state = "armed"
+        self._trap_blocked.discard(obj.object_id)
+        self._interaction_event("trap_armed", id=obj.object_id)
+        return obj.state()
+
+    def _command_equip_gun(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        actor = _tool_actor(a)
+        equipped = a.get("equipped")
+        if not isinstance(equipped, bool):
+            raise LabError("equipped must be boolean")
+        if actor != self.player.actor_id or not self.player.active:
+            raise LabError("active participant required")
+        self.player.set_gun_visible(equipped)
+        self._bump_revision(structural=True)
+        return {"actor_id": actor, "equipped": equipped}
+
+    def _command_fire_bb(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        actor = _tool_actor(a)
+        direction = _tool_direction(a.get("direction"))
+        return self._fire_bb(actor, direction)
+
+    def _command_interaction(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.apply_interaction(command)
+
+    def _command_edit_property(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.apply_edit(a.get("edit"))
+
+    def _command_spawn_object(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        shape = a.get("shape", "box")
+        if op.startswith("spawn_") and op != "spawn_object":
+            shape = op.removeprefix("spawn_")
+        if isinstance(shape, str):
+            shape = shape.strip().lower()
+        if shape in ("car", "trap"):
+            raw_size = a.get("size_mm", 14 if shape == "car" else 20)
+            if isinstance(raw_size, (tuple, list)):
+                if len(raw_size) != 1:
+                    raise LabError("toy size_mm must be scalar length")
+                raw_size = raw_size[0]
+            lower = 4 if shape == "car" else 8
+            raw_size = _tool_number(raw_size, "size_mm", lower - 1, 60)
+            if raw_size < lower:
+                raise LabError("size_mm out of range")
+            pos = a.get("position_mm")
+            if pos is not None:
+                if not isinstance(pos, (tuple, list)) or len(pos) != 3:
+                    raise LabError("position_mm must be a 3-vector")
+                if any(isinstance(v, bool) or not isinstance(v, (int, float)) or
+                       not math.isfinite(v) or abs(v) > 1000 for v in pos):
+                    raise LabError("position_mm must contain finite coordinates")
+                pos = [float(v) for v in pos]
+            yaw = a.get("yaw_deg", 0)
+            if isinstance(yaw, bool) or not isinstance(yaw, (int, float)) or not math.isfinite(yaw):
+                raise LabError("yaw_deg must be finite")
+            return self.spawn_object(shape=shape, object_id=a.get("id"),
+                                     position_mm=pos, size_mm=raw_size, yaw_deg=yaw)
+        return self.spawn_object(
+            shape=shape, object_id=a.get("id"),
+            position_mm=a.get("position_mm"), size_mm=a.get("size_mm"),
+            yaw_deg=a.get("yaw_deg", 0.0), pitch_deg=a.get("pitch_deg"))
+
+    def _command_spawn_food(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.spawn_object(
+            shape="food", object_id=a.get("id"), position_mm=a.get("position_mm"),
+            size_mm=a.get("size_mm", 3.0), yaw_deg=a.get("yaw_deg", 0.0),
+            variant=a.get("variant"))
+
+    def _command_move_object(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.move_object(a.get("id"), position_mm=a.get("position_mm"),
+                                yaw_deg=a.get("yaw_deg"))
+
+    def _command_resize_object(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.resize_object(a.get("id"), size_mm=a.get("size_mm"))
+
+    def _command_delete_object(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.remove_object(a.get("id"))
+
+    def _command_reset_world(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        self.reset()
+        return {"reset": True}
+
+    def _command_approach_object(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.start_approach(
+            a.get("id"), fly_position_mm=fly_position_mm,
+            end_distance_mm=a.get("end_distance_mm", 8.0),
+            speed_mm_s=a.get("speed_mm_s", 80.0))
+
+    def _command_wind(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        kwargs = dict(
+            direction_deg=a.get("direction_deg", 0.0),
+            strength=a.get("strength", 0.0),
+            duration_ms=a.get("duration_ms"),
+            continuous=a.get("continuous"),
+            physical=a.get("physical", True),
+            sensory=a.get("sensory", True),
+        )
+        if op == "wind_puff" and "continuous" not in a:
+            kwargs["continuous"] = False
+        return self.set_wind(**kwargs)
+
+    def _command_stop_wind(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        self.stop_wind()
+        return self._wind_state()
+
+    def _command_touch(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.apply_touch(
+            target=a.get("target", "thorax"), strength=a.get("strength", 0.5),
+            duration_ms=a.get("duration_ms", 20.0),
+            direction_world=a.get("direction_world"), sensory=a.get("sensory", True))
+
+    def _command_set_eye_state(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.set_eye_state(
+            left_enabled=a.get("left_enabled"), right_enabled=a.get("right_enabled"),
+            left_mask=a.get("left_mask"), right_mask=a.get("right_mask"))
+
+    def _command_restore_eyes(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.set_eye_state(left_enabled=True, right_enabled=True,
+                                  left_mask=0.0, right_mask=0.0)
+
+    def _command_flash_eye(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.flash_eye(
+            eye=a.get("eye", a.get("target", "both")),
+            intensity=a.get("intensity", a.get("strength", a.get("value", 1.0))),
+            duration_ms=a.get("duration_ms", 100.0))
+
+    def _command_temperature(self, command, fly_position_mm):
+        op, a = command.op, command.args
+        return self.set_temperature(celsius=a.get("celsius", 25.0),
+                                    mode=a.get("mode", "environment_only"))
+
 
     # ------------------------------------------------------------------
     # Per-MuJoCo-substep update
@@ -1766,285 +1222,20 @@ class LabWorld:
             self._apply_forces()
         self._advance_timers(dt)
 
-    def _tool_obstacles(self, obj):
-        """Solid geoms from other lab objects and the active participant."""
-        for other in self.objects.values():
-            if other.object_id != obj.object_id:
-                for gid in self._object_solid_geoms(other):
-                    yield gid, "lab_object"
-        if self.player.active:
-            for gid in self.player.solid_geom_ids():
-                yield gid, "player"
 
-    def _tool_clearance(self, obj, margin):
-        if not self._bound:
-            return math.inf, None
-        self._mujoco.mj_forward(self.model, self.data)
-        best, kind = math.inf, None
-        for own in self._object_solid_geoms(obj):
-            for other, other_kind in self._tool_obstacles(obj):
-                d = float(self._mujoco.mj_geomDistance(
-                    self.model, self.data, own, other, margin + 2.0, None))
-                gap = d - (CARRY_GAP_MM if other_kind == "player" else margin)
-                if gap < best:
-                    best, kind = gap, other_kind
-        return best, kind
 
-    def _try_tool_pose(self, obj, target, *, margin=CARRY_CONTACT_SKIN_MM):
-        previous = list(obj.position_mm)
-        if not self._bound:
-            obj.position_mm = list(target)
-            self._bump_revision(obj)
-            return True
-        baseline, _ = self._tool_clearance(obj, margin)
-        obj.position_mm = list(target)
-        self._sync_object(obj)
-        clearance, _ = self._tool_clearance(obj, margin)
-        if clearance < -1e-6 and clearance < baseline - 1e-6:
-            obj.position_mm = previous
-            self._sync_object(obj)
-            self._mujoco.mj_forward(self.model, self.data)
-            return False
-        self._bump_revision(obj)
-        self.interaction.previous_distances = None
-        return True
 
-    def _tool_path_clear(self, obj, target, margin):
-        """Check a raised trap's entire vertical path before committing its pose."""
-        if not self._bound:
-            return True
-        origin = list(obj.position_mm)
-        previous, _ = self._tool_clearance(obj, margin)
-        steps = max(1, math.ceil(math.dist(origin, target) / 0.25))
-        clear = True
-        try:
-            for index in range(1, steps + 1):
-                fraction = index / steps
-                obj.position_mm = [a + (b - a) * fraction for a, b in zip(origin, target)]
-                self._sync_object(obj)
-                clearance, _ = self._tool_clearance(obj, margin)
-                if clearance < -1e-6 and clearance < previous - 1e-6:
-                    clear = False
-                    break
-                previous = clearance
-        finally:
-            obj.position_mm = origin
-            self._sync_object(obj)
-            self._mujoco.mj_forward(self.model, self.data)
-        return clear
 
-    def _advance_drives(self, dt):
-        if not self.drives:
-            return
-        for object_id, motion in list(self.drives.items()):
-            obj = self.objects.get(object_id)
-            if obj is None or object_id == self.interaction.held_object_id:
-                self.drives.pop(object_id, None)
-                continue
-            yaw = math.radians(obj.yaw_deg)
-            direction = (math.cos(yaw), math.sin(yaw))
-            travel = min(motion.remaining_mm, motion.speed_mm_s * dt)
-            # Conservative rotated footprint so every body part stays on lawn.
-            radius_x = 0.5 * (obj.size_mm[0] * abs(direction[0]) +
-                              obj.size_mm[1] * abs(direction[1]))
-            radius_y = 0.5 * (obj.size_mm[0] * abs(direction[1]) +
-                              obj.size_mm[1] * abs(direction[0]))
-            edge = math.inf
-            for axis, radius in enumerate((radius_x, radius_y)):
-                component = direction[axis]
-                if abs(component) > 1e-12:
-                    limit = (sm.ARENA_HALF_SIZE_MM - radius) * (1 if component > 0 else -1)
-                    edge = min(edge, max(0.0, (limit - obj.position_mm[axis]) / component))
-            edge_block = edge < travel - 1e-9
-            travel = min(travel, edge)
-            origin = list(obj.position_mm)
-            def target(frac):
-                return [origin[0] + direction[0] * travel * frac,
-                        origin[1] + direction[1] * travel * frac, origin[2]]
-            if travel > 0 and not self._try_tool_pose(obj, target(1.0)):
-                low, high = 0.0, 1.0
-                for _ in range(12):
-                    mid = (low + high) * 0.5
-                    if self._try_tool_pose(obj, target(mid)):
-                        low = mid
-                    else:
-                        high = mid
-                self.drives.pop(object_id, None)
-                self._interaction_event("car_blocked", id=object_id,
-                                        blocking_geom_kind="player_or_lab_object")
-                continue
-            motion.remaining_mm -= travel
-            if edge_block or travel <= 0:
-                self.drives.pop(object_id, None)
-                self._interaction_event("car_blocked", id=object_id,
-                                        blocking_geom_kind="lawn_edge")
-            elif motion.remaining_mm <= 1e-6:
-                self.drives.pop(object_id, None)
-                self._interaction_event("drive_complete", id=object_id)
 
-    def _advance_traps(self, dt):
-        traps = [obj for obj in self.objects.values()
-                 if obj.shape == "trap" and obj.object_id != self.interaction.held_object_id]
-        if not traps:
-            return
-        fly = getattr(self, "fly_position_mm", None)
-        for obj in traps:
-            if obj.trap_state == "armed" and fly is not None:
-                yaw = math.radians(obj.yaw_deg)
-                dx, dy = fly[0] - obj.position_mm[0], fly[1] - obj.position_mm[1]
-                local_x = math.cos(yaw) * dx + math.sin(yaw) * dy
-                local_y = -math.sin(yaw) * dx + math.cos(yaw) * dy
-                inner = obj.size_mm[0] * (0.5 - sm.TRAP_WALL_RATIO) - 2.0
-                if abs(local_x) <= inner and abs(local_y) <= inner:
-                    obj.trap_state = "dropping"
-                    self._interaction_event("trap_triggered", id=obj.object_id)
-            if obj.trap_state != "dropping":
-                continue
-            floor_z = 0.5 * obj.size_mm[2] + TRAP_FLOOR_GAP_MM
-            target_z = max(floor_z, obj.position_mm[2] - TRAP_DROP_SPEED_MM_S * dt)
-            if not self._try_tool_pose(obj, [*obj.position_mm[:2], target_z],
-                                       margin=TRAP_FLOOR_GAP_MM):
-                if obj.object_id not in self._trap_blocked:
-                    self._interaction_event("trap_blocked", id=obj.object_id)
-                    self._trap_blocked.add(obj.object_id)
-                continue
-            self._trap_blocked.discard(obj.object_id)
-            if target_z <= floor_z + 1e-8:
-                obj.trap_state = "closed"
-                self._interaction_event("trap_closed", id=obj.object_id)
 
-    def _park_bb(self, projectile):
-        if self._bound:
-            bid, gid, qadr, dadr = self._bb_ids[projectile.index]
-            self.data.qpos[qadr:qadr + 3] = FAR_POS
-            self.data.qpos[qadr + 3:qadr + 7] = [1, 0, 0, 0]
-            self.data.qvel[dadr:dadr + 6] = 0
-            self.model.body_gravcomp[bid] = 1.0
-            self.model.geom_rgba[gid, 3] = 0.0
-            sm.set_geom_collidable(self.model, gid, False)
-            self._hide_tracer(projectile.index)
-        self.projectiles.pop(projectile.id, None)
 
-    def _park_all_bbs(self):
-        for projectile in list(self.projectiles.values()):
-            self._park_bb(projectile)
-        if self._bound:
-            for bid, gid, qadr, dadr in self._bb_ids:
-                self.data.qpos[qadr:qadr + 3] = FAR_POS
-                self.data.qpos[qadr + 3:qadr + 7] = [1, 0, 0, 0]
-                self.data.qvel[dadr:dadr + 6] = 0
-                self.model.body_gravcomp[bid] = 1.0
-                self.model.geom_rgba[gid, 3] = 0.0
-                sm.set_geom_collidable(self.model, gid, False)
 
-    def _fire_bb(self, actor, direction):
-        if actor != self.player.actor_id or not self.player.active or not self.player.gun_visible:
-            raise LabError("active participant with equipped gun required")
-        if self._sim_time_s - self._last_bb_fire_s < BB_RATE_LIMIT_S - 1e-9:
-            raise LabError("BB rate limit")
-        occupied = {p.index for p in self.projectiles.values()}
-        index = next((i for i in range(BB_POOL_SIZE) if i not in occupied), None)
-        if index is None:
-            raise LabError("BB pool full")
-        yaw_q = self.player._body_quat_wxyz()
-        yaw = 2.0 * math.atan2(yaw_q[3], yaw_q[0])
-        x, y, z = sm.BB_MUZZLE_OFFSET_MM
-        position = [self.player.position_mm[0] + math.cos(yaw) * x - math.sin(yaw) * y,
-                    self.player.position_mm[1] + math.sin(yaw) * x + math.cos(yaw) * y,
-                    self.player.position_mm[2] + z]
-        target = self._bb_aim_point(direction)
-        velocity = _ballistic_velocity(position, target, BB_SPEED_MM_S, self._gravity_mm_s2())
-        self._bb_counter += 1
-        projectile = Projectile(f"bb_{self._bb_counter}", index, position, velocity,
-                                self._sim_time_s)
-        projectile.trail.append((self._sim_time_s, list(position)))
-        if self._bound:
-            bid, gid, qadr, dadr = self._bb_ids[index]
-            self.data.qpos[qadr:qadr + 3] = position
-            self.data.qpos[qadr + 3:qadr + 7] = [1, 0, 0, 0]
-            self.data.qvel[dadr:dadr + 3] = projectile.velocity_mm_s
-            self.data.qvel[dadr + 3:dadr + 6] = 0
-            self.model.body_gravcomp[bid] = 0.0
-            self.model.geom_rgba[gid] = sm.BB_RGBA
-            sm.set_geom_collidable(self.model, gid, True)
-        self.projectiles[projectile.id] = projectile
-        self._last_bb_fire_s = self._sim_time_s
-        self._interaction_event("bb_fired", id=projectile.id, actor_id=actor,
-                                position_mm=list(position))
-        return {"id": projectile.id, "position_mm": list(position)}
 
-    def _gravity_mm_s2(self):
-        return abs(float(self.model.opt.gravity[2])) if self._bound else 9810.0
 
-    def _bb_aim_point(self, direction):
-        """Point under the crosshair: the look ray from the eye (as the camera)."""
-        center = participant_center(self.player)
-        x, y, z, w = self.player.orientation_quat_xyzw
-        look = [1 - 2 * (y * y + z * z), 2 * (x * y + w * z), 2 * (x * z - w * y)]
-        eye = [center[i] + look[i] * self.player.radius_mm * 0.6 for i in range(3)]
-        reach = BB_AIM_RANGE_MM
-        if self._bound:
-            import numpy as np
-            hit = np.array([-1], dtype=np.int32)
-            groups = np.array([1, 1, 1, 0, 0, 0], dtype=np.uint8)  # skip view-only tracers
-            self._mujoco.mj_forward(self.model, self.data)
-            distance = float(self._mujoco.mj_ray(
-                self.model, self.data, np.array(eye), np.array(direction), groups, 1,
-                self.player.body_id, hit))
-            if 0.0 <= distance < reach:
-                reach = distance
-        return [eye[i] + direction[i] * reach for i in range(3)]
 
-    def _hide_tracer(self, index):
-        mocap, gid = self._bb_tracers[index]
-        self.data.mocap_pos[mocap] = FAR_POS
-        self.model.geom_rgba[gid, 3] = 0.0
 
-    def _update_tracer(self, projectile):
-        """Stretch the view-only streak over the last BB_TRACER_TRAIL_S of flight."""
-        now = self._sim_time_s
-        trail = projectile.trail
-        if not trail or now - trail[-1][0] >= 0.002:
-            trail.append((now, list(projectile.position_mm)))
-        while len(trail) > 2 and now - trail[1][0] > sm.BB_TRACER_TRAIL_S:
-            trail.pop(0)
-        start, end = trail[0][1], projectile.position_mm
-        length = math.dist(start, end)
-        if length < 0.3:
-            self._hide_tracer(projectile.index)
-            return
-        mocap, gid = self._bb_tracers[projectile.index]
-        self.data.mocap_pos[mocap] = [(a + b) * 0.5 for a, b in zip(start, end)]
-        self.data.mocap_quat[mocap] = sm.quat_z_to([b - a for a, b in zip(start, end)])
-        self.model.geom_size[gid] = [sm.BB_TRACER_RADIUS_MM, length * 0.5, 0.0]
-        self.model.geom_rgba[gid] = sm.BB_TRACER_RGBA
 
-    def _advance_bbs(self, dt):
-        if not self.projectiles:
-            return
-        for projectile in list(self.projectiles.values()):
-            if self._bound:
-                _, _, qadr, _ = self._bb_ids[projectile.index]
-                projectile.position_mm = [float(v) for v in self.data.qpos[qadr:qadr + 3]]
-            else:
-                projectile.velocity_mm_s[2] -= 9810.0 * dt
-                projectile.position_mm = [p + v * dt for p, v in zip(
-                    projectile.position_mm, projectile.velocity_mm_s)]
-            if self._bound:
-                self._update_tracer(projectile)
-            x, y, z = projectile.position_mm
-            if (self._sim_time_s - projectile.fired_s >= BB_LIFETIME_S or
-                    abs(x) > sm.ARENA_HALF_SIZE_MM or abs(y) > sm.ARENA_HALF_SIZE_MM or z < -5):
-                self._park_bb(projectile)
-                self._interaction_event("bb_expired", id=projectile.id)
 
-    def projectile_state(self):
-        if self._bound:
-            return [{"id": p.id, "position_mm": [float(v) for v in
-                     self.data.qpos[self._bb_ids[p.index][2]:self._bb_ids[p.index][2] + 3]]}
-                    for p in self.projectiles.values()]
-        return [{"id": p.id, "position_mm": list(p.position_mm)}
-                for p in self.projectiles.values()]
 
     def _advance_approaches(self, dt):
         finished = []

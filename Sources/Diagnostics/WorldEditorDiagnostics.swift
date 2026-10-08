@@ -4,8 +4,8 @@ import Cocoa
 /// Headless owner-boundary, projection, and Cocoa draft checks. No GPU/listener.
 func runWorldEditorTest() {
     _ = NSApplication.shared
-    var failures=0
-    func check(_ name:String,_ ok:Bool) { print((ok ? "PASS" : "FAIL")+"  "+(name.hasPrefix("V6") ? "" : "V6.3 ")+name); if !ok { failures += 1 } }
+    let suite = Suite()
+    func check(_ name:String,_ ok:Bool) { suite.check((name.hasPrefix("V6") ? "" : "V6.3 ")+name, ok) }
     let root=URL(fileURLWithPath:CommandLine.arguments[0]).deletingLastPathComponent()
     guard let data=try? Data(contentsOf:root.appendingPathComponent("fixtures/environment_capabilities/valid.json")),
           let caps=try? JSONDecoder().decode(EnvironmentCapabilities.self,from:data) else { print("FAIL fixture capabilities"); exit(1) }
@@ -75,7 +75,7 @@ func runWorldEditorTest() {
     runRampEditorChecks(check, caps: caps, identity: identity, schedule: schedule, camera: camera)
     runEnvironmentPanelChecks(check, caps: caps)
     runWorldEditHistoryChecks(check, caps: caps)
-    print("V6.3 editor diagnostics: \(failures) failures"); exit(failures==0 ? 0 : 1)
+    print("V6.3 editor diagnostics: \(suite.failures) failures"); suite.finish()
 }
 
 /// V6.4 ramp: decoding, tilt tool, the outline frame against the backend

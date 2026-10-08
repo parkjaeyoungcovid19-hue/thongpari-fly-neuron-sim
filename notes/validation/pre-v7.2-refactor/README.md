@@ -37,3 +37,5 @@ caller getters, resolves receptor types once, and separates BrainPick from the
 explicit stimulus action. ACK/event overflow now has diagnostic counters. The
 observation audit compares every rate's Float bits against the original EMA
 expression for 130 steps across sugar/MN9 windows. No V7.2 exact primitive added.
+
+P5 splits App/Coordinator and Lab window responsibilities, centralizes wire/session/edit boundary helpers, moves Python tools and carry/contact behavior, and separates mock unit discovery from real/performance gates. Final P5 results are in `P5-results.txt` and `P5/`; 95 unittest methods pass under the single runner. The standalone release compile/strip succeeds and diagnostic rejection exits 2. See [the full report](../../../docs/reports/PRE_V7_2_REFACTOR.md) for measurements and every partial/deferred item.

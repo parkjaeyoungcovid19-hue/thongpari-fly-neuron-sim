@@ -437,6 +437,18 @@ class HelloPacket:
         return out
 
 
+def _v4_header(d):
+    return dict(protocol_version=_bounded_int(d.get("protocol_version", 0), 0, 1_000_000),
+                session_id=_session_id(d.get("session_id", "")),
+                epoch=_bounded_int(d.get("epoch", 1), 1),
+                seq=_bounded_int(d.get("seq", 0)), sim_tick=_bounded_int(d.get("sim_tick", 0)))
+
+
+def _v4_dict(packet):
+    return dict(protocol_version=packet.protocol_version, session_id=packet.session_id,
+                epoch=packet.epoch, seq=packet.seq, sim_tick=packet.sim_tick)
+
+
 @dataclass
 class SessionControlPacket:
     protocol_version: int = V4_PROTOCOL_VERSION
@@ -459,11 +471,7 @@ class SessionControlPacket:
         if mode not in {"interactive", "deterministic"}:
             raise ValueError("invalid session mode")
         return SessionControlPacket(
-            protocol_version=_bounded_int(d.get("protocol_version", 0), 0, 1_000_000),
-            session_id=_session_id(d.get("session_id", "")),
-            epoch=_bounded_int(d.get("epoch", 1), 1),
-            seq=_bounded_int(d.get("seq", 0)),
-            sim_tick=_bounded_int(d.get("sim_tick", 0)),
+            **_v4_header(d),
             action=action,
             mode=mode,
             reset_scope=[str(v) for v in d.get("reset_scope", [])[:16]]
@@ -472,9 +480,7 @@ class SessionControlPacket:
 
     def to_dict(self) -> dict:
         out = {"type": SESSION_CONTROL_TYPE,
-                "protocol_version": self.protocol_version,
-                "session_id": self.session_id, "epoch": self.epoch,
-                "seq": self.seq, "sim_tick": self.sim_tick,
+                **_v4_dict(self),
                 "action": self.action, "mode": self.mode}
         if self.reset_scope:
             out["reset_scope"] = list(self.reset_scope)
@@ -502,20 +508,14 @@ class SessionStatePacket:
             mode = "interactive"
         state = str(d.get("state", "running")).strip().lower()[:32]
         return SessionStatePacket(
-            protocol_version=_bounded_int(d.get("protocol_version", 0), 0, 1_000_000),
-            session_id=_session_id(d.get("session_id", "")),
-            epoch=_bounded_int(d.get("epoch", 1), 1),
-            seq=_bounded_int(d.get("seq", 0)),
-            sim_tick=_bounded_int(d.get("sim_tick", 0)),
+            **_v4_header(d),
             mode=mode, state=state, ok=bool(d.get("ok", True)),
             error=None if d.get("error") is None else str(d.get("error"))[:512],
         )
 
     def to_dict(self) -> dict:
         out = {"type": SESSION_STATE_TYPE,
-               "protocol_version": self.protocol_version,
-               "session_id": self.session_id, "epoch": self.epoch,
-               "seq": self.seq, "sim_tick": self.sim_tick,
+               **_v4_dict(self),
                "mode": self.mode, "state": self.state, "ok": self.ok}
         if self.error is not None:
             out["error"] = self.error
@@ -542,11 +542,7 @@ class ExperimentStepPacket:
         brain_dict = dict(raw_brain)
         brain_dict.setdefault("type", BRAIN_TYPE)
         return ExperimentStepPacket(
-            protocol_version=_bounded_int(d.get("protocol_version", 0), 0, 1_000_000),
-            session_id=_session_id(d.get("session_id", "")),
-            epoch=_bounded_int(d.get("epoch", 1), 1),
-            seq=_bounded_int(d.get("seq", 0)),
-            sim_tick=_bounded_int(d.get("sim_tick", 0)),
+            **_v4_header(d),
             quantum_ticks=_bounded_int(d.get("quantum_ticks", 0), 1, 1_000_000),
             brain=BrainPacket.from_dict(brain_dict),
         )
@@ -555,9 +551,7 @@ class ExperimentStepPacket:
         brain = self.brain.to_dict()
         brain.pop("type", None)
         return {"type": EXPERIMENT_STEP_TYPE,
-                "protocol_version": self.protocol_version,
-                "session_id": self.session_id, "epoch": self.epoch,
-                "seq": self.seq, "sim_tick": self.sim_tick,
+                **_v4_dict(self),
                 "quantum_ticks": self.quantum_ticks, "brain": brain}
 
 
@@ -583,11 +577,7 @@ class ExperimentStepResultPacket:
         body_dict = dict(raw_body)
         body_dict.setdefault("type", BODY_TYPE)
         return ExperimentStepResultPacket(
-            protocol_version=_bounded_int(d.get("protocol_version", 0), 0, 1_000_000),
-            session_id=_session_id(d.get("session_id", "")),
-            epoch=_bounded_int(d.get("epoch", 1), 1),
-            seq=_bounded_int(d.get("seq", 0)),
-            sim_tick=_bounded_int(d.get("sim_tick", 0)),
+            **_v4_header(d),
             end_sim_tick=_bounded_int(d.get("end_sim_tick", 0)),
             ok=bool(d.get("ok", True)),
             error=None if d.get("error") is None else str(d.get("error"))[:512],
@@ -598,9 +588,7 @@ class ExperimentStepResultPacket:
         body = self.body.to_dict()
         body.pop("type", None)
         out = {"type": EXPERIMENT_STEP_RESULT_TYPE,
-               "protocol_version": self.protocol_version,
-               "session_id": self.session_id, "epoch": self.epoch,
-               "seq": self.seq, "sim_tick": self.sim_tick,
+               **_v4_dict(self),
                "end_sim_tick": self.end_sim_tick, "ok": self.ok,
                "body": body}
         if self.error is not None:
@@ -1463,36 +1451,20 @@ def decode_line(line: bytes):
     try:
         if kind == BRAIN_TYPE:
             return BrainPacket.from_dict(d)
-        if kind == BODY_TYPE:
-            return BodyPacket.from_dict(d)
         if kind == LAB_COMMAND_TYPE:
             return LabCommand.from_dict(d)
-        if kind == LAB_STATE_TYPE:
-            return LabStatePacket.from_dict(d)
-        if kind == LAB_EVENT_TYPE:
-            return LabEventPacket.from_dict(d)
         if kind == HELLO_TYPE:
             return HelloPacket.from_dict(d)
         if kind == SESSION_CONTROL_TYPE:
             return SessionControlPacket.from_dict(d)
-        if kind == SESSION_STATE_TYPE:
-            return SessionStatePacket.from_dict(d)
         if kind == EXPERIMENT_STEP_TYPE:
             return ExperimentStepPacket.from_dict(d)
-        if kind == EXPERIMENT_STEP_RESULT_TYPE:
-            return ExperimentStepResultPacket.from_dict(d)
         if kind == PLAYER_INPUT_TYPE:
             return PlayerInputPacket.from_dict(d)
-        if kind == PLAYER_INPUT_RESULT_TYPE:
-            return PlayerInputResultPacket.from_dict(d)
         if kind == WORLD_RENDER_REQUEST_TYPE:
             return WorldRenderRequestPacket.from_dict(d)
-        if kind == WORLD_RENDER_SNAPSHOT_TYPE:
-            return WorldRenderSnapshotPacket.from_dict(d)
         if kind == RAY_PICK_REQUEST_TYPE:
             return RayPickRequestPacket.from_dict(d)
-        if kind == RAY_PICK_RESULT_TYPE:
-            return RayPickResultPacket.from_dict(d)
     except Exception:
         return None
     return None

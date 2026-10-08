@@ -57,8 +57,9 @@ final class FlyGymBridge {
 
     private var cachedEnvironmentCapabilities: EnvironmentCapabilities?
     func environmentCapabilities() -> EnvironmentCapabilities? {
-        lock.lock(); defer { lock.unlock() }
-        return _connected ? cachedEnvironmentCapabilities : nil
+        return currentLocked {
+            return _connected ? cachedEnvironmentCapabilities : nil
+        }
     }
     #if DIAGNOSTICS
     static var onOutboundForTesting: (() -> Void)?
@@ -79,6 +80,9 @@ final class FlyGymBridge {
         lock.lock(); defer { lock.unlock() }; return (droppedAckCount, droppedEventCount)
     }
     #endif
+    private func currentLocked<T>(_ read: () -> T) -> T {
+        lock.lock(); defer { lock.unlock() }; return read()
+    }
     private let lock = NSLock()
     private var running = false
     private var sock: Int32 = -1
@@ -143,84 +147,95 @@ final class FlyGymBridge {
     var connectionGeneration: UInt64 { lock.lock(); defer { lock.unlock() }; return _connectionGeneration }
     var labDropped: Int { lock.lock(); defer { lock.unlock() }; return droppedLab }
     var deterministicV4Available: Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard _connected, let hello = _serverHello,
-              hello.connectionGeneration == _connectionGeneration else { return false }
-        return hello.supportsDeterministicV4
+        return currentLocked {
+            guard _connected, let hello = _serverHello,
+                  hello.connectionGeneration == _connectionGeneration else { return false }
+            return hello.supportsDeterministicV4
+        }
     }
 
     var worldViewerV5_1Available: Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard _connected, let hello = _serverHello,
-              hello.connectionGeneration == _connectionGeneration else { return false }
-        return hello.supportsWorldViewerV5_1
+        return currentLocked {
+            guard _connected, let hello = _serverHello,
+                  hello.connectionGeneration == _connectionGeneration else { return false }
+            return hello.supportsWorldViewerV5_1
+        }
     }
 
     var playerV5_4Available: Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard _connected, let hello = _serverHello,
-              hello.connectionGeneration == _connectionGeneration else { return false }
-        return hello.supportsPlayerV5_4
+        return currentLocked {
+            guard _connected, let hello = _serverHello,
+                  hello.connectionGeneration == _connectionGeneration else { return false }
+            return hello.supportsPlayerV5_4
+        }
     }
 
     var playerInputV5_5Available: Bool {
-        lock.lock(); defer { lock.unlock() }
-        guard _connected, let hello = _serverHello,
-              hello.connectionGeneration == _connectionGeneration else { return false }
-        return hello.supportsPlayerInputV5_5
+        return currentLocked {
+            guard _connected, let hello = _serverHello,
+                  hello.connectionGeneration == _connectionGeneration else { return false }
+            return hello.supportsPlayerInputV5_5
+        }
     }
 
     func serverHello() -> FlyGymHelloPacket? {
-        lock.lock(); defer { lock.unlock() }
-        guard let hello = _serverHello, _connected,
-              hello.connectionGeneration == _connectionGeneration else { return nil }
-        return hello
+        return currentLocked {
+            guard let hello = _serverHello, _connected,
+                  hello.connectionGeneration == _connectionGeneration else { return nil }
+            return hello
+        }
     }
 
     func latestSessionState() -> FlyGymSessionStatePacket? {
-        lock.lock(); defer { lock.unlock() }
-        guard let state = _latestSessionState, _connected,
-              state.connectionGeneration == _connectionGeneration else { return nil }
-        return state
+        return currentLocked {
+            guard let state = _latestSessionState, _connected,
+                  state.connectionGeneration == _connectionGeneration else { return nil }
+            return state
+        }
     }
 
     func latestExperimentStepResult() -> FlyGymExperimentStepResultPacket? {
-        lock.lock(); defer { lock.unlock() }
-        guard let result = _latestExperimentStepResult, _connected,
-              result.connectionGeneration == _connectionGeneration else { return nil }
-        return result
+        return currentLocked {
+            guard let result = _latestExperimentStepResult, _connected,
+                  result.connectionGeneration == _connectionGeneration else { return nil }
+            return result
+        }
     }
 
     func latestWorldRenderSnapshot(maxAge: TimeInterval = 1.0) -> WorldRenderSnapshot? {
-        lock.lock(); defer { lock.unlock() }
-        guard let snapshot = _latestWorldRenderSnapshot,
-              _connected, snapshot.connectionGeneration == _connectionGeneration,
-              max(0, Date().timeIntervalSince(snapshot.receivedAt)) < maxAge else { return nil }
-        return snapshot
+        return currentLocked {
+            guard let snapshot = _latestWorldRenderSnapshot,
+                  _connected, snapshot.connectionGeneration == _connectionGeneration,
+                  max(0, Date().timeIntervalSince(snapshot.receivedAt)) < maxAge else { return nil }
+            return snapshot
+        }
     }
 
     func latestRayPickResult(maxAge: TimeInterval = FlyGymBridge.labDiscreteFreshMaxAge) -> RayPickResult? {
-        lock.lock(); defer { lock.unlock() }
-        guard let result = _latestRayPickResult,
-              _connected, result.connectionGeneration == _connectionGeneration,
-              max(0, Date().timeIntervalSince(result.receivedAt)) < maxAge else { return nil }
-        return result
+        return currentLocked {
+            guard let result = _latestRayPickResult,
+                  _connected, result.connectionGeneration == _connectionGeneration,
+                  max(0, Date().timeIntervalSince(result.receivedAt)) < maxAge else { return nil }
+            return result
+        }
     }
 
     func latestPlayerInputResult(maxAge: TimeInterval = FlyGymBridge.labDiscreteFreshMaxAge) -> PlayerInputResult? {
-        lock.lock(); defer { lock.unlock() }
-        guard let result = _latestPlayerInputResult,
-              _connected, result.connectionGeneration == _connectionGeneration,
-              max(0, Date().timeIntervalSince(result.receivedAt)) < maxAge else { return nil }
-        return result
+        return currentLocked {
+            guard let result = _latestPlayerInputResult,
+                  _connected, result.connectionGeneration == _connectionGeneration,
+                  max(0, Date().timeIntervalSince(result.receivedAt)) < maxAge else { return nil }
+            return result
+        }
     }
 
     /// Process-lifetime counts of accepted PlayerInput results. Unlike
     /// latestPlayerInputResult, a rejection followed at once by a success
     /// still shows up here.
     func playerInputResultCounts() -> (accepted: Int, rejected: Int) {
-        lock.lock(); defer { lock.unlock() }
-        return (playerInputResultsAccepted, playerInputResultsRejected)
+        return currentLocked {
+            return (playerInputResultsAccepted, playerInputResultsRejected)
+        }
     }
 
     private func freshnessLocked(receivedAt: Date?, packetGeneration: UInt64?,
@@ -236,64 +251,72 @@ final class FlyGymBridge {
     }
 
     func bodyFreshness(maxAge: TimeInterval = FlyGymBridge.bodyFreshMaxAge) -> FlyGymPacketFreshness {
-        lock.lock(); defer { lock.unlock() }
-        return freshnessLocked(receivedAt: _latestBody?.receivedAt,
-                               packetGeneration: _latestBody?.connectionGeneration,
-                               maxAge: maxAge)
+        return currentLocked {
+            return freshnessLocked(receivedAt: _latestBody?.receivedAt,
+                                   packetGeneration: _latestBody?.connectionGeneration,
+                                   maxAge: maxAge)
+        }
     }
 
     func labStateFreshness(maxAge: TimeInterval = FlyGymBridge.labStateFreshMaxAge) -> FlyGymPacketFreshness {
-        lock.lock(); defer { lock.unlock() }
-        return freshnessLocked(receivedAt: _latestLabState?.receivedAt,
-                               packetGeneration: _latestLabState?.connectionGeneration,
-                               maxAge: maxAge)
+        return currentLocked {
+            return freshnessLocked(receivedAt: _latestLabState?.receivedAt,
+                                   packetGeneration: _latestLabState?.connectionGeneration,
+                                   maxAge: maxAge)
+        }
     }
 
     func labAckFreshness(maxAge: TimeInterval = FlyGymBridge.labDiscreteFreshMaxAge) -> FlyGymPacketFreshness {
-        lock.lock(); defer { lock.unlock() }
-        return freshnessLocked(receivedAt: _latestLabAck?.receivedAt,
-                               packetGeneration: _latestLabAck?.connectionGeneration,
-                               maxAge: maxAge)
+        return currentLocked {
+            return freshnessLocked(receivedAt: _latestLabAck?.receivedAt,
+                                   packetGeneration: _latestLabAck?.connectionGeneration,
+                                   maxAge: maxAge)
+        }
     }
 
     func labEventFreshness(maxAge: TimeInterval = FlyGymBridge.labDiscreteFreshMaxAge) -> FlyGymPacketFreshness {
-        lock.lock(); defer { lock.unlock() }
-        return freshnessLocked(receivedAt: _latestLabEvent?.receivedAt,
-                               packetGeneration: _latestLabEvent?.connectionGeneration,
-                               maxAge: maxAge)
+        return currentLocked {
+            return freshnessLocked(receivedAt: _latestLabEvent?.receivedAt,
+                                   packetGeneration: _latestLabEvent?.connectionGeneration,
+                                   maxAge: maxAge)
+        }
     }
 
     func latestBody(maxAge: TimeInterval = FlyGymBridge.bodyFreshMaxAge) -> FlyGymBodyFeedback? {
-        lock.lock(); defer { lock.unlock() }
-        guard let b = _latestBody,
-              freshnessLocked(receivedAt: b.receivedAt,
-                              packetGeneration: b.connectionGeneration,
-                              maxAge: maxAge).isFresh else { return nil }
-        return b
+        return currentLocked {
+            guard let b = _latestBody,
+                  freshnessLocked(receivedAt: b.receivedAt,
+                                  packetGeneration: b.connectionGeneration,
+                                  maxAge: maxAge).isFresh else { return nil }
+            return b
+        }
     }
 
     func latestLabState(maxAge: TimeInterval? = nil) -> LabRemoteState? {
-        lock.lock(); defer { lock.unlock() }
-        guard let state = _latestLabState,
-              _connected, state.connectionGeneration == _connectionGeneration else { return nil }
-        if let maxAge, state.ageSeconds() >= maxAge { return nil }
-        return state
+        return currentLocked {
+            guard let state = _latestLabState,
+                  _connected, state.connectionGeneration == _connectionGeneration else { return nil }
+            if let maxAge, state.ageSeconds() >= maxAge { return nil }
+            return state
+        }
     }
 
     func latestLabAck(maxAge: TimeInterval? = nil) -> LabAck? {
-        lock.lock(); defer { lock.unlock() }
-        guard let ack = _latestLabAck,
-              _connected, ack.connectionGeneration == _connectionGeneration else { return nil }
-        if let maxAge, ack.ageSeconds() >= maxAge { return nil }
-        return ack
+        return currentLocked {
+            guard let ack = _latestLabAck,
+                  _connected, ack.connectionGeneration == _connectionGeneration else { return nil }
+            if let maxAge, ack.ageSeconds() >= maxAge { return nil }
+            return ack
+        }
     }
 
     /// Every ACK recorded after `serial` (oldest first), so a 10 Hz UI can resolve
     /// each command it sent rather than only whichever ACK happened to be latest.
     /// lab_state repeats its last ACK; consecutive duplicates are stored once.
     func labAcks(after serial: UInt64) -> (acks: [LabAck], serial: UInt64) {
-        lock.lock(); defer { lock.unlock() }
-        return (recentLabAcks.filter { $0.serial > serial && _connected && $0.ack.connectionGeneration == _connectionGeneration }.map(\.ack), labAckSerial)
+        return currentLocked {
+            return (recentLabAcks.filter { $0.serial > serial && _connected && $0.ack.connectionGeneration == _connectionGeneration }.map(\.ack), labAckSerial)
+        }
     }
 
     private func setLatestLabAckLocked(_ ack: LabAck) {
@@ -310,40 +333,44 @@ final class FlyGymBridge {
     }
 
     func latestLabEvent(maxAge: TimeInterval? = nil) -> LabEventNotice? {
-        lock.lock(); defer { lock.unlock() }
-        guard let event = _latestLabEvent,
-              _connected, event.connectionGeneration == _connectionGeneration else { return nil }
-        if let maxAge, event.ageSeconds() >= maxAge { return nil }
-        return event
+        return currentLocked {
+            guard let event = _latestLabEvent,
+                  _connected, event.connectionGeneration == _connectionGeneration else { return nil }
+            if let maxAge, event.ageSeconds() >= maxAge { return nil }
+            return event
+        }
     }
 
     func labEvents(after serial: UInt64) -> (events: [LabEventNotice], serial: UInt64) {
-        lock.lock(); defer { lock.unlock() }
-        return (recentLabEvents.filter {
-            $0.serial > serial && $0.event.connectionGeneration == _connectionGeneration
-        }.map(\.event), labEventSerial)
+        return currentLocked {
+            return (recentLabEvents.filter {
+                $0.serial > serial && $0.event.connectionGeneration == _connectionGeneration
+            }.map(\.event), labEventSerial)
+        }
     }
 
     var bodyHz: Double {
-        lock.lock(); defer { lock.unlock() }
-        guard let body = _latestBody,
-              freshnessLocked(receivedAt: body.receivedAt,
-                              packetGeneration: body.connectionGeneration,
-                              maxAge: FlyGymBridge.bodyFreshMaxAge).isFresh,
-              bodyIntervals.count >= 4 else { return 0 }
-        let span = bodyIntervals.reduce(0, +)
-        return span > 0 ? Double(bodyIntervals.count) / span : 0
+        return currentLocked {
+            guard let body = _latestBody,
+                  freshnessLocked(receivedAt: body.receivedAt,
+                                  packetGeneration: body.connectionGeneration,
+                                  maxAge: FlyGymBridge.bodyFreshMaxAge).isFresh,
+                  bodyIntervals.count >= 4 else { return 0 }
+            let span = bodyIntervals.reduce(0, +)
+            return span > 0 ? Double(bodyIntervals.count) / span : 0
+        }
     }
 
     /// Largest receive-to-receive gap in the recent body-feedback window. A live
     /// average Hz can hide stalls, so regression/smoke tests assert this too.
     var maxRecentBodyGap: TimeInterval {
-        lock.lock(); defer { lock.unlock() }
-        guard let body = _latestBody,
-              freshnessLocked(receivedAt: body.receivedAt,
-                              packetGeneration: body.connectionGeneration,
-                              maxAge: FlyGymBridge.bodyFreshMaxAge).isFresh else { return .infinity }
-        return bodyIntervals.max() ?? .infinity
+        return currentLocked {
+            guard let body = _latestBody,
+                  freshnessLocked(receivedAt: body.receivedAt,
+                                  packetGeneration: body.connectionGeneration,
+                                  maxAge: FlyGymBridge.bodyFreshMaxAge).isFresh else { return .infinity }
+            return bodyIntervals.max() ?? .infinity
+        }
     }
 
 
@@ -416,48 +443,14 @@ final class FlyGymBridge {
             requestedSessionID = sessionID
             requestedEpoch = max(1, epoch)
             requestedSessionMode = mode
-            _latestSessionState = nil
-            _latestExperimentStepResult = nil
-            _latestBody = nil
-            _latestLabState = nil
-            _latestLabAck = nil
-            _latestLabEvent = nil
-            _latestWorldRenderSnapshot = nil
-            _latestRayPickResult = nil
-            _latestPlayerInputResult = nil
-            lastBodyAt = nil
-            bodyIntervals.removeAll(keepingCapacity: true)
-            outstandingExperimentStepSeq = nil
-            pendingExperimentStep = nil
-            pendingWorldRenderRequest = nil
-            pendingRayPicks.removeAll(keepingCapacity: true)
-            pendingPlayerInput = nil
-            pendingPlayerLookRemainder = [0.0, 0.0]
-            nextPlayerInputSeq = 1
+            clearSessionFeedbackLocked()
         } else if action == "reset", requestedSessionID == sessionID {
             // Reset is the one lifecycle control that intentionally changes the
             // simulation epoch. Promote the expected epoch before the packet is
             // sent so the matching reset confirmation can never be mistaken for
             // delayed old-epoch traffic on the same TCP generation.
             requestedEpoch = max(1, epoch)
-            _latestSessionState = nil
-            _latestExperimentStepResult = nil
-            _latestBody = nil
-            _latestLabState = nil
-            _latestLabAck = nil
-            _latestLabEvent = nil
-            _latestWorldRenderSnapshot = nil
-            _latestRayPickResult = nil
-            _latestPlayerInputResult = nil
-            lastBodyAt = nil
-            bodyIntervals.removeAll(keepingCapacity: true)
-            outstandingExperimentStepSeq = nil
-            pendingExperimentStep = nil
-            pendingWorldRenderRequest = nil
-            pendingRayPicks.removeAll(keepingCapacity: true)
-            pendingPlayerInput = nil
-            pendingPlayerLookRemainder = [0.0, 0.0]
-            nextPlayerInputSeq = 1
+            clearSessionFeedbackLocked()
         }
         pendingControl.append(data)
         return seq
@@ -721,26 +714,47 @@ final class FlyGymBridge {
                          rayOriginMM: [Double]? = nil, rayDirection: [Double]? = nil,
                          protocolVersion: Int? = nil, sessionID: String? = nil,
                          epoch: Int? = nil, requestedTick: Int? = nil) -> Int? {
-        guard LabCommand.interaction(id: 0, toolID: toolID, actorID: actorID,
-                                     target: target, rayOriginMM: rayOriginMM,
-                                     rayDirection: rayDirection) != nil else { return nil }
-        return sendLab(action: "interaction", target: target, toolID: toolID,
-                       actorID: actorID, rayOriginMM: rayOriginMM,
-                       rayDirection: rayDirection, protocolVersion: protocolVersion,
-                       sessionID: sessionID, epoch: epoch, requestedTick: requestedTick)
+        guard var command = LabCommand.interaction(id: 0, toolID: toolID, actorID: actorID,
+                                                  target: target, rayOriginMM: rayOriginMM,
+                                                  rayDirection: rayDirection) else { return nil }
+        command.protocolVersion = protocolVersion; command.sessionID = sessionID
+        command.epoch = epoch; command.requestedTick = requestedTick
+        return sendLabCommand(command)
     }
 
     // -- test hook: one latest-state slot + one escape-pulse slot.
     func pendingDepth() -> Int {
-        lock.lock(); defer { lock.unlock() }
-        return (pending == nil ? 0 : 1) + (pendingEscape == nil ? 0 : 1)
-            + pendingLab.count + pendingControl.count + (pendingExperimentStep == nil ? 0 : 1)
-            + (pendingWorldRenderRequest == nil ? 0 : 1) + pendingRayPicks.count
-            + (pendingPlayerInput == nil ? 0 : 1)
+        return currentLocked {
+            return (pending == nil ? 0 : 1) + (pendingEscape == nil ? 0 : 1)
+                + pendingLab.count + pendingControl.count + (pendingExperimentStep == nil ? 0 : 1)
+                + (pendingWorldRenderRequest == nil ? 0 : 1) + pendingRayPicks.count
+                + (pendingPlayerInput == nil ? 0 : 1)
+        }
     }
 
 
     func pendingLabDepth() -> Int { lock.lock(); defer { lock.unlock() }; return pendingLab.count }
+
+    private func clearSessionFeedbackLocked() {
+        _latestSessionState = nil
+        _latestExperimentStepResult = nil
+        _latestBody = nil
+        _latestLabState = nil
+        _latestLabAck = nil
+        _latestLabEvent = nil
+        _latestWorldRenderSnapshot = nil
+        _latestRayPickResult = nil
+        _latestPlayerInputResult = nil
+        lastBodyAt = nil
+        bodyIntervals.removeAll(keepingCapacity: true)
+        outstandingExperimentStepSeq = nil
+        pendingExperimentStep = nil
+        pendingWorldRenderRequest = nil
+        pendingRayPicks.removeAll(keepingCapacity: true)
+        pendingPlayerInput = nil
+        pendingPlayerLookRemainder = [0.0, 0.0]
+        nextPlayerInputSeq = 1
+    }
 
     private func clearRemoteStateLocked() {
         _latestBody = nil
@@ -1072,9 +1086,10 @@ final class FlyGymBridge {
     // MARK: test hooks (same production lifecycle/arbitration paths, no sockets)
 
     func beginConnectionForTesting() -> UInt64 {
-        lock.lock(); defer { lock.unlock() }
-        beginConnectionLocked(-2)
-        return _connectionGeneration
+        return currentLocked {
+            beginConnectionLocked(-2)
+            return _connectionGeneration
+        }
     }
 
     func receiveLineForTesting(_ line: Data, at receivedAt: Date = Date()) -> Bool {
@@ -1106,30 +1121,33 @@ final class FlyGymBridge {
     }
 
     func setNextPlayerInputSeqForTesting(_ value: Int) {
-        lock.lock(); defer { lock.unlock() }
-        nextPlayerInputSeq = value
+        return currentLocked {
+            nextPlayerInputSeq = value
+        }
     }
 
     func dequeueLaneForTesting(at now: Date) -> FlyGymSendLane? {
-        lock.lock(); defer { lock.unlock() }
-        guard let item = dequeueNextLocked(now: now) else { return nil }
-        if item.lane == .brain { lastNormalBrainSendAt = now }
-        if item.lane == .playerInput {
-            // Test dequeue models a successful production send so any bounded
-            // look remainder is promoted exactly as sendLoop would do.
-            promotePlayerLookRemainderLocked(afterSent: item.playerInput)
+        return currentLocked {
+            guard let item = dequeueNextLocked(now: now) else { return nil }
+            if item.lane == .brain { lastNormalBrainSendAt = now }
+            if item.lane == .playerInput {
+                // Test dequeue models a successful production send so any bounded
+                // look remainder is promoted exactly as sendLoop would do.
+                promotePlayerLookRemainderLocked(afterSent: item.playerInput)
+            }
+            return item.lane
         }
-        return item.lane
     }
 
     func dequeueSendForTesting(at now: Date) -> (FlyGymSendLane, Data)? {
-        lock.lock(); defer { lock.unlock() }
-        guard let item = dequeueNextLocked(now: now) else { return nil }
-        if item.lane == .brain { lastNormalBrainSendAt = now }
-        if item.lane == .playerInput {
-            promotePlayerLookRemainderLocked(afterSent: item.playerInput)
+        return currentLocked {
+            guard let item = dequeueNextLocked(now: now) else { return nil }
+            if item.lane == .brain { lastNormalBrainSendAt = now }
+            if item.lane == .playerInput {
+                promotePlayerLookRemainderLocked(afterSent: item.playerInput)
+            }
+            return (item.lane, item.data)
         }
-        return (item.lane, item.data)
     }
 
     // MARK: threads

@@ -155,9 +155,13 @@ enum WorldViewerCoordinates {
         return multiply(multiply(c, q), cInverse)
     }
 
+    static func rawSceneVector(_ values: [Double]) -> SCNVector3 {
+        SCNVector3(Float(values[0]), Float(values[1]), Float(values[2]))
+    }
+
     static func sceneVector(_ values: [Double]) -> SCNVector3 {
         let s = sceneComponents(fromMuJoCo: values)
-        return SCNVector3(Float(s[0]), Float(s[1]), Float(s[2]))
+        return WorldViewerCoordinates.rawSceneVector(s)
     }
 
     static func sceneQuaternion(_ values: [Double]) -> SCNQuaternion {
@@ -340,9 +344,15 @@ final class WorldViewer: SCNView {
         if cameraState.mode == .followFly, let lastFlyScenePosition {
             return lastFlyScenePosition
         }
-        return SCNVector3(Float(cameraState.targetScene[0]),
-                          Float(cameraState.targetScene[1]),
-                          Float(cameraState.targetScene[2]))
+        return WorldViewerCoordinates.rawSceneVector(cameraState.targetScene)
+    }
+
+    private func orbitPosition(target: SCNVector3) -> [Double] {
+        let forward = cameraState.forwardVector
+        let distance = cameraState.distance
+        return [Double(target.x) - forward[0] * distance,
+                Double(target.y) - forward[1] * distance,
+                Double(target.z) - forward[2] * distance]
     }
 
     private func applyCameraState() {
@@ -357,7 +367,7 @@ final class WorldViewer: SCNView {
         let target = cameraTargetForCurrentMode()
         if cameraState.mode == .free {
             let p = cameraState.freePositionScene
-            cameraNode.position = SCNVector3(Float(p[0]), Float(p[1]), Float(p[2]))
+            cameraNode.position = WorldViewerCoordinates.rawSceneVector(p)
             let f = cameraState.forwardVector
             let fx = CGFloat(f[0])
             let fy = CGFloat(f[1])
@@ -371,11 +381,7 @@ final class WorldViewer: SCNView {
             return
         }
 
-        let distance = cameraState.distance
-        let forward = cameraState.forwardVector
-        cameraNode.position = SCNVector3(Float(Double(target.x) - forward[0] * distance),
-                                         Float(Double(target.y) - forward[1] * distance),
-                                         Float(Double(target.z) - forward[2] * distance))
+        cameraNode.position = WorldViewerCoordinates.rawSceneVector(orbitPosition(target: target))
         cameraNode.look(at: target,
                         up: SCNVector3(0, 1, 0),
                         localFront: SCNVector3(0, 0, -1))
@@ -517,10 +523,7 @@ final class WorldViewer: SCNView {
         cameraState.distance = flyCloseUp != nil ? 14 : max(45, Double(lastSceneExtent) * 2.4)
         cameraState.targetScene = [Double(center.x), Double(center.y), Double(center.z)]
         let target = cameraTargetForCurrentMode()
-        let forward = cameraState.forwardVector
-        cameraState.freePositionScene = [Double(target.x) - forward[0] * cameraState.distance,
-                                         Double(target.y) - forward[1] * cameraState.distance,
-                                         Double(target.z) - forward[2] * cameraState.distance]
+        cameraState.freePositionScene = orbitPosition(target: target)
         applyCameraState()
         // A user may press Reset before the first backend snapshot or while a
         // session identity transition has cleared the scene. Keep the initial
@@ -597,26 +600,15 @@ final class WorldViewer: SCNView {
         return geometry
     }
 
-    private func ensureFlyNode() -> SCNNode {
-        if let flyNode { return flyNode }
+    private func ensurePoseNode(_ cached: inout SCNNode?, kind: String,
+                                scale: SCNVector3 = SCNVector3(1, 1, 1)) -> SCNNode {
+        if let cached { return cached }
         let geometry = SCNSphere(radius: 1.0)
-        geometry.materials = [material(for: "fly")]
+        geometry.materials = [material(for: kind)]
         let node = SCNNode(geometry: geometry)
-        node.scale = SCNVector3(2.5, 1.35, 1.0)
-        node.name = "fly"
+        node.scale = scale; node.name = kind
         worldScene.rootNode.addChildNode(node)
-        flyNode = node
-        return node
-    }
-
-    private func ensurePlayerNode() -> SCNNode {
-        if let playerNode { return playerNode }
-        let geometry = SCNSphere(radius: 1.0)
-        geometry.materials = [material(for: "player")]
-        let node = SCNNode(geometry: geometry)
-        node.name = "player"
-        worldScene.rootNode.addChildNode(node)
-        playerNode = node
+        cached = node
         return node
     }
 
@@ -656,14 +648,14 @@ final class WorldViewer: SCNView {
             node.orientation = WorldViewerCoordinates.sceneQuaternion(object.orientationQuatXYZW)
         }
 
-        let f = ensureFlyNode()
+        let f = ensurePoseNode(&flyNode, kind: "fly", scale: SCNVector3(2.5, 1.35, 1.0))
         f.name = fly.id
         f.position = WorldViewerCoordinates.sceneVector(fly.positionMM)
         f.orientation = WorldViewerCoordinates.sceneQuaternion(fly.orientationQuatXYZW)
         lastFlyScenePosition = f.position
 
         if let player = snapshot.player {
-            let p = ensurePlayerNode()
+            let p = ensurePoseNode(&playerNode, kind: "player")
             p.name = player.id
             p.position = WorldViewerCoordinates.sceneVector(player.positionMM)
             p.orientation = WorldViewerCoordinates.sceneQuaternion(player.orientationQuatXYZW)

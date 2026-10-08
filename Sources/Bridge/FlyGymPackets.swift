@@ -275,15 +275,15 @@ struct FlyGymBodyPacket: Decodable {
         let yawRaw = (try? c.decodeIfPresent(Double.self, forKey: .yawRate)) ?? 0
         yawRate = min(20.0, max(-20.0, yawRaw))
         var cc = (try? c.decodeIfPresent([Double].self, forKey: .contacts)) ?? []
-        cc = cc.map { min(1.0, max(0.0, $0)) }
+        cc = cc.map { unit($0) }
         while cc.count < 6 { cc.append(0) }
         contacts = Array(cc.prefix(6))
         let l = (try? c.decodeIfPresent(Double.self, forKey: .leftContact)) ?? 0
-        leftContact = min(1.0, max(0.0, l))
+        leftContact = unit(l)
         let rr = (try? c.decodeIfPresent(Double.self, forKey: .rightContact)) ?? 0
-        rightContact = min(1.0, max(0.0, rr))
-        if let g = (try? c.decodeIfPresent(Double.self, forKey: .gaitPhase)) ?? nil {
-            gaitPhase = min(1.0, max(0.0, g))
+        rightContact = unit(rr)
+        if let g = c.lossy(Double.self, forKey: .gaitPhase) {
+            gaitPhase = unit(g)
         } else { gaitPhase = nil }
         loomLeft = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .loomLeft)) ?? 0))
         loomRight = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .loomRight)) ?? 0))
@@ -294,7 +294,7 @@ struct FlyGymBodyPacket: Decodable {
         occupancyRight = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .occupancyRight)) ?? 0))
         opticExpansionLeft = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .opticExpansionLeft)) ?? 0))
         opticExpansionRight = min(1.0, max(0.0, (try? c.decodeIfPresent(Double.self, forKey: .opticExpansionRight)) ?? 0))
-        if let sample = (try? c.decodeIfPresent(Int.self, forKey: .eyeSampleSimTick)) ?? nil {
+        if let sample = c.lossy(Int.self, forKey: .eyeSampleSimTick) {
             eyeSampleSimTick = max(0, sample)
         } else {
             eyeSampleSimTick = nil
@@ -310,7 +310,7 @@ struct FlyGymBodyPacket: Decodable {
             }
             tasteSugar = sugar
         }
-        if let d = (try? c.decodeIfPresent(Double.self, forKey: .nearestFoodDistanceMm)) ?? nil,
+        if let d = c.lossy(Double.self, forKey: .nearestFoodDistanceMm),
            d.isFinite {
             nearestFoodDistanceMm = min(1_000_000.0, max(0.0, d))
         } else { nearestFoodDistanceMm = nil }
@@ -350,8 +350,12 @@ extension FlyGymBodyPacket: FlyGymWirePacket {
     fileprivate static var wireType: String { "body" }
 }
 
+private func parseLine<T: FlyGymWirePacket>(_ type: T.Type, _ line: Data) -> T? {
+    (try? JSONDecoder().decode(FlyGymTaggedPacket<T>.self, from: line))?.packet
+}
+
 func parseBodyLine(_ line: Data) -> FlyGymBodyPacket? {
-    (try? JSONDecoder().decode(FlyGymTaggedPacket<FlyGymBodyPacket>.self, from: line))?.packet
+    parseLine(FlyGymBodyPacket.self, line)
 }
 
 extension LabRemoteState: FlyGymWirePacket {
@@ -359,7 +363,7 @@ extension LabRemoteState: FlyGymWirePacket {
 }
 
 func parseLabStateLine(_ line: Data) -> LabRemoteState? {
-    (try? JSONDecoder().decode(FlyGymTaggedPacket<LabRemoteState>.self, from: line))?.packet
+    parseLine(LabRemoteState.self, line)
 }
 
 extension LabEventNotice: FlyGymWirePacket {
@@ -367,7 +371,7 @@ extension LabEventNotice: FlyGymWirePacket {
 }
 
 func parseLabEventLine(_ line: Data) -> LabEventNotice? {
-    (try? JSONDecoder().decode(FlyGymTaggedPacket<LabEventNotice>.self, from: line))?.packet
+    parseLine(LabEventNotice.self, line)
 }
 
 extension PlayerInputPacket: FlyGymWirePacket {
@@ -375,7 +379,7 @@ extension PlayerInputPacket: FlyGymWirePacket {
 }
 
 func decodePlayerInputLine(_ line: Data) -> PlayerInputPacket? {
-    (try? JSONDecoder().decode(FlyGymTaggedPacket<PlayerInputPacket>.self, from: line))?.packet
+    parseLine(PlayerInputPacket.self, line)
 }
 
 extension PlayerInputResult: FlyGymWirePacket {
@@ -383,7 +387,7 @@ extension PlayerInputResult: FlyGymWirePacket {
 }
 
 func parsePlayerInputResultLine(_ line: Data) -> PlayerInputResult? {
-    (try? JSONDecoder().decode(FlyGymTaggedPacket<PlayerInputResult>.self, from: line))?.packet
+    parseLine(PlayerInputResult.self, line)
 }
 
 extension FlyGymHelloPacket: FlyGymWirePacket {
@@ -400,7 +404,7 @@ extension WorldRenderSnapshot: FlyGymWirePacket {
 }
 
 func parseWorldRenderSnapshotLine(_ line: Data) -> WorldRenderSnapshot? {
-    (try? JSONDecoder().decode(FlyGymTaggedPacket<WorldRenderSnapshot>.self, from: line))?.packet
+    parseLine(WorldRenderSnapshot.self, line)
 }
 
 extension RayPickResult: FlyGymWirePacket {
@@ -408,7 +412,7 @@ extension RayPickResult: FlyGymWirePacket {
 }
 
 func parseRayPickResultLine(_ line: Data) -> RayPickResult? {
-    (try? JSONDecoder().decode(FlyGymTaggedPacket<RayPickResult>.self, from: line))?.packet
+    parseLine(RayPickResult.self, line)
 }
 
 /// Only Python -> Swift packets belong here. Outbound-only input is rejected.
@@ -525,7 +529,7 @@ enum FlyGymSensoryMap {
         let speedTerm = min(1.0, abs(fb.vx) / 0.03)       // 0.03 m/s ~= brisk walk
         let turnTerm = min(1.0, abs(fb.yawRate) / 4.0)    // turning in place is still locomotion
         let d = max(speedTerm, turnTerm)
-        return Float(min(1.0, max(0.0, d)))
+        return Float(unit(d))
     }
     /// Fresh real-body data is authoritative. The procedural desktop fly is only
     /// a fallback when body feedback is absent/stale; it is never blended into a

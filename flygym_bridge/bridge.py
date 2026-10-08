@@ -17,6 +17,7 @@ import time
 import os
 from collections import OrderedDict, deque
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from body import Body
 from protocol import (
     decode_line, encode, BrainPacket, LabCommand, LabStatePacket, LabEventPacket,
     LabCommandQueue, HelloPacket, SessionControlPacket, SessionStatePacket,
@@ -48,7 +49,7 @@ class Bridge:
                 self.view_stream = ViewStream(int(render_port), host=HOST)
         else:
             from fly_body import MockBody
-            self.body = MockBody()
+            self.body: Body = MockBody()
         self.latest_brain = BrainPacket()
         self.lock = threading.Lock()
         self.lab_commands = LabCommandQueue()
@@ -173,7 +174,7 @@ class Bridge:
 
     def _body_physics_timestep(self):
         try:
-            dt = float(getattr(self.body, "physics_timestep_s"))
+            dt = float(self.body.physics_timestep_s)
         except (AttributeError, TypeError, ValueError, OverflowError):
             return None
         return dt if math.isfinite(dt) and dt > 0.0 else None
@@ -187,7 +188,7 @@ class Bridge:
         n = int(round(raw))
         if n <= 0 or abs(n * dt - duration) > max(1e-12, dt * 1e-9):
             return None
-        max_steps = getattr(self.body, "max_physics_substeps", None)
+        max_steps = self.body.max_physics_substeps
         if max_steps is not None and n > int(max_steps):
             return None
         return n
@@ -247,11 +248,11 @@ class Bridge:
     def _render_view_stream(self):
         if self.view_stream is None:
             return
-        sim = getattr(self.body, "sim", None)
+        sim = self.body.sim
         if sim is None:
             return
         self.view_stream.render_if_due(sim.mj_model, sim.mj_data,
-                                       float(getattr(self.body, "t", 0.0)),
+                                       float(self.body.t),
                                        anchors=self._view_anchors)
 
     def _view_anchors(self):
@@ -275,7 +276,7 @@ class Bridge:
         if self.session_mode == "deterministic" and self.session_id:
             return int(self.session_tick)
         try:
-            body_t = float(getattr(self.body, "t", 0.0))
+            body_t = float(self.body.t)
         except (TypeError, ValueError, OverflowError):
             body_t = 0.0
         if not math.isfinite(body_t) or body_t < 0.0:
@@ -283,7 +284,7 @@ class Bridge:
         return int(round(body_t * 1000.0))
 
     def _world_revision_value(self, attribute):
-        world = getattr(self.body, "lab_world", None)
+        world = self.body.lab_world
         try:
             revision = int(getattr(world, attribute, 0))
         except (TypeError, ValueError, OverflowError):
@@ -362,9 +363,7 @@ class Bridge:
         self.pending_lab_responses.extend(retained)
 
     def _world_snapshot_response(self, request):
-        state_fn = getattr(self.body, "world_render_state", None)
-        if state_fn is None:
-            raise RuntimeError("backend has no world render state")
+        state_fn = self.body.world_render_state
         state = state_fn()
         self.snapshot_seq += 1
         response = WorldRenderSnapshotPacket(
@@ -389,9 +388,7 @@ class Bridge:
         source_error = self._validate_ray_source(request)
         if source_error is not None:
             return self._view_query_error(request, source_error)
-        ray_fn = getattr(self.body, "ray_pick", None)
-        if ray_fn is None:
-            raise RuntimeError("backend cannot ray pick")
+        ray_fn = self.body.ray_pick
         hit = ray_fn(request.ray_origin_mm, request.ray_direction)
         response = RayPickResultPacket(
             session_id=request.session_id, epoch=request.epoch,
@@ -431,8 +428,7 @@ class Bridge:
 
     def _lab_state(self, *, ack=None, ok=True, error=None, last_action=None,
                    applied_tick=None, applied_epoch=None, status=None):
-        state_fn = getattr(self.body, "lab_state", None)
-        state = state_fn() if state_fn is not None else {}
+        state = self.body.lab_state()
         state = dict(state or {})
         state["queue"] = self.lab_commands.stats()
         state["commands_received"] = self.lab_count
@@ -461,9 +457,7 @@ class Bridge:
         `commands` given: exactly those (a V6.6 pause transaction, tagged with
         `transaction` in each edit result); the deferred list is left in place.
         """
-        apply_fn = getattr(self.body, "apply_lab_command", None)
-        if apply_fn is None:
-            return 0
+        apply_fn = self.body.apply_lab_command
         if commands is None:
             # Limit discrete work per body tick; continuous slots are always drained
             # as latest state. Remaining discrete FIFO entries stay bounded in queue.
@@ -489,26 +483,18 @@ class Bridge:
                 if cached is not None:
                     self._queue_lab_response(cached)
                     continue
-                if command.protocol_version is not None and command.protocol_version < V4_PROTOCOL_VERSION:
-                    response = self._lab_state(
-                        ack=command.seq, ok=False, error="unsupported protocol version",
-                        last_action=command.op, status="rejected_protocol")
-                    self.lab_rejected += 1
-                    self._remember(self.recent_command_results, key, response)
-                    self._queue_lab_response(response)
-                    continue
-                if not self.session_id or command.session_id != self.session_id:
-                    response = self._lab_state(
-                        ack=command.seq, ok=False, error="wrong session",
-                        last_action=command.op, status="rejected_session")
-                    self.lab_rejected += 1
-                    self._remember(self.recent_command_results, key, response)
-                    self._queue_lab_response(response)
-                    continue
-                if command.epoch != self.session_epoch:
-                    response = self._lab_state(
-                        ack=command.seq, ok=False, error="wrong epoch",
-                        last_action=command.op, status="rejected_old_epoch")
+                rejections = [
+                    (command.protocol_version is not None and command.protocol_version < V4_PROTOCOL_VERSION,
+                     "unsupported protocol version", "rejected_protocol"),
+                    (not self.session_id or command.session_id != self.session_id,
+                     "wrong session", "rejected_session"),
+                    (command.epoch != self.session_epoch, "wrong epoch", "rejected_old_epoch"),
+                ]
+                rejection = next(((error, status) for invalid, error, status in rejections if invalid), None)
+                if rejection is not None:
+                    error, status = rejection
+                    response = self._lab_state(ack=command.seq, ok=False, error=error,
+                                               last_action=command.op, status=status)
                     self.lab_rejected += 1
                     self._remember(self.recent_command_results, key, response)
                     self._queue_lab_response(response)
@@ -570,7 +556,7 @@ class Bridge:
         applied = self._apply_lab_commands(
             applied_tick=self._current_owner_tick(), applied_epoch=self.session_epoch,
             commands=commands, transaction="paused")
-        refresh = getattr(getattr(self.body, "lab_world", None), "refresh_poses", None)
+        refresh = getattr(self.body.lab_world, "refresh_poses", None)
         if applied and refresh is not None:
             refresh()
         return applied
@@ -621,7 +607,7 @@ class Bridge:
         self.snapshot_sources.clear()
         self.deferred_lab_commands = []
         self.deferred_player_inputs = []
-        clear_input = getattr(self.body, "clear_player_input", None)
+        clear_input = self.body.clear_player_input
         if clear_input is not None:
             clear_input()
 
@@ -715,7 +701,7 @@ class Bridge:
                 reject("session not active", "rejected_session")
                 continue
 
-            world = getattr(self.body, "lab_world", None)
+            world = self.body.lab_world
             player = getattr(world, "player", None)
             if player is None or request.actor_id != getattr(player, "actor_id", None):
                 reject("wrong player actor", "rejected_actor")
@@ -744,7 +730,7 @@ class Bridge:
             if not getattr(player, "active", False):
                 reject("participant is not active", "rejected_inactive")
                 continue
-            set_input = getattr(self.body, "set_player_input", None)
+            set_input = self.body.set_player_input
             if set_input is None:
                 reject("backend cannot apply player input", "rejected_backend")
                 continue
@@ -763,47 +749,40 @@ class Bridge:
         with self.lock:
             return self.pending_experiment_steps.popleft() if self.pending_experiment_steps else None
 
+    def _reject_session_control(self, request, error):
+        self._reject_session_control(request, error)
+
     def _process_session_controls(self):
         for request in self._drain_session_controls():
             if request.protocol_version < V4_PROTOCOL_VERSION:
-                self._queue_lab_response(self._session_state_packet(
-                    request, ok=False, state="error", error="unsupported protocol version"))
+                self._reject_session_control(request, "unsupported protocol version")
                 continue
             if request.action == "begin":
                 if not request.session_id:
-                    self._queue_lab_response(self._session_state_packet(
-                        request, ok=False, state="error", error="missing session_id"))
+                    self._reject_session_control(request, "missing session_id")
                     continue
                 with self.lock:
                     client_hello = self.client_hello
                 if request.mode == "deterministic":
                     if client_hello is None or not client_hello.supports_v4_deterministic(
                             require_physics_timestep=False):
-                        self._queue_lab_response(self._session_state_packet(
-                            request, ok=False, state="error",
-                            error="deterministic capability not negotiated"))
+                        self._reject_session_control(request, "deterministic capability not negotiated")
                         continue
                     if self._exact_substeps_for_ticks(V4_EXPERIMENT_QUANTUM_TICKS) is None:
-                        self._queue_lab_response(self._session_state_packet(
-                            request, ok=False, state="error",
-                            error="20 ms quantum is not exact on this backend"))
+                        self._reject_session_control(request, "20 ms quantum is not exact on this backend")
                         continue
                     # A new deterministic session owns a fresh body timeline.
                     # Reset body/controller time to tick zero while preserving
                     # the current LabWorld contents; the new session id means
                     # this is not an epoch increment inside an existing run.
-                    reset_body = getattr(self.body, "reset_body", None)
+                    reset_body = self.body.reset_body
                     if reset_body is None:
-                        self._queue_lab_response(self._session_state_packet(
-                            request, ok=False, state="error",
-                            error="backend cannot reset body for deterministic session"))
+                        self._reject_session_control(request, "backend cannot reset body for deterministic session")
                         continue
                     reset_body()
-                    body_tick = int(round(float(getattr(self.body, "t", 0.0)) * 1000.0))
+                    body_tick = int(round(float(self.body.t) * 1000.0))
                     if abs(body_tick - request.sim_tick) > 0:
-                        self._queue_lab_response(self._session_state_packet(
-                            request, ok=False, state="error",
-                            error=f"body tick {body_tick} does not match requested tick {request.sim_tick}"))
+                        self._reject_session_control(request, f"body tick {body_tick} does not match requested tick {request.sim_tick}")
                         continue
                 # SessionControl and PlayerInput use separate receive queues. Flush
                 # only inputs that were observed before this Begin on the wire;
@@ -826,36 +805,29 @@ class Bridge:
                 continue
 
             if request.session_id != self.session_id:
-                self._queue_lab_response(self._session_state_packet(
-                    request, ok=False, state="error", error="wrong session"))
+                self._reject_session_control(request, "wrong session")
                 continue
             if request.action == "reset":
                 if request.epoch != self.session_epoch + 1:
-                    self._queue_lab_response(self._session_state_packet(
-                        request, ok=False, state="error",
-                        error=f"reset epoch {request.epoch} must follow {self.session_epoch}"))
+                    self._reject_session_control(request, f"reset epoch {request.epoch} must follow {self.session_epoch}")
                     continue
                 if self.session_mode == "deterministic" and not self.session_paused:
-                    self._queue_lab_response(self._session_state_packet(
-                        request, ok=False, state="error",
-                        error="deterministic reset requires paused barrier"))
+                    self._reject_session_control(request, "deterministic reset requires paused barrier")
                     continue
                 scopes = {str(v).lower() for v in request.reset_scope}
                 try:
                     if "body" in scopes:
-                        reset_body = getattr(self.body, "reset_body", None)
+                        reset_body = self.body.reset_body
                         if reset_body is None:
                             raise RuntimeError("backend cannot reset body")
                         reset_body()
                     if "world" in scopes:
-                        world = getattr(self.body, "lab_world", None)
+                        world = self.body.lab_world
                         if world is None:
                             raise RuntimeError("backend has no lab world")
                         world.reset()
                 except Exception as exc:
-                    self._queue_lab_response(self._session_state_packet(
-                        request, ok=False, state="error",
-                        error=f"reset failed: {str(exc)[:400]}"))
+                    self._reject_session_control(request, f"reset failed: {str(exc)[:400]}")
                     continue
                 # Reset promotes epoch ownership while PlayerInput arrives on a
                 # separate queue. Reject anything observed before this reset on
@@ -881,12 +853,11 @@ class Bridge:
                 self._queue_lab_response(self._session_state_packet(request, state="paused"))
                 continue
             if request.epoch != self.session_epoch:
-                self._queue_lab_response(self._session_state_packet(
-                    request, ok=False, state="error", error="wrong epoch"))
+                self._reject_session_control(request, "wrong epoch")
                 continue
             if request.action == "pause":
                 self.session_paused = True
-                clear_input = getattr(self.body, "clear_player_input", None)
+                clear_input = self.body.clear_player_input
                 if clear_input is not None:
                     clear_input()
                 # Session controls and PlayerInput use separate queues. Reject
@@ -905,8 +876,7 @@ class Bridge:
                 self.session_paused = False
                 self._queue_lab_response(self._session_state_packet(request, state="running"))
             else:
-                self._queue_lab_response(self._session_state_packet(
-                    request, ok=False, state="error", error="unsupported session action"))
+                self._reject_session_control(request, "unsupported session action")
 
     def _process_experiment_step(self, request):
         key = (request.session_id, request.epoch, request.seq)
@@ -957,9 +927,7 @@ class Bridge:
         return result
 
     def _collect_lab_events(self):
-        drain_fn = getattr(self.body, "drain_lab_events", None)
-        if drain_fn is None:
-            return
+        drain_fn = self.body.drain_lab_events
         for item in drain_fn():
             if not isinstance(item, dict):
                 continue
@@ -983,6 +951,14 @@ class Bridge:
                 manifest_cache["key"] = key
         wire["state"] = state
         return (json.dumps(wire, separators=(",", ":"), allow_nan=False) + "\n").encode()
+
+    def _flush_connection_responses(self, conn, manifest_cache, now_mono, next_state, period):
+        for response in self._drain_lab_responses():
+            conn.sendall(self._encode_connection_response(response, manifest_cache))
+        if now_mono >= next_state:
+            conn.sendall(self._encode_connection_response(self._lab_state(), manifest_cache))
+            return now_mono + period
+        return next_state
 
     def serve_once(self, conn):
         manifest_cache = {}
@@ -1092,11 +1068,7 @@ class Bridge:
                         self.body_count += 1
                         smoke_sim_s += float(getattr(result.body, "sim_dt", 0.0))
                 try:
-                    for response in self._drain_lab_responses():
-                        conn.sendall(self._encode_connection_response(response, manifest_cache))
-                    if now_mono >= next_lab_state:
-                        conn.sendall(self._encode_connection_response(self._lab_state(), manifest_cache))
-                        next_lab_state = now_mono + lab_state_period
+                    next_lab_state = self._flush_connection_responses(conn, manifest_cache, now_mono, next_lab_state, lab_state_period)
                 except OSError:
                     break
                 # One request advances exactly one quantum. No wall clock is
@@ -1114,11 +1086,7 @@ class Bridge:
                 if not self._try_paused_edit_transaction():
                     break
                 try:
-                    for response in self._drain_lab_responses():
-                        conn.sendall(self._encode_connection_response(response, manifest_cache))
-                    if now_mono >= next_lab_state:
-                        conn.sendall(self._encode_connection_response(self._lab_state(), manifest_cache))
-                        next_lab_state = now_mono + lab_state_period
+                    next_lab_state = self._flush_connection_responses(conn, manifest_cache, now_mono, next_lab_state, lab_state_period)
                 except OSError:
                     break
                 time.sleep(0.001)
@@ -1156,11 +1124,7 @@ class Bridge:
                 smoke_last_body = sent_at
                 smoke_sim_s += float(getattr(obs, "sim_dt", 0.0))
                 smoke_wall_s += float(getattr(obs, "wall_dt", 0.0))
-                for response in self._drain_lab_responses():
-                    conn.sendall(self._encode_connection_response(response, manifest_cache))
-                if now_mono >= next_lab_state:
-                    conn.sendall(self._encode_connection_response(self._lab_state(), manifest_cache))
-                    next_lab_state = now_mono + lab_state_period
+                next_lab_state = self._flush_connection_responses(conn, manifest_cache, now_mono, next_lab_state, lab_state_period)
             except OSError:
                 break
             if self.smoke_log and now_mono - smoke_window_start >= 5.0:
@@ -1211,7 +1175,7 @@ class Bridge:
         # which admitted its physical commands. Retire that session together with
         # the participant so a reconnect cannot silently continue the old owner
         # timeline. Passive Observe reconnects keep the existing V4 persistence.
-        world = getattr(self.body, "lab_world", None)
+        world = self.body.lab_world
         participant_was_active = (
             world is not None
             and getattr(getattr(world, "player", None), "active", False)
@@ -1265,7 +1229,7 @@ class Bridge:
             srv.close()
             if self.view_stream is not None:
                 self.view_stream.close()
-            close = getattr(self.body, "close", None)
+            close = self.body.close
             if close is not None:
                 close()
 

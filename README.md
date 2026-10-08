@@ -251,17 +251,17 @@ Self-tests are built into the binary; Python tests run against the mock and the 
 ./ThongpariFlyNeuronSim --gpucheck       # GPU vs an independent CPU reference
 ./ThongpariFlyNeuronSim --observationaudittest # display reads/loss vs exact counts, no dynamics change
 
-./flygym-venv/bin/python flygym_bridge/test_v5_6_2.py --mock-only # food capacity / lifecycle, no MuJoCo
-./flygym-venv/bin/python flygym_bridge/test_interaction_real.py   # grab / carry in real MuJoCo
-./flygym-venv/bin/python flygym_bridge/test_player_collision_real.py
-./flygym-venv/bin/python flygym_bridge/test_lab_real.py
-./flygym-venv/bin/python flygym_bridge/test_environment_edits.py  # shared edit fixtures
-./flygym-venv/bin/python flygym_bridge/test_v6_4_terrain_real.py  # the fly climbs a ramp in real MuJoCo
+./flygym-venv/bin/python flygym_bridge/tests/unit/test_feeding.py # food capacity / lifecycle, no MuJoCo
+./flygym-venv/bin/python flygym_bridge/tests/real/test_interaction_real.py   # grab / carry in real MuJoCo
+./flygym-venv/bin/python flygym_bridge/tests/real/test_player_collision_real.py
+./flygym-venv/bin/python flygym_bridge/tests/real/test_lab_real.py
+./flygym-venv/bin/python flygym_bridge/tests/unit/test_environment_edits.py  # shared edit fixtures
+./flygym-venv/bin/python flygym_bridge/tests/real/test_v6_4_terrain_real.py  # the fly climbs a ramp in real MuJoCo
 ```
 
 Against a fresh backend (`./run_flygym.sh --bridge-only`, or `bridge.py --mock`), `--bridgeloop`, `--labloop`, `--v4loop`, `--sceneloop` and `--interactionloop` exercise the real TCP path. `--inputprobe` measures input latency and look cadence, and exits non-zero if its preconditions fail.
 
-Historical independent run (2026-09-29): 17 commands passed and 2 failed: the stale [real Lab capacity check](<flygym_bridge/test_lab_real.py>) and the real-headless TCP body-rate gate (14.1 Hz < 30 Hz). That run was not a complete V5/performance pass. Details: [2026-09-29 validation](<notes/validation/v5-independent-2026-09-29/README.md>). New suites: [sandbox and feeding tests](<flygym_bridge/test_v5_6_2.py>), [toy tests](<flygym_bridge/test_v5_6_2_tools.py>).
+Historical independent run (2026-09-29): 17 commands passed and 2 failed: the stale [real Lab capacity check](<flygym_bridge/tests/real/test_lab_real.py>) and the real-headless TCP body-rate gate (14.1 Hz < 30 Hz). That run was not a complete V5/performance pass. Details: [2026-09-29 validation](<notes/validation/v5-independent-2026-09-29/README.md>). New suites: [sandbox and feeding tests](<flygym_bridge/tests/unit/test_feeding.py>), [toy tests](<flygym_bridge/tests/unit/test_lab_tools.py>).
 
 Focused capacity recheck (2026-10-05): corrected the stale `food >= 32` test expectation to the approved default of 8, without changing runtime pools. Added mock and real checks for exhaustion, rejection without state changes, deletion and slot reuse; real checks also inspect MuJoCo geometry activation and cleanup. Six mock/contract Python suites passed **236 checks**; the real headless Lab suite passed **68 checks**, with no failures. Swift, GUI, TCP-loop and performance validation were not rerun in that focused test/documentation-only pass. Subsequent [2026-10-05 V5 closure revalidation](<notes/validation/v5-next-2026-10-05/README.md>) includes the feeding deletion fix, pause-help correction, build, seven Swift suites, twelve Python suites and a fresh real-headless TCP pass; GUI/live-rendering acceptance remains pending.
 
@@ -337,3 +337,12 @@ Please cite the relevant upstream projects and papers when using their data or m
 ## License
 
 Source code is MIT-licensed; see [LICENSE](LICENSE). Connectome-derived data under `data/` is licensed separately (CC BY-NC 4.0); see `data/DATA_LICENSE.md`.
+
+Python mock regression suite (no real physics or performance gates):
+
+```sh
+cd flygym_bridge
+../flygym-venv/bin/python -m unittest discover -s tests/unit
+```
+
+Real-body tests live in `flygym_bridge/tests/real/`; optional timing gates live in `flygym_bridge/tests/perf/`. They are separate from unit discovery.

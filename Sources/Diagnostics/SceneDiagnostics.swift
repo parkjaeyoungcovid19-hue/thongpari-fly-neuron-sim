@@ -3,10 +3,9 @@ import Cocoa
 /// End-to-end transport acceptance through the app's public decoder and queues.
 func runSceneLoopTest() {
     let bridge = FlyGymBridge()
-    var failures = 0
+    let suite = Suite()
     func check(_ name: String, _ ok: Bool) {
-        print("\(ok ? "PASS" : "FAIL") scene \(name)")
-        if !ok { failures += 1 }
+        suite.check("scene " + name, ok)
     }
     func wait<T>(_ get: () -> T?) -> T? {
         let end = Date().addingTimeInterval(30)
@@ -50,11 +49,11 @@ func runSceneLoopTest() {
             check("invalid scene rejected unchanged", reject?.ok == false && before == bridge.latestLabState()?.authoritativeObjects?.map(\.id))
             let again = send(LabCommand(id: 0, action: "export_scene"))
             check("same settings after rejected load", again?.scene?.documentText == text)
-        } catch { print("FAIL scene file \(error)"); failures += 1 }
-    } else { failures += 1 }
+        } catch { print("FAIL scene file \(error)"); suite.failures += 1 }
+    } else { suite.failures += 1 }
     bridge.stop()
-    print("SCENELOOP \(failures == 0 ? "PASS" : "FAIL") (\(failures) failures)")
-    exit(failures == 0 ? 0 : 1)
+    print("SCENELOOP \(suite.failures == 0 ? "PASS" : "FAIL") (\(suite.failures) failures)")
+    suite.finish()
 }
 
 #endif

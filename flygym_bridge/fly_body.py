@@ -42,7 +42,9 @@ def _clear_player_input_state(lab_world):
     lab_world.player.clear_input_state(reset_look=False)
 
 
-class MockBody:
+from body import Body
+
+class MockBody(Body):
     """Kinematic mock: no physics, deterministic-ish, bounded state."""
     def __init__(self):
         self.physics_timestep_s = 0.001
@@ -349,7 +351,7 @@ class ControllerObservationReader:
         )
 
 
-class RealFlyBody:
+class RealFlyBody(Body):
     """Actual FlyGym 2.x NeuroMechFly + HybridTurningController + MuJoCo.
 
     Units are mm/s-era FlyGym (positions in mm). forward velocity is reported

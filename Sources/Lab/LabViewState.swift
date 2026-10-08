@@ -538,3 +538,8 @@ struct WorkspaceSnapshot: Equatable {
 
 
 }
+
+struct LabRecordingPresentation {
+    var startedAt: Date?
+    var outcome = WorkspaceRecording.idle
+}

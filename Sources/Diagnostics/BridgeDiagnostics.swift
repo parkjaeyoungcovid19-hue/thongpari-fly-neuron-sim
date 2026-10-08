@@ -22,11 +22,8 @@ func pollUntil(_ seconds: Double, every interval: Double = 0.005, _ predicate: (
 // MARK: - Headless self-test (--bridgetest, no sim, no sockets)
 
 func runBridgeTest() {
-    var failures = 0
-    func check(_ name: String, _ cond: Bool, _ detail: String = "") {
-        print((cond ? "PASS" : "FAIL") + "  " + name + (detail.isEmpty ? "" : ": " + detail))
-        if !cond { failures += 1 }
-    }
+    let suite = Suite()
+    func check(_ name: String, _ cond: Bool, _ detail: String = "") { suite.check(name, cond, detail) }
     // Exercise the actual inbound dispatcher, including permissive legacy
     // telemetry and tags that cannot be classified by scanning raw JSON text.
     let dispatchBridge = FlyGymBridge()
@@ -1121,8 +1118,8 @@ func runBridgeTest() {
         _ = overflowBridge.receiveLineForTesting(Data(#"{"type":"lab_event","event":"ring"}"#.utf8))
     }
     check("bounded ACK/event rings account for dropped entries", overflowBridge.ringDropsForTesting.acks == 2 && overflowBridge.ringDropsForTesting.events == 2 && overflowBridge.labAcks(after: 0).acks.count == 128 && overflowBridge.labEvents(after: 0).events.count == 128)
-    print(failures == 0 ? "ALL BRIDGE TESTS PASS" : "\(failures) FAILURES")
-    exit(failures == 0 ? 0 : 1)
+    print(suite.failures == 0 ? "ALL BRIDGE TESTS PASS" : "\(suite.failures) FAILURES")
+    suite.finish()
 }
 
 // MARK: - Headless loop test (--bridgeloop, needs bridge.py --mock running)
@@ -1178,11 +1175,8 @@ func runBridgeLoopTest() {
 func runV4LoopTest() {
     let fg = FlyGymBridge()
     fg.start()
-    var failures = 0
-    func check(_ name: String, _ ok: Bool, _ detail: String = "") {
-        print((ok ? "PASS" : "FAIL") + "  " + name + (detail.isEmpty ? "" : ": " + detail))
-        if !ok { failures += 1 }
-    }
+    let suite = Suite()
+    func check(_ name: String, _ ok: Bool, _ detail: String = "") { suite.check(name, ok, detail) }
     func waitSession(_ sessionID: String, epoch: Int, state: String,
                      seconds: Double = 8.0) -> FlyGymSessionStatePacket? {
         pollValue(seconds) {
@@ -1201,7 +1195,7 @@ func runV4LoopTest() {
     let connected = pollUntil(10) { fg.connected && fg.serverHello() != nil }
     check("V4 live bridge connects and receives hello", connected)
     guard connected, let hello = fg.serverHello() else {
-        fg.stop(); print("V4LOOP FAIL (\(max(1, failures)))"); exit(1)
+        fg.stop(); print("V4LOOP FAIL (\(max(1, suite.failures)))"); exit(1)
     }
     check("backend advertises deterministic V4 + exact 20ms quantum",
           hello.supportsDeterministicV4,
@@ -1358,8 +1352,8 @@ func runV4LoopTest() {
                  abs((repeated?.headingRad ?? .infinity) - (reference?.headingRad ?? 0))))
 
     fg.stop()
-    print(failures == 0 ? "V4LOOP PASS" : "V4LOOP FAIL (\(failures))")
-    exit(failures == 0 ? 0 : 1)
+    print(suite.failures == 0 ? "V4LOOP PASS" : "V4LOOP FAIL (\(suite.failures))")
+    suite.finish()
 }
 
 // MARK: - Live lab protocol test (--labloop, needs bridge.py running)
@@ -1379,7 +1373,7 @@ func runLabLoopTest() {
         pollValue(seconds, every: 0.02) { fg.latestLabAck().flatMap { $0.id == id ? $0 : nil } }
     }
 
-    var failures = 0
+    let suite = Suite()
     func command(_ name: String, _ id: Int) {
         let ack = waitAck(id)
         let ok = ack?.ok == true
@@ -1387,7 +1381,7 @@ func runLabLoopTest() {
         let ageMs = fresh.ageSeconds.map { String(format: "%.0f", $0 * 1000) } ?? "n/a"
         print("\(ok ? "PASS" : "FAIL")  labloop \(name) ack=\(ack?.id ?? -1) \(ack?.message ?? "timeout")"
               + " gen=\(fresh.packetGeneration.map(String.init) ?? "n/a")/\(fresh.currentGeneration) age=\(ageMs)ms")
-        if !ok { failures += 1 }
+        if !ok { suite.failures += 1 }
     }
 
     func bodyDiagnostic(_ body: FlyGymBodyFeedback?) -> String {
@@ -1411,7 +1405,7 @@ func runLabLoopTest() {
     }
     let stateOK = (fg.latestLabState()?.objectCount ?? 0) >= 1
     print("\(stateOK ? "PASS" : "FAIL")  labloop state object_count=\(fg.latestLabState()?.objectCount ?? -1)")
-    if !stateOK { failures += 1 }
+    if !stateOK { suite.failures += 1 }
 
     // V6.2 edit_property over the real socket: applied value/revision in the
     // ACK, then stale and out-of-range edits rejected without changing state.
@@ -1420,7 +1414,7 @@ func runLabLoopTest() {
     }
     func editCheck(_ name: String, _ ok: Bool, _ detail: String) {
         print("\(ok ? "PASS" : "FAIL")  labloop \(name) \(detail)")
-        if !ok { failures += 1 }
+        if !ok { suite.failures += 1 }
     }
     if let caps = fg.latestLabState()?.worldState?.environmentCapabilities,
        let before = remoteObject(), let revision = before.revision,
@@ -1468,7 +1462,7 @@ func runLabLoopTest() {
         Thread.sleep(forTimeInterval: 0.01)
     }
     print("\(sourceOK ? "PASS" : "FAIL")  labloop body packet is wind/touch source-of-truth — \(bodyDiagnostic(sourceBody ?? fg.latestBody()))")
-    if !sourceOK { failures += 1 }
+    if !sourceOK { suite.failures += 1 }
 
     // The backend timer is expressed in MuJoCo simulation time, not wall time.
     // A slow real backend may need much more than 300 ms of wall time to advance
@@ -1514,11 +1508,11 @@ func runLabLoopTest() {
           + " target_t=\(String(format: "%.4f", expiryTargetSimTime))s"
           + " window=[\(String(format: "%.4f", expiryEarliestSimTime)),\(String(format: "%.4f", expiryLatestSimTime))]s"
           + " — \(bodyDiagnostic(expired))")
-    if !expiredOK { failures += 1 }
+    if !expiredOK { suite.failures += 1 }
     if let event = fg.latestLabEvent() {
         print("PASS  labloop event \(event.event)")
     } else {
-        print("FAIL  labloop event missing"); failures += 1
+        print("FAIL  labloop event missing"); suite.failures += 1
     }
     // Clean up only the object this test created. Never reset an already-running
     // user's body/world merely because --labloop connected to that listener.
@@ -1526,8 +1520,8 @@ func runLabLoopTest() {
     command("delete_object", cleanup)
 
     fg.stop()
-    print(failures == 0 ? "LABLOOP PASS" : "LABLOOP FAIL (\(failures))")
-    exit(failures == 0 ? 0 : 1)
+    print(suite.failures == 0 ? "LABLOOP PASS" : "LABLOOP FAIL (\(suite.failures))")
+    suite.finish()
 }
 
 // MARK: - V5.6 live participant interaction (--interactionloop)
@@ -1537,11 +1531,8 @@ func runLabLoopTest() {
 func runInteractionLoopTest() {
     let fg = FlyGymBridge()
     fg.start()
-    var failures = 0
-    func check(_ name: String, _ ok: Bool, _ detail: String = "") {
-        print("\(ok ? "PASS" : "FAIL")  interactionloop \(name) \(detail)")
-        if !ok { failures += 1 }
-    }
+    let suite = Suite()
+    func check(_ name: String, _ ok: Bool, _ detail: String = "") { suite.check(name, ok, detail) }
     func wait<T>(_ seconds: Double, _ read: () -> T?) -> T? { pollValue(seconds, every: 0.02, read) }
     func snapshot(after tick: Int = -1, containing id: String? = nil,
                   seconds: Double = 25) -> WorldRenderSnapshot? {
@@ -1579,7 +1570,7 @@ func runInteractionLoopTest() {
     let connected = pollUntil(12, every: 0.02) { fg.connected && fg.serverHello() != nil }
     check("connected", connected)
     guard connected, let hello = fg.serverHello() else {
-        fg.stop(); print("INTERACTIONLOOP FAIL (\(failures))"); exit(1)
+        fg.stop(); print("INTERACTIONLOOP FAIL (\(suite.failures))"); exit(1)
     }
     check("hello player_body/player_input", hello.supportsPlayerInputV5_5,
           "capabilities=\(hello.capabilities)")
@@ -1785,8 +1776,8 @@ func runInteractionLoopTest() {
     let inactive = lab("set_player_active", value: 0)
     check("deactivate participant", inactive?.ok == true)
     fg.stop()
-    print(failures == 0 ? "INTERACTIONLOOP PASS" : "INTERACTIONLOOP FAIL (\(failures))")
-    exit(failures == 0 ? 0 : 1)
+    print(suite.failures == 0 ? "INTERACTIONLOOP PASS" : "INTERACTIONLOOP FAIL (\(suite.failures))")
+    suite.finish()
 }
 
 /// `--inputprobe`: measures participant input feel against a test-owned

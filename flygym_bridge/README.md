@@ -125,10 +125,10 @@ sent as bounded `lab_event` packets.
 ## Tests
 
 ```sh
-python3 flygym_bridge/test_bridge.py   # protocol + decoder + mock (no deps)
-python3 flygym_bridge/test_lab.py      # lab protocol/queues/world/mock integration
-./flygym-venv/bin/python flygym_bridge/test_lab_real.py  # real MuJoCo smoke
-./flygym-venv/bin/python flygym_bridge/test_vision_real.py # real rendered generic loom
+./flygym-venv/bin/python flygym_bridge/tests/unit/test_protocol.py   # protocol + decoder + mock (no deps)
+./flygym-venv/bin/python flygym_bridge/tests/unit/test_lab_world.py      # lab protocol/queues/world/mock integration
+./flygym-venv/bin/python flygym_bridge/tests/real/test_lab_real.py  # real MuJoCo smoke
+./flygym-venv/bin/python flygym_bridge/tests/real/test_vision_real.py # real rendered generic loom
 ./ThongpariFlyNeuronSim --bridgetest   # Swift serialization/mapping/bounds
 ./ThongpariFlyNeuronSim --bridgeloop   # live TCP loop (needs bridge.py --mock)
 ```
@@ -165,3 +165,12 @@ identity. Swift rejects events with missing or mismatched identity once a V4
 session has been requested. Before a session exists, legacy untagged events
 remain accepted. In deterministic sessions Swift accepts body feedback only
 from the matching `experiment_step_result`, never untagged standalone `body`.
+
+Python mock regression suite (no real physics or performance gates):
+
+```sh
+cd flygym_bridge
+../flygym-venv/bin/python -m unittest discover -s tests/unit
+```
+
+Real-body tests live in `flygym_bridge/tests/real/`; optional timing gates live in `flygym_bridge/tests/perf/`. They are separate from unit discovery.

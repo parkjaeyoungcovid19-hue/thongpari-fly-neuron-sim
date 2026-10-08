@@ -9,7 +9,7 @@ import SceneKit
 
 func runSimtest() {
     guard let c = loadConnectome(),
-          let sim = MetalSim(connectome: c, spikeBus: nil, seed: SIM_SEED) else {
+          let sim = makeDiagSim(connectome: c) else {
         fputs("no data/ — run etl.py first\n", stderr); exit(1)
     }
     // the 30 s throughput line stays on here: one long run, and it is the same
@@ -314,7 +314,7 @@ func runBehaviorTest() {
                   check: (Fly) -> Bool, describe: (Fly) -> String) {
         // the connectome's CSR buffers and compiled kernels are shared, so a
         // fresh per-scenario sim only reallocates its own ~7 MB of state
-        guard let sim = MetalSim(connectome: connectome, spikeBus: nil, seed: SIM_SEED) else {
+        guard let sim = makeDiagSim(connectome: connectome) else {
             failures += 1; print("FAIL  \(name): no Metal sim"); return
         }
         sim.perfLogIntervalMs = 0
@@ -545,13 +545,10 @@ func runBehaviorTest() {
 // MARK: - V4 deterministic timing test
 
 func runV4TimingTest() {
-    var failures = 0
-    func check(_ name: String, _ ok: Bool, _ detail: String = "") {
-        print((ok ? "PASS" : "FAIL") + "  " + name + (detail.isEmpty ? "" : ": " + detail))
-        if !ok { failures += 1 }
-    }
+    let suite = Suite()
+    func check(_ name: String, _ ok: Bool, _ detail: String = "") { suite.check(name, ok, detail) }
     guard let c = loadConnectome(),
-          let sim = MetalSim(connectome: c, spikeBus: nil, seed: SIM_SEED) else {
+          let sim = makeDiagSim(connectome: c) else {
         fputs("V4 timing test: no connectome/Metal sim\n", stderr)
         exit(1)
     }
@@ -648,8 +645,8 @@ func runV4TimingTest() {
     check("accepted deterministic body result ignores wall-age freshness",
           profiles.dropFirst().allSatisfy { trial($0).signalTrace == baseline.signalTrace })
 
-    print(failures == 0 ? "ALL V4 TIMING TESTS PASS" : "\(failures) V4 TIMING FAILURES")
-    exit(failures == 0 ? 0 : 1)
+    print(suite.failures == 0 ? "ALL V4 TIMING TESTS PASS" : "\(suite.failures) V4 TIMING FAILURES")
+    suite.finish()
 }
 
 #endif

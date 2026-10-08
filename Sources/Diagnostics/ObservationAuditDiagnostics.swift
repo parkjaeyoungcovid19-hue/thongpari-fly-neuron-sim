@@ -3,15 +3,14 @@
 import Foundation
 
 func runObservationAuditTest() {
-    var failures = 0
+    let suite = Suite()
     func check(_ name: String, _ ok: Bool) {
-        print("\(ok ? "PASS" : "FAIL") observation \(name)")
-        if !ok { failures += 1 }
+        suite.check("observation " + name, ok)
     }
     guard let c = loadConnectome() else { exit(1) }
     let bus = SpikeBus()
-    guard let observed = MetalSim(connectome: c, spikeBus: bus, seed: SIM_SEED),
-          let control = MetalSim(connectome: c, spikeBus: nil, seed: SIM_SEED) else { exit(1) }
+    guard let observed = makeDiagSim(connectome: c, spikeBus: bus),
+          let control = makeDiagSim(connectome: c, spikeBus: nil) else { exit(1) }
     observed.perfLogIntervalMs = 0; control.perfLogIntervalMs = 0
     // Use the existing independent CPU membership contract, not the live GPU
     // group buffer. Histogram membership must match its documented denominator.
@@ -104,8 +103,8 @@ func runObservationAuditTest() {
     }
     check("table rates preserve every original EMA bit across taste windows", allRatesEqual)
     check("population table resolves menu indices", NeuronGuide.groups.allSatisfy { $0.stimulusID.map { !labPopulationIndices(observed, role: $0).isEmpty } ?? true })
-    print("OBSERVATION AUDIT \(failures == 0 ? "PASS" : "FAIL") (\(failures) failures)")
-    exit(failures == 0 ? 0 : 1)
+    print("OBSERVATION AUDIT \(suite.failures == 0 ? "PASS" : "FAIL") (\(suite.failures) failures)")
+    suite.finish()
 }
 
 #endif

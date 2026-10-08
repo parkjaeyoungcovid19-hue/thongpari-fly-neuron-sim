@@ -292,8 +292,8 @@ func runEnvironmentPanelShot(directory: String) {
     for language in [LabLanguage.english, .korean] {
         LabLanguage.pinForTests(language)
         for dark in [false, true] {
-            let controller = LabWindowController(coordinator: Coordinator(bounds: CGSize(width: 800, height: 600), sim: nil),
-                                                 bridge: nil)
+            let coordinator = Coordinator(bounds: CGSize(width: 800, height: 600), sim: nil)
+            let controller = LabWindowController(coordinator: coordinator, bridge: nil)
             let url = URL(fileURLWithPath: directory)
                 .appendingPathComponent("environment-\(language.rawValue)-\(dark ? "dark" : "light").png")
             let written = controller.renderEnvironmentPage(state: state, body: body, dark: dark, to: url)

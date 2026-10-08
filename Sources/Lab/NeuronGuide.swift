@@ -188,3 +188,38 @@ enum NeuronGuide {
 func labPopulationIndices(_ sim: MetalSim, role: String) -> [Int] {
     NeuronGuide.group(stimulusID: role)?.indices(sim) ?? []
 }
+
+extension NeuronGuide {
+    static func legendView() -> NSView {
+        let rows = NeuronGuide.legend.map { row -> NSView in
+            let swatch = NSView()
+            swatch.wantsLayer = true
+            swatch.layer?.backgroundColor = row.color.cgColor
+            swatch.layer?.cornerRadius = 5
+            swatch.translatesAutoresizingMaskIntoConstraints = false
+            activateUnique([swatch.widthAnchor.constraint(equalToConstant: 10),
+                                         swatch.heightAnchor.constraint(equalToConstant: 10)])
+            let name = NSTextField(labelWithString: row.name)
+            name.font = .systemFont(ofSize: 11, weight: .semibold)
+            let what = NSTextField(wrappingLabelWithString: row.what)
+            what.font = .systemFont(ofSize: 11)
+            what.textColor = .secondaryLabelColor
+            let text = NSStackView(views: [name, what])
+            text.orientation = .vertical
+            text.alignment = .leading
+            text.spacing = 1
+            let line = NSStackView(views: [swatch, text])
+            line.orientation = .horizontal
+            line.alignment = .top
+            line.spacing = 8
+            line.setAccessibilityElement(true)
+            line.setAccessibilityLabel("\(row.name): \(row.what)")
+            return line
+        }
+        let stack = NSStackView(views: rows)
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 7
+        return stack
+    }
+}

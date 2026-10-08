@@ -1,3 +1,4 @@
+#if DIAGNOSTICS
 // SimDiagnostics.swift — headless sim/body self-tests: `--simtest` (circuit
 // invariants + GPU benchmark), `--behaviortest` (sim -> 3D body end-to-end) and
 // `--v4timingtest` (deterministic lockstep timing against Coordinator).
@@ -650,3 +651,5 @@ func runV4TimingTest() {
     print(failures == 0 ? "ALL V4 TIMING TESTS PASS" : "\(failures) V4 TIMING FAILURES")
     exit(failures == 0 ? 0 : 1)
 }
+
+#endif

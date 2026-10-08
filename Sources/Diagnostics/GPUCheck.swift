@@ -1,3 +1,4 @@
+#if DIAGNOSTICS
 // GPUCheck.swift — `./ThongpariFlyNeuronSim --gpucheck`: an independent CPU reference for
 // the Metal whole-brain sim, compared to it step by step.
 //
@@ -952,3 +953,5 @@ func runGPUCheck() {
     print("GPUCHECK FAIL: " + failures.joined(separator: "; "))
     exit(1)
 }
+
+#endif

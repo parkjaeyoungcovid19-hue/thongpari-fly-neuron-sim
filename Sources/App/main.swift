@@ -4,22 +4,7 @@
 // circuit (LC4/LPLC2 -> DNp01 giant fiber), DNa01/02 steering, DNp09 walking
 // and MDN backward-walking neurons read out as behavior.
 //
-// Files:  Sim.swift (connectome loader + shared types), MetalSim.swift + LIF.metal
-//         (the GPU simulation), FlyModel.swift (body), BrainView.swift (brain
-//         window), Environment.swift (permission-free senses). Self-tests live in
-//         SimDiagnostics.swift, LabDiagnostics.swift and BridgeDiagnostics.swift.
-//
-// Build:  ./build.sh
-// Run:    ./ThongpariFlyNeuronSim                     (menu-bar 🪰; brain window shows live spikes)
-//         ./ThongpariFlyNeuronSim --snapshot out.png  (offscreen fly model render)
-//         ./ThongpariFlyNeuronSim --brainshot out.png (offscreen brain window render)
-//         ./ThongpariFlyNeuronSim --simtest           (headless circuit test + GPU benchmark)
-//         ./ThongpariFlyNeuronSim --behaviortest      (end-to-end sim -> body checks)
-//         ./ThongpariFlyNeuronSim --flygym            (stream BrainSignals to a FlyGym body)
-//         ./ThongpariFlyNeuronSim --bridgetest        (bridge serialization/mapping checks)
-//         ./ThongpariFlyNeuronSim --gpucheck          (GPU sim vs an independent CPU reference)
-//         ./ThongpariFlyNeuronSim --brainstats [s]    (resting-regime diagnostics: rates by class/role)
-//         --seed N                          (pin the sim seed; N decimal or 0x hex)
+// Build and diagnostic commands: see CLAUDE.md.
 
 import Cocoa
 import SceneKit
@@ -57,7 +42,7 @@ func buildScene(bounds: CGSize) -> SCNScene {
     let key = SCNLight()
     key.type = .directional
     key.intensity = 1000
-    if SHADOWS_ENABLED {
+    do {
         key.castsShadow = true
         key.shadowMode = .deferred
         key.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.30)
@@ -77,7 +62,7 @@ func buildScene(bounds: CGSize) -> SCNScene {
     ambNode.light = ambient
     scene.rootNode.addChildNode(ambNode)
 
-    if SHADOWS_ENABLED {
+    do {
         // fixed size: large enough for any display the fly may be moved to
         let plane = SCNPlane(width: 6000, height: 6000)
         let m = SCNMaterial()
@@ -92,6 +77,7 @@ func buildScene(bounds: CGSize) -> SCNScene {
     return scene
 }
 
+#if DIAGNOSTICS
 // MARK: - Offscreen render modes
 
 func offscreenRender(_ scene: SCNScene, camNode: SCNNode, size: CGSize, path: String) {
@@ -149,6 +135,8 @@ func runBrainshot(path: String) {
     for node in bs.flashPool { node.removeAllActions() }   // freeze mid-flash
     offscreenRender(bs.scene, camNode: bs.cameraNode, size: CGSize(width: 720, height: 560), path: path)
 }
+
+#endif
 
 // MARK: - Coordinator
 
@@ -812,7 +800,6 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
             t.odorDriveL = Double(labOdorDriveL); t.odorDriveR = Double(labOdorDriveR)
             t.thermoWarmDrive = Double(labThermoWarmDrive); t.thermoCoolDrive = Double(labThermoCoolDrive)
             t.windCDrive = Double(labWindCDrive); t.windEDrive = Double(labWindEDrive)
-            t.tasteSugarDrive = Double(labTasteSugarDrive)
             t.applyReceptorRates(sim)
         }
         t.applyBodyFeedback(bodyFeedback)
@@ -1094,6 +1081,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         lastTime = nil
     }
 
+    #if DIAGNOSTICS
     func advanceV4TimingQuantumForTesting(_ feedback: FlyGymBodyFeedback) -> BrainSignals? {
         simulationLock.lock(); defer { simulationLock.unlock() }
         let s = advanceNeuralQuantum(first: nil, bodyFeedback: feedback,
@@ -1106,6 +1094,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         deterministicLatestSignals = s ?? BrainSignals()
         return s
     }
+    #endif
 }
 
 // MARK: - App
@@ -1487,6 +1476,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 // MARK: - Entry point
 
 let args = CommandLine.arguments
+#if DIAGNOSTICS
 if let i = args.firstIndex(of: "--snapshot") {
     runSnapshot(path: args.count > i + 1 ? args[i + 1] : "preview.png")
     exit(0)
@@ -1497,7 +1487,7 @@ if let i = args.firstIndex(of: "--brainshot") {
 }
 // Suites compare English interface strings; never read the saved language.
 if args.contains(where: { $0.hasSuffix("test") || $0.hasSuffix("loop") }) {
-    LabLanguage.pinEnglishForTests()
+    LabLanguage.pinForTests(.english)
 }
 if args.contains("--observationaudittest") {
     runObservationAuditTest()
@@ -1550,6 +1540,14 @@ if args.contains("--behaviortest") {
 if let i = args.firstIndex(of: "--brainstats") {
     runBrainStats(seconds: args.count > i + 1 ? Int(args[i + 1]) ?? 5 : 5)
 }
+
+#else
+if args.contains(where: { $0.hasPrefix("--") && ($0.hasSuffix("test") || $0.hasSuffix("loop") ||
+    ["--gpucheck", "--simtest", "--brainstats", "--snapshot", "--brainshot", "--envpanelshot", "--inputprobe"].contains($0)) }) {
+    fputs("diagnostics not compiled in\n", stderr)
+    exit(2)
+}
+#endif
 
 let app = NSApplication.shared
 if case .lab = LaunchMode.current {

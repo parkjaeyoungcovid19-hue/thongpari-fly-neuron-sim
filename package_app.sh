@@ -32,14 +32,11 @@ if [[ ! -f "$SOURCE_IMAGE" ]]; then
 fi
 
 mkdir -p "$MACOS" "$RESOURCES" "$ICONSET"
-if [[ ! -x "$ROOT/ThongpariFlyNeuronSim" ]] || \
-   find "$ROOT/Sources" "$ROOT/build.sh" \( -name '*.swift' -o -name '*.metal' -o -name 'build.sh' \) \
-     -newer "$ROOT/ThongpariFlyNeuronSim" -print -quit | grep -q .; then
-  "$ROOT/build.sh"
-else
-  print "Using current ./ThongpariFlyNeuronSim build"
-fi
-cp "$ROOT/ThongpariFlyNeuronSim" "$MACOS/ThongpariFlyNeuronSim"
+# A packaged app always compiles release independently of the dev diagnostic binary.
+(cd "$ROOT" && swiftc -O -wmo -swift-version 5 -Xlinker -dead_strip \
+    -o "$MACOS/ThongpariFlyNeuronSim" Sources/**/*.swift \
+    -framework Cocoa -framework SceneKit -framework Metal)
+strip -x "$MACOS/ThongpariFlyNeuronSim"
 cp "$ROOT/Sources/Brain/LIF.metal" "$RESOURCES/LIF.metal"
 ditto --norsrc --noextattr "$ROOT/data" "$RESOURCES/data"
 

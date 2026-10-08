@@ -1,3 +1,4 @@
+#if DIAGNOSTICS
 // V7.1 audit of existing observation paths. No new runtime observation API.
 import Foundation
 
@@ -77,3 +78,5 @@ func runObservationAuditTest() {
     print("OBSERVATION AUDIT \(failures == 0 ? "PASS" : "FAIL") (\(failures) failures)")
     exit(failures == 0 ? 0 : 1)
 }
+
+#endif

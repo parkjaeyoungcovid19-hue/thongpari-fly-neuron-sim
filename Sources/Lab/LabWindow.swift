@@ -338,14 +338,12 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     private let foodTelemetryLabel = NSTextField(labelWithString: "Food odor — left 0.000 · right 0.000 · nearest source: none")
     private let visionTelemetryLabel = NSTextField(labelWithString: "Vision — expansion L/R 0.000/0.000 · brightness L/R 0.000/0.000")
     private var lastPreset: String?
-    private var eyeButtons: [NSButton] = []
     private var eyeCommandPendingID: Int?
     private var eyeCommandStartedAt: Date?
     private var eyeCommandSide: String?
     private var eyeCommandCovered: Bool?
     private var lastCommandID: Int?
     private var lastCommandAction = "none"
-    private var lastEventReceivedAt: Date?
     private var backendDetail = ""
     private var viewerFrameStale = false
     /// V6.6 undo/redo of applied settings (Edit ▸ Undo, ⌘Z).
@@ -1990,22 +1988,14 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         worldViewerStatusLabel.textColor = .secondaryLabelColor
     }
 
-    private func setEyeButtonsEnabled(_ enabled: Bool) {
-        eyeButtons.forEach { $0.isEnabled = enabled }
-    }
 
     private func clearEyePending() {
         eyeCommandPendingID = nil
         eyeCommandStartedAt = nil
         eyeCommandSide = nil
         eyeCommandCovered = nil
-        setEyeButtonsEnabled(true)
     }
 
-
-    @objc private func quitLab() {
-        NSApp.terminate(nil)
-    }
 
     @objc private func toggleRecording() {
         if recorder.isRecording { stopRecording() }
@@ -2308,13 +2298,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             eyeCommandStartedAt = Date()
             eyeCommandSide = side
             eyeCommandCovered = covered
-            setEyeButtonsEnabled(false)
         }
     }
-    @objc private func coverLeft() { eye("left", covered: true) }
-    @objc private func restoreLeft() { eye("left", covered: false) }
-    @objc private func coverRight() { eye("right", covered: true) }
-    @objc private func restoreRight() { eye("right", covered: false) }
 
     @objc private func applyFlash() {
         let eye = selectedValue(flashEye, fallback: "both")
@@ -3404,6 +3389,7 @@ extension LabWindowController: NSToolbarDelegate {
     }
 }
 
+#if DIAGNOSTICS
 extension LabWindowController {
     /// `--envpanelshot`: draws the real environment page offscreen with a given
     /// owner state. Layout evidence only — not a GUI acceptance test.
@@ -3453,3 +3439,5 @@ extension LabWindowController {
         return (try? png.write(to: url)) != nil
     }
 }
+
+#endif

@@ -71,7 +71,6 @@ final class FlyGymBridge {
     private let labQueueCap = 32
     private let controlQueueCap = 16
     private let rayPickQueueCap = 8
-    private var pendingCount = 0        // packets coalesced since last send
     private var droppedCoalesced: Int = 0
     private var droppedLab: Int = 0
     private var _latestBody: FlyGymBodyFeedback?
@@ -105,11 +104,8 @@ final class FlyGymBridge {
     private(set) var sentCount = 0
     private(set) var recvCount = 0
     private(set) var malformedCount = 0
-    private(set) var connectAttempts = 0
     private(set) var labSentCount = 0
     private(set) var labRecvCount = 0
-    private(set) var controlSentCount = 0
-    private(set) var experimentStepSentCount = 0
     private(set) var experimentStepRecvCount = 0
     private(set) var staleSessionPacketCount = 0
 
@@ -119,7 +115,6 @@ final class FlyGymBridge {
 
     var connected: Bool { lock.lock(); defer { lock.unlock() }; return _connected }
     var connectionGeneration: UInt64 { lock.lock(); defer { lock.unlock() }; return _connectionGeneration }
-    var coalescedDropped: Int { lock.lock(); defer { lock.unlock() }; return droppedCoalesced }
     var labDropped: Int { lock.lock(); defer { lock.unlock() }; return droppedLab }
     var deterministicV4Available: Bool {
         lock.lock(); defer { lock.unlock() }
@@ -322,46 +317,6 @@ final class FlyGymBridge {
         return bodyIntervals.max() ?? .infinity
     }
 
-    var statusLine: String {
-        lock.lock()
-        let c = _connected
-        let sent = sentCount, recv = recvCount, mal = malformedCount
-        let labSent = labSentCount, labRecv = labRecvCount
-        let bodyAge = _latestBody.map { max(0, Date().timeIntervalSince($0.receivedAt)) }
-        let bodyFresh = _latestBody.map {
-            _connected && $0.connectionGeneration == _connectionGeneration
-            && max(0, Date().timeIntervalSince($0.receivedAt)) < FlyGymBridge.bodyFreshMaxAge
-        } ?? false
-        let hz = { () -> Double in
-            guard bodyFresh, self.bodyIntervals.count >= 4 else { return 0 }
-            let span = self.bodyIntervals.reduce(0, +)
-            return span > 0 ? Double(self.bodyIntervals.count) / span : 0
-        }()
-        lock.unlock()
-        if c {
-            let bodyStatus: String
-            if bodyFresh, let age = bodyAge {
-                bodyStatus = String(format: "%.0f Hz, %.0f ms old", hz, age * 1000)
-            } else if let age = bodyAge {
-                bodyStatus = String(format: "STALE, %.2f s old", age)
-            } else {
-                bodyStatus = "waiting"
-            }
-            return "FlyGym connected - brain \(sent), body \(recv) (\(bodyStatus)), lab \(labSent)/\(labRecv), malformed \(mal)"
-        }
-        return "FlyGym disconnected (brain continues locally)"
-    }
-
-    var labStatusLine: String {
-        lock.lock()
-        let connected = _connected
-        let q = pendingLab.count
-        let dropped = droppedLab
-        let ack = _latestLabAck
-        lock.unlock()
-        let a = ack.map { "ack #\($0.id) \($0.ok ? "OK" : "ERR") \($0.message)" } ?? "no ack yet"
-        return "\(connected ? "connected" : "disconnected") · queue \(q)/\(labQueueCap) · dropped \(dropped) · \(a)"
-    }
 
     func start() {
         lock.lock()
@@ -399,7 +354,6 @@ final class FlyGymBridge {
             if pending != nil { droppedCoalesced += 1 }
             pending = data
         }
-        pendingCount += 1
         lock.unlock()
     }
 
@@ -1060,16 +1014,6 @@ final class FlyGymBridge {
                                        connectionGeneration: generation))
             }
             return true
-        case .labAck(var ack):
-            ack.receivedAt = receivedAt
-            ack.connectionGeneration = generation
-            if !matchesRequestedSessionLocked(sessionID: ack.sessionID, epoch: ack.epoch) {
-                staleSessionPacketCount += 1
-                return true
-            }
-            setLatestLabAckLocked(ack)
-            labRecvCount += 1
-            return true
         case .labEvent(var event):
             event.receivedAt = receivedAt
             event.connectionGeneration = generation
@@ -1180,7 +1124,6 @@ final class FlyGymBridge {
             let generation = _connectionGeneration
             lock.unlock()
             if !ok || fd < 0 {
-                lock.lock(); connectAttempts += 1; lock.unlock()
                 let fd2 = openConnection()
                 var closeUnused = false
                 lock.lock()
@@ -1227,9 +1170,9 @@ final class FlyGymBridge {
                     case .lab:
                         labSentCount += 1
                     case .control:
-                        controlSentCount += 1
+                        break
                     case .experimentStep:
-                        experimentStepSentCount += 1
+                        break
                     case .worldRender, .rayPick:
                         break
                     case .playerInput:

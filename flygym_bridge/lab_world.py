@@ -33,7 +33,6 @@ from interaction import (InteractionState, InteractionError, parse_interaction_a
 
 PHYSICAL = "PHYSICAL"
 SENSORY_MODEL = "SENSORY-MODEL"
-DIRECT_NEURAL = "DIRECT-NEURAL"
 
 FAR_POS = (0.0, 0.0, -500.0)
 MAX_OBJECT_ID_LEN = 64
@@ -1737,15 +1736,6 @@ class LabWorld:
             return self.set_eye_state(
                 left_enabled=a.get("left_enabled"), right_enabled=a.get("right_enabled"),
                 left_mask=a.get("left_mask"), right_mask=a.get("right_mask"))
-        if op == "cover_eye":
-            eye = str(a.get("eye", "left")).lower()
-            if eye == "left":
-                return self.set_eye_state(left_mask=1.0)
-            if eye == "right":
-                return self.set_eye_state(right_mask=1.0)
-            if eye == "both":
-                return self.set_eye_state(left_mask=1.0, right_mask=1.0)
-            raise LabError("eye must be left, right, or both")
         if op == "restore_eyes":
             return self.set_eye_state(left_enabled=True, right_enabled=True,
                                       left_mask=0.0, right_mask=0.0)

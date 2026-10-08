@@ -221,10 +221,6 @@ final class FlyGymService {
         }
     }
 
-    func restart() {
-        stop()
-        start()
-    }
 
     /// SIGTERM, then SIGKILL after `grace` seconds; returns once the child is gone.
     func stop(grace: TimeInterval = 3) {

@@ -1,3 +1,4 @@
+#if DIAGNOSTICS
 import Cocoa
 
 func runWorldEditorAppKitChecks(_ check:(String,Bool)->Void) {
@@ -59,3 +60,5 @@ func runWorldEditorAppKitChecks(_ check:(String,Bool)->Void) {
     select("source"); chosen="source"; button("duplicate",selection)?.performClick(nil); select("newer"); chosen="newer"
     selection.accept(ack("object.duplicate","late")); check("late ACK cannot steal newer selection",chosen=="newer")
 }
+
+#endif

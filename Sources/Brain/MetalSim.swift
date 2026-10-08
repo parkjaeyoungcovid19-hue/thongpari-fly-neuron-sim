@@ -405,7 +405,6 @@ final class MetalSim {
         let b = shared.weightFx
         return UnsafePointer(b.contents().bindMemory(to: Int32.self, capacity: b.length / 4))
     }
-    private(set) var avgStepMicros: Double = 0   // EMA of wall microseconds per step
     var debugParams: SimParams { p }
     /// Sim-time interval between throughput log lines; 0 disables (tests do that).
     var perfLogIntervalMs = 30_000
@@ -486,7 +485,7 @@ final class MetalSim {
 
         // ---- per-neuron state: group membership and input routing -------------
         // The seeded values (resting drive, gait phase) go straight into their
-        // buffers in applySeed() below, which setSeed() reuses to reseed a live sim.
+        // buffers in applySeed() below, which reset() reuses.
         var inputKind = [UInt8](repeating: 0, count: n)
         var groupOf = [UInt8](repeating: 0, count: n)
         classRange = c.superClassNames.map { params.baselineByClass[$0] ?? params.baselineFallback }
@@ -851,8 +850,6 @@ final class MetalSim {
         let micros = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1000
         logWallMicros += micros
         logSteps += k
-        let per = micros / Double(k)
-        avgStepMicros = avgStepMicros == 0 ? per : avgStepMicros + (per - avgStepMicros) * 0.1
     }
 
     // MARK: - Test hooks
@@ -889,14 +886,9 @@ final class MetalSim {
         indices.compactMap { i in (i >= 0 && i < n) ? extPtr[i] : nil }
     }
 
-    /// Reseeds every random stream: per-neuron baselines, gait phase offsets, the
-    /// membrane-noise draw and the arousal-burst schedule. Membrane state is left
-    /// alone; call it right after init for a deterministic run.
-    func setSeed(_ s: UInt32) { applySeed(s) }
-
     /// Full experiment reset: clear dynamic neuron/synapse state, stimulation,
     /// population-rate history and sensory inputs, then reseed the baseline/noise
-    /// streams. This is intentionally separate from `setSeed`, which preserves
+    /// streams. This resets
     /// membrane state for diagnostics. Call only between `step()` calls on the
     /// simulation-owner thread.
     func reset(seed s: UInt32? = nil) {
@@ -931,7 +923,6 @@ final class MetalSim {
         lastSpikeCount = 0
         lastGroupCounts = [UInt32](repeating: 0, count: Group.slots)
         logSteps = 0; logSpikes = 0; logWallMicros = 0
-        avgStepMicros = 0
         let newSeed = s ?? seed
         applySeed(newSeed)
         logNextMs = perfLogIntervalMs

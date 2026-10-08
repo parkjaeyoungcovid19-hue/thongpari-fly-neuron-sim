@@ -1,3 +1,4 @@
+#if DIAGNOSTICS
 import Cocoa
 
 /// Headless owner-boundary, projection, and Cocoa draft checks. No GPU/listener.
@@ -174,3 +175,5 @@ private func runRampEditorChecks(_ check: (String, Bool) -> Void, caps: Environm
     check("full slot pool explained in words, not the raw backend reason",
           state.isError && !state.message.contains("no free") && state.message.contains(L("slot", "자리")))
 }
+
+#endif

@@ -16,20 +16,9 @@ enum ExperimentRecorderStopOutcome {
         return false
     }
 
-    var path: String? {
-        switch self {
-        case .saved(let path): return path
-        case .failed(let path, _), .notRecording(let path): return path
-        }
-    }
 
-    var message: String {
-        switch self {
-        case .saved(let path): return "saved: \(path)"
-        case .failed(_, let message): return message
-        case .notRecording: return "not recording"
-        }
-    }
+
+
 }
 
 private enum ExperimentRecorderTestError: LocalizedError {

@@ -23,16 +23,14 @@ class LocomotorCommand:
     tempo: float = 1.0        # 0.2..2.0 modeled physiology / controller cadence scale
 
 # Engineering gains (approximation, see module docstring).
-WALK_GAIN = 1.0
-TURN_GAIN = 1.0
 ESCAPE_BOOST = 0.6
 
 def decode(brain) -> LocomotorCommand:
     """Map a BrainPacket (or dict-like) to a LocomotorCommand."""
     g = lambda k, d=0.0: float(getattr(brain, k, brain.get(k, d)) if isinstance(brain, dict) else getattr(brain, k, d))
     b = lambda k, d=False: bool(getattr(brain, k, brain.get(k, d)) if isinstance(brain, dict) else getattr(brain, k, d))
-    walk = max(0.0, min(1.3, g("walk"))) * WALK_GAIN
-    turn = max(-1.0, min(1.0, g("turn"))) * TURN_GAIN
+    walk = max(0.0, min(1.3, g("walk")))
+    turn = max(-1.0, min(1.0, g("turn")))
     escape = b("escape")
     backward = b("backward")
     sleep = b("sleep")

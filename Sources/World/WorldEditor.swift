@@ -193,12 +193,7 @@ struct WorldEditorProjection {
         guard length2 > 0.04 else { return nil }
         return (pixels.x*dx + pixels.y*dy)/length2
     }
-    func ray(at p: NSPoint) -> WorldViewerRay {
-        let x = (Double(p.x)-Double(viewport.width)/2)/focal
-        let y = (Double(p.y)-Double(viewport.height)/2)/focal
-        return WorldViewerRay(originMM: camera.positionMM,
-                              direction: Self.unit((0..<3).map { forward[$0]+right[$0]*x+up[$0]*y }))
-    }
+
 }
 
 /// Polling cannot overwrite dirty fields or turn an ACK into optimistic geometry.

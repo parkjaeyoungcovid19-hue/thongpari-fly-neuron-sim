@@ -1,3 +1,4 @@
+#if DIAGNOSTICS
 // LabDiagnostics.swift — `--labtest`: headless Virtual Fly Lab protocol,
 // presentation and input checks (no socket, no backend).
 import Foundation
@@ -796,8 +797,8 @@ func runLabTest() {
     // V5.5.1 one-window state: every ACK reaches the timeline exactly once.
     let ackBridge = FlyGymBridge()
     let ackGeneration = ackBridge.beginConnectionForTesting()
-    for line in [#"{"type":"lab_ack","id":1,"ok":true,"action":"spawn_box","message":"ok","applied_tick":20}"#,
-                 #"{"type":"lab_ack","id":2,"ok":false,"action":"move_object","message":"unknown target"}"#,
+    for line in [#"{"type":"lab_state","ack":1,"ok":true,"last_action":"spawn_box","message":"ok","applied_tick":20}"#,
+                 #"{"type":"lab_state","ack":2,"ok":false,"last_action":"move_object","error":"unknown target"}"#,
                  #"{"type":"lab_state","t":0.1,"ack":2,"ok":false,"error":"unknown target"}"#,
                  #"{"type":"lab_state","t":0.2,"ack":2,"ok":false,"error":"unknown target"}"#] {
         _ = ackBridge.receiveLineForTesting(Data(line.utf8))
@@ -1545,3 +1546,5 @@ private func runSandboxToyChecks(_ report: (String, Bool, String) -> Void) {
           && (trapBox?.firstMaterial?.transparency ?? 1) < 1,
           "car=\(String(describing: carBox)) trap=\(String(describing: trapBox))")
 }
+
+#endif

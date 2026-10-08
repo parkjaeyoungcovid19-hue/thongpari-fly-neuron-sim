@@ -34,7 +34,6 @@ struct EnvironmentSettingQueue {
     private(set) var isError = false
     /// The property `message` is about, so it is shown under its own section.
     private(set) var messagePropertyID: String?
-    private(set) var sentCount = 0
 
     var isBusy: Bool { inFlight != nil || !waiting.isEmpty }
 
@@ -89,7 +88,6 @@ struct EnvironmentSettingQueue {
             commandID: commandID, identity: identity, schedule: schedule,
             request: EnvironmentSettingRequest(propertyID: edit.propertyID, value: edit.value),
             expectedRevision: edit.expectedRevision, startedAt: now)
-        sentCount += 1
         isError = false
         message = L("Sending…", "보내는 중…")
         messagePropertyID = edit.propertyID

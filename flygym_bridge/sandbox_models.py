@@ -88,14 +88,6 @@ def quat_axis(axis, angle_rad):
     return (math.cos(angle_rad * 0.5), x * s, y * s, z * s)
 
 
-def quat_mul(a, b):
-    aw, ax, ay, az = a
-    bw, bx, by, bz = b
-    return (aw * bw - ax * bx - ay * by - az * bz,
-            aw * bx + ax * bw + ay * bz - az * by,
-            aw * by - ax * bz + ay * bw + az * bx,
-            aw * bz + ax * by - ay * bx + az * bw)
-
 
 def ball(pos, r, rgba, collide=True):
     return Part(ELLIPSOID, tuple(pos), (r, r, r), rgba, collide=collide)

@@ -523,12 +523,5 @@ struct WorkspaceSnapshot: Equatable {
         }
     }
 
-    var sessionLine: String {
-        "\(session.mode.rawValue) · \(session.phase.rawValue) · \(session.sessionID.prefix(8)) / e\(session.epoch) / t\(session.simTick)"
-    }
 
-    var statusLine: String {
-        let pending = pendingCommands > 0 ? L(" · \(pendingCommands) pending", " · 대기 \(pendingCommands)건") : ""
-        return "\(connection.title) · \(sessionLine)\(pending) · \(recording.line)"
-    }
 }

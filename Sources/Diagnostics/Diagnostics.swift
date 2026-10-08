@@ -1,3 +1,4 @@
+#if DIAGNOSTICS
 // Diagnostics.swift — `--brainstats [seconds]`: what the whole-brain sim is
 // actually doing at rest. Steps 1 ms at a time so `lastStepSpikes()` yields a
 // per-neuron spike count, then slices it every way the tuning pass needs
@@ -237,3 +238,5 @@ func runBrainStats(seconds: Int) {
     }
     exit(0)
 }
+
+#endif

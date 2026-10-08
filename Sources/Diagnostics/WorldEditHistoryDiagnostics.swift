@@ -1,3 +1,4 @@
+#if DIAGNOSTICS
 import Cocoa
 
 /// V6.6 undo/redo history: recording from owner ACKs, coalescing, the
@@ -211,3 +212,5 @@ func runWorldEditHistoryChecks(_ check: (String, Bool) -> Void, caps: Environmen
     window.undo(nil)
     check("V6.6 typing still being edited keeps the field's own undo", typing.undone && routed.isEmpty)
 }
+
+#endif

@@ -13,10 +13,4 @@ class BoxObstacle:
 
 @dataclass
 class ArenaConfig:
-    floor_friction: float = 1.0
-    gravity: list = field(default_factory=lambda: [0.0, 0.0, -9.81])
-    sim_speed: float = 1.0
     box_obstacle: BoxObstacle = field(default_factory=BoxObstacle)
-    render_width: int = 480
-    render_height: int = 360
-    render_fps: int = 20

@@ -362,14 +362,6 @@ func parseLabStateLine(_ line: Data) -> LabRemoteState? {
     (try? JSONDecoder().decode(FlyGymTaggedPacket<LabRemoteState>.self, from: line))?.packet
 }
 
-extension LabAck: FlyGymWirePacket {
-    fileprivate static var wireType: String { "lab_ack" }
-}
-
-func parseLabAckLine(_ line: Data) -> LabAck? {
-    (try? JSONDecoder().decode(FlyGymTaggedPacket<LabAck>.self, from: line))?.packet
-}
-
 extension LabEventNotice: FlyGymWirePacket {
     fileprivate static var wireType: String { "lab_event" }
 }
@@ -397,27 +389,12 @@ func parsePlayerInputResultLine(_ line: Data) -> PlayerInputResult? {
 extension FlyGymHelloPacket: FlyGymWirePacket {
     fileprivate static var wireType: String { "hello" }
 }
-
-func parseHelloLine(_ line: Data) -> FlyGymHelloPacket? {
-    (try? JSONDecoder().decode(FlyGymTaggedPacket<FlyGymHelloPacket>.self, from: line))?.packet
-}
-
 extension FlyGymSessionStatePacket: FlyGymWirePacket {
     fileprivate static var wireType: String { "session_state" }
 }
-
-func parseSessionStateLine(_ line: Data) -> FlyGymSessionStatePacket? {
-    (try? JSONDecoder().decode(FlyGymTaggedPacket<FlyGymSessionStatePacket>.self, from: line))?.packet
-}
-
 extension FlyGymExperimentStepResultPacket: FlyGymWirePacket {
     fileprivate static var wireType: String { "experiment_step_result" }
 }
-
-func parseExperimentStepResultLine(_ line: Data) -> FlyGymExperimentStepResultPacket? {
-    (try? JSONDecoder().decode(FlyGymTaggedPacket<FlyGymExperimentStepResultPacket>.self, from: line))?.packet
-}
-
 extension WorldRenderSnapshot: FlyGymWirePacket {
     fileprivate static var wireType: String { "world_render_snapshot" }
 }
@@ -438,7 +415,6 @@ func parseRayPickResultLine(_ line: Data) -> RayPickResult? {
 enum FlyGymInboundPacket: Decodable {
     case body(FlyGymBodyPacket)
     case labState(LabRemoteState)
-    case labAck(LabAck)
     case labEvent(LabEventNotice)
     case playerInputResult(PlayerInputResult)
     case hello(FlyGymHelloPacket)
@@ -452,7 +428,6 @@ enum FlyGymInboundPacket: Decodable {
         switch try container.decode(String.self, forKey: .type) {
         case FlyGymBodyPacket.wireType: self = .body(try FlyGymBodyPacket(from: decoder))
         case LabRemoteState.wireType: self = .labState(try LabRemoteState(from: decoder))
-        case LabAck.wireType: self = .labAck(try LabAck(from: decoder))
         case LabEventNotice.wireType: self = .labEvent(try LabEventNotice(from: decoder))
         case PlayerInputResult.wireType: self = .playerInputResult(try PlayerInputResult(from: decoder))
         case FlyGymHelloPacket.wireType: self = .hello(try FlyGymHelloPacket(from: decoder))

@@ -17,17 +17,6 @@ enum PlayerControlAction: String, CaseIterable, Codable {
     case gun
     case fire
 
-    var title: String {
-        switch self {
-        case .forward: return "Forward"
-        case .backward: return "Backward"
-        case .left: return "Left"
-        case .right: return "Right"
-        case .interact: return "Interact"
-        case .gun: return "Gun"
-        case .fire: return "Fire"
-        }
-    }
 
     var isToolTrigger: Bool { self == .gun || self == .fire }
 }

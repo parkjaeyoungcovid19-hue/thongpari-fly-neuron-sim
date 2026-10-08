@@ -27,7 +27,6 @@ final class MuJoCoFrameStream {
     private var frameDeliveryScheduled = false
     private(set) var framesReplaced = 0
     var onFrame: ((CGImage) -> Void)?
-    var onConnectionChange: ((Bool) -> Void)?
 
     init(port: UInt16) { self.port = port }
 
@@ -99,13 +98,11 @@ final class MuJoCoFrameStream {
             if pendingView == nil { pendingView = lastSentView }
             lastSentView = nil
             lock.unlock()
-            DispatchQueue.main.async { self.onConnectionChange?(true) }
             writeQueue.async { [weak self] in self?.flushView() }
             readFrames(socket)
             lock.lock()
             if fd == socket { fd = -1; Darwin.close(socket) }
             lock.unlock()
-            DispatchQueue.main.async { self.onConnectionChange?(false) }
             if isRunning { Thread.sleep(forTimeInterval: 0.5) }
         }
     }

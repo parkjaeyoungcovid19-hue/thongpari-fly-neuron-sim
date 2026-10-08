@@ -1,3 +1,4 @@
+#if DIAGNOSTICS
 import Cocoa
 
 /// V6.5 environment panel: applied-state decoding, the bounded send queue,
@@ -302,3 +303,5 @@ func runEnvironmentPanelShot(directory: String) {
     }
     exit(ok ? 0 : 1)
 }
+
+#endif

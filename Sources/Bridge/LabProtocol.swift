@@ -492,7 +492,7 @@ struct PlayerInputResult: Decodable, FlyGymStampedPacket {
 }
 
 /// Python -> Swift acknowledgement for one LabCommand.
-struct LabAck: Decodable, FlyGymStampedPacket {
+struct LabAck: FlyGymStampedPacket {
     var type: String = "lab_ack"
     var id: Int = 0
     var ok: Bool = false
@@ -510,13 +510,7 @@ struct LabAck: Decodable, FlyGymStampedPacket {
     var receivedAt: Date = Date()
     var connectionGeneration: UInt64 = 0
 
-    enum CodingKeys: String, CodingKey {
-        case type, id, ok, action, message, status, epoch
-        case appliedTick = "applied_tick"
-        case appliedEpoch = "applied_epoch"
-        case sessionID = "session_id"
-        case simTick = "sim_tick"
-    }
+
 }
 
 /// V5.6 `lab_event.data` fields. Every field is optional and a malformed payload
@@ -593,11 +587,6 @@ struct LabEventNotice: Decodable, FlyGymStampedPacket {
         detail = try? c.decodeIfPresent(LabEventDetail.self, forKey: .detail)
     }
 
-    init(type: String = "lab_event", event: String = "", detail: LabEventDetail? = nil) {
-        self.type = type
-        self.event = event
-        self.detail = detail
-    }
 
     /// Recorder line, independent of UI language: the backend's event name,
     /// then each decoded field under its wire key, `reason` last since it may
@@ -823,9 +812,6 @@ struct LabRemoteState: Decodable, FlyGymStampedPacket {
     var objectCount: Int?
     // `worldState` is the authoritative nested backend state. The optional
     // flat fields remain decode-compatible with short-lived V4 development builds.
-    var objects: [LabWorldObjectRemote]?
-    var slotCapacity: [String: Int]?
-    var slotFree: [String: Int]?
     var worldState: LabRemoteWorldState?
     var temperature: Double?
     var wind: Double?
@@ -847,9 +833,6 @@ struct LabRemoteState: Decodable, FlyGymStampedPacket {
     enum CodingKeys: String, CodingKey {
         case type, t, ack, ok, error, temperature, wind, status, epoch, edit, scene
         case objectCount = "object_count"
-        case objects
-        case slotCapacity = "slot_capacity"
-        case slotFree = "slot_free"
         case worldState = "state"
         case leftEyeCovered = "left_eye_covered"
         case rightEyeCovered = "right_eye_covered"
@@ -869,9 +852,6 @@ struct LabRemoteState: Decodable, FlyGymStampedPacket {
         ok = try c.decodeIfPresent(Bool.self, forKey: .ok)
         error = try c.decodeIfPresent(String.self, forKey: .error)
         objectCount = try c.decodeIfPresent(Int.self, forKey: .objectCount)
-        objects = try c.decodeIfPresent([LabWorldObjectRemote].self, forKey: .objects)
-        slotCapacity = try c.decodeIfPresent([String: Int].self, forKey: .slotCapacity)
-        slotFree = try c.decodeIfPresent([String: Int].self, forKey: .slotFree)
         worldState = try c.decodeIfPresent(LabRemoteWorldState.self, forKey: .worldState)
         temperature = try c.decodeIfPresent(Double.self, forKey: .temperature)
         wind = try c.decodeIfPresent(Double.self, forKey: .wind)
@@ -891,9 +871,9 @@ struct LabRemoteState: Decodable, FlyGymStampedPacket {
         scene = try c.decodeIfPresent(SceneResult.self, forKey: .scene)
     }
 
-    var authoritativeObjects: [LabWorldObjectRemote]? { objects ?? worldState?.objects }
-    var authoritativeSlotCapacity: [String: Int]? { slotCapacity ?? worldState?.slotCapacity }
-    var authoritativeSlotFree: [String: Int]? { slotFree ?? worldState?.slotFree }
+    var authoritativeObjects: [LabWorldObjectRemote]? { worldState?.objects }
+    var authoritativeSlotCapacity: [String: Int]? { worldState?.slotCapacity }
+    var authoritativeSlotFree: [String: Int]? { worldState?.slotFree }
 }
 
 // MARK: - V5.1 atomic world render / picking protocol
@@ -1263,7 +1243,6 @@ struct LabTelemetry {
     // V5.6.2 identified sugar GRNs (input) and MN9 (read-only), root-ID groups.
     var rateSugarGRN: Double = 0
     var rateMN9: Double = 0
-    var tasteSugarDrive: Double = 0
     var loomL: Double = 0
     var loomR: Double = 0
     var airPuff: Double = 0

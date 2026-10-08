@@ -57,7 +57,7 @@ Swift sources live under `Sources/<area>/` (`App`, `Brain`, `Bridge`, `Lab`,
 ## Build, run, verify
 
 ```sh
-./build.sh                      # bare swiftc, -swift-version 5, no Xcode project (never xcodebuild)
+./build.sh                      # swiftc -O -wmo, DIAGNOSTICS, dead_strip; no Xcode project
 ./ThongpariFlyNeuronSim                    # menu-bar 🪰; quit from there
 ./ThongpariFlyNeuronSim --simtest          # sim invariants + throughput bench        (~10 s)
 ./ThongpariFlyNeuronSim --behaviortest     # 17 end-to-end sim→body checks            (~2 s)
@@ -254,3 +254,7 @@ behavior (`signals: nil` path).
 Environment capability diagnostics apply `fixtures/environment_capabilities/mutations.json`
 to the current `valid.json`; `valid-boundaries.json` remains explicit. The bridge
 max-pool framing fixture is generated in Swift, rather than stored as NDJSON.
+
+`package_app.sh` compiles and strips its own release binary without `DIAGNOSTICS`.
+Diagnostic flags in release exit 2 before application startup. Development
+builds retain all documented diagnostic flags.

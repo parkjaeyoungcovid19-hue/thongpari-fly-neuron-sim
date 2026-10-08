@@ -1,3 +1,4 @@
+#if DIAGNOSTICS
 // BridgeDiagnostics.swift — bridge contract and live transport diagnostics.
 import Foundation
 import Cocoa
@@ -829,7 +830,7 @@ func runBridgeTest() {
           String(format: "%.1f Hz", freshBridge.bodyHz))
 
     let stateLine = #"{"type":"lab_state","t":1.25,"ack":7,"ok":true,"object_count":1,"last_action":"spawn_sphere"}"#
-    let ackLine = #"{"type":"lab_ack","id":8,"ok":true,"action":"wind","message":"ok"}"#
+    let ackLine = #"{"type":"lab_state","ack":8,"ok":true,"last_action":"wind","message":"ok"}"#
     let eventLine = #"{"type":"lab_event","event":"wind_started"}"#
     _ = freshBridge.receiveLineForTesting(Data(stateLine.utf8), at: recvNow)
     _ = freshBridge.receiveLineForTesting(Data(ackLine.utf8), at: recvNow)
@@ -1004,12 +1005,12 @@ func runBridgeTest() {
     _ = v4Filter.sendSessionControl(action: "begin", sessionID: "strict-v4",
                                     epoch: 2, simTick: 0, mode: .deterministic)
     let staleBefore = v4Filter.staleSessionPacketCount
-    _ = v4Filter.receiveLineForTesting(Data(#"{"type":"lab_ack","id":31,"ok":true,"action":"touch","message":"legacy"}"#.utf8))
-    _ = v4Filter.receiveLineForTesting(Data(#"{"type":"lab_ack","id":32,"ok":true,"action":"touch","message":"old","session_id":"strict-v4","epoch":1,"applied_epoch":1,"applied_tick":0}"#.utf8))
+    _ = v4Filter.receiveLineForTesting(Data(#"{"type":"lab_state","ack":31,"ok":true,"last_action":"touch","message":"legacy"}"#.utf8))
+    _ = v4Filter.receiveLineForTesting(Data(#"{"type":"lab_state","ack":32,"ok":true,"last_action":"touch","message":"old","session_id":"strict-v4","epoch":1,"applied_epoch":1,"applied_tick":0}"#.utf8))
     check("deterministic ACK requires current session + epoch",
           v4Filter.latestLabAck() == nil
           && v4Filter.staleSessionPacketCount == staleBefore + 2)
-    _ = v4Filter.receiveLineForTesting(Data(#"{"type":"lab_ack","id":33,"ok":true,"action":"touch","message":"ok","status":"applied","session_id":"strict-v4","epoch":2,"applied_epoch":2,"applied_tick":0,"sim_tick":0}"#.utf8))
+    _ = v4Filter.receiveLineForTesting(Data(#"{"type":"lab_state","ack":33,"ok":true,"last_action":"touch","message":"ok","status":"applied","session_id":"strict-v4","epoch":2,"applied_epoch":2,"applied_tick":0,"sim_tick":0}"#.utf8))
     check("current-epoch deterministic ACK accepted",
           v4Filter.latestLabAck()?.id == 33 && v4Filter.latestLabAck()?.appliedEpoch == 2)
     _ = v4Filter.sendSessionControl(action: "reset", sessionID: "strict-v4",
@@ -1020,13 +1021,13 @@ func runBridgeTest() {
           v4Filter.latestSessionState()?.epoch == 3
           && v4Filter.latestSessionState()?.state == "paused")
     let staleAfterReset = v4Filter.staleSessionPacketCount
-    _ = v4Filter.receiveLineForTesting(Data(#"{"type":"lab_ack","id":35,"ok":true,"action":"touch","message":"late epoch 2","session_id":"strict-v4","epoch":2,"applied_epoch":2,"applied_tick":20}"#.utf8))
+    _ = v4Filter.receiveLineForTesting(Data(#"{"type":"lab_state","ack":35,"ok":true,"last_action":"touch","message":"late epoch 2","session_id":"strict-v4","epoch":2,"applied_epoch":2,"applied_tick":20}"#.utf8))
     check("old epoch ACK rejected after reset epoch promotion",
           v4Filter.latestLabAck() == nil
           && v4Filter.staleSessionPacketCount == staleAfterReset + 1)
     v4Filter.disconnectForTesting()
     let v4Gen2 = v4Filter.beginConnectionForTesting()
-    _ = v4Filter.receiveLineForTesting(Data(#"{"type":"lab_ack","id":34,"ok":true,"action":"touch","message":"after reconnect","status":"applied","session_id":"strict-v4","epoch":3,"applied_epoch":3,"applied_tick":0,"sim_tick":0}"#.utf8))
+    _ = v4Filter.receiveLineForTesting(Data(#"{"type":"lab_state","ack":34,"ok":true,"last_action":"touch","message":"after reconnect","status":"applied","session_id":"strict-v4","epoch":3,"applied_epoch":3,"applied_tick":0,"sim_tick":0}"#.utf8))
     check("reconnect generation does not become simulation epoch",
           v4Gen2 == v4Gen1 + 1 && v4Filter.latestLabAck()?.id == 34
           && v4Filter.latestLabAck()?.epoch == 3)
@@ -1929,3 +1930,5 @@ func runInputProbe() {
     fg.stop()
     exit(0)
 }
+
+#endif

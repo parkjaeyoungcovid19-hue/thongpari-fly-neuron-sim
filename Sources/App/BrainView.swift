@@ -93,16 +93,8 @@ func buildBrainScene(connectome: Connectome, sim: MetalSim) -> BrainScene {
     var ccols: [SIMD4<Float>] = []
     for i in connectome.roleIndices.dropFirst().joined() {   // [0] is "other"
         cpts.append(sim.positions[i])
-        switch sim.roles[i] {
-        case "lc4", "lplc2":  ccols.append(SIMD4(0.15, 0.85, 1.0, 1))
-        case "dna01", "dna02": ccols.append(SIMD4(1.0, 0.55, 0.10, 1))
-        case "mdn":           ccols.append(SIMD4(1.0, 0.20, 0.80, 1))
-        case "dnp09":         ccols.append(SIMD4(0.25, 1.0, 0.35, 1))
-        case "dng11":         ccols.append(SIMD4(0.75, 0.55, 1.0, 1))
-        case "escw":          ccols.append(SIMD4(1.0, 0.35, 0.25, 1))
-        case "gf":            ccols.append(SIMD4(1.0, 0.95, 0.4, 1))
-        default:              ccols.append(SIMD4(0.45, 0.45, 0.50, 1))   // ascend / sens
-        }
+        let color = NeuronGuide.roleColor(sim.roles[i])
+        ccols.append(SIMD4(Float(color.redComponent), Float(color.greenComponent), Float(color.blueComponent), 1))
     }
     group.addChildNode(SCNNode(geometry: pointCloud(positions: cpts, colors: ccols, rMin: 1.6, rMax: 2.6)))
 
@@ -236,7 +228,7 @@ final class BrainWindowController {
     /// strength, duration ms) so a host such as the Lab can record the direct
     /// neural intervention. The stimulation itself happens here either way.
     var onStimulate: (([Int], Float, Int) -> Void)?
-    var onClickStimulus: (([Int], String, Float, Int) -> Void)?
+    var onPick: ((BrainPick) -> Void)?
     private let stimRing: SCNNode
     private let label = NSTextField(labelWithString: "")
     private var labelHider: DispatchWorkItem?
@@ -310,6 +302,13 @@ final class BrainWindowController {
         let b = group.simdConvertPosition(SIMD3<Float>(Float(far.x), Float(far.y), Float(far.z)), from: nil)
         let d = simd_normalize(b - a)
 
+        if let pick = pick(rayOrigin: a, direction: d) {
+            onPick?(pick)
+            stimulate(pick)
+        }
+    }
+
+    func pick(rayOrigin a: SIMD3<Float>, direction d: SIMD3<Float>) -> BrainPick? {
         // Nearest neuron to the click ray. A ray through the slab grazes hundreds
         // of somas, so break the near-tie towards the camera: 0.002 x depth is
         // worth about a 0.2-unit miss, i.e. a few pixels.
@@ -321,7 +320,7 @@ final class BrainWindowController {
             let score = simd_length_squared(ap - t * d) + t * 0.002
             if score < bestScore { bestScore = score; best = i }
         }
-        guard best >= 0 else { return }
+        guard best >= 0 else { return nil }
         let anchor = sim.positions[best]
 
         // its neighbourhood: 139k neurons, so measure once and sort the shortlist
@@ -333,15 +332,18 @@ final class BrainWindowController {
         neigh.sort { $0.d < $1.d }
         let picked = neigh.prefix(PICK_MAX).map { $0.i }   // never empty: the anchor is in it
 
+        return BrainPick(indices: picked, anchor: anchor, name: regionName(for: picked))
+    }
+
+    func stimulate(_ pick: BrainPick) {
+        let picked = pick.indices
         let strength: Float = 0.25, durationMs = 400
         onStimulate?(picked, strength, durationMs)
         for k in stride(from: 0, to: picked.count, by: max(1, picked.count / 24)) {
-            driver.flash(neuron: picked[k], isGF: false)   // light the whole ball, not its core
+            driver.flash(neuron: picked[k], isGF: false)
         }
-        flashRing(at: anchor)
-        let name = regionName(for: picked)
-        showLabel(name)
-        onClickStimulus?(picked, name, strength, durationMs)
+        flashRing(at: pick.anchor)
+        showLabel(pick.name)
     }
 
     /// A role population is 2-210 neurons out of 139k, so it never wins a plain
@@ -406,4 +408,11 @@ final class BrainWindowController {
         let vis = screen.visibleFrame
         panel.setFrameOrigin(NSPoint(x: vis.maxX - size.width - 18, y: vis.minY + 18))
     }
+}
+
+/// A read-only result; selecting it never enqueues neural current.
+struct BrainPick {
+    let indices: [Int]
+    let anchor: SIMD3<Float>
+    let name: String
 }

@@ -13,8 +13,11 @@ struct NeuronGroupInfo {
     /// Identifier passed to Coordinator.labStimulatePopulation; nil for
     /// legend-only rows.
     let stimulusID: String?
+    var indices: (MetalSim) -> [Int] = { _ in [] }
     /// Role slugs from the connectome manifest that belong to this row.
     let roles: [String]
+    var overlayRoles: [String] = []
+    var clusterNames: (en: String, ko: String)? = nil
     let nameEN: String
     let nameKO: String
     let whatEN: String
@@ -37,102 +40,104 @@ enum NeuronGuide {
 
     /// Stimulation menu order; legend rows follow the same order.
     static let groups: [NeuronGroupInfo] = [
-        .init(stimulusID: "GF", roles: ["gf"],
+        .init(stimulusID: "GF", indices: { $0.gf }, roles: ["gf"],
               nameEN: "Giant Fiber (GF)", nameKO: "비상 탈출 (GF, 거대섬유)",
               whatEN: "Emergency escape: when danger looms, it fires once and launches a jump away.",
               whatKO: "위험이 닥치면 한 번에 신호를 보내 즉시 점프해 도망치게 합니다.",
               color: rgb(1.0, 0.95, 0.4)),
-        .init(stimulusID: "DNa-left", roles: [],
+        .init(stimulusID: "DNa-left", indices: { $0.dnaL }, roles: [], overlayRoles: ["dna01", "dna02"],
+              clusterNames: ("Steering neurons (DNa01/02)", "방향 조종 뉴런 (DNa01/02)"),
               nameEN: "Turn left (DNa, left)", nameKO: "왼쪽으로 돌기 (DNa 왼쪽)",
               whatEN: "Steering: more activity on the left side turns the fly to the left.",
               whatKO: "방향 조종 뉴런입니다. 왼쪽이 더 활발하면 몸이 왼쪽으로 돕니다.",
               color: steerColor),
-        .init(stimulusID: "DNa-right", roles: [],
+        .init(stimulusID: "DNa-right", indices: { $0.dnaR }, roles: [],
               nameEN: "Turn right (DNa, right)", nameKO: "오른쪽으로 돌기 (DNa 오른쪽)",
               whatEN: "Steering: more activity on the right side turns the fly to the right.",
               whatKO: "방향 조종 뉴런입니다. 오른쪽이 더 활발하면 몸이 오른쪽으로 돕니다.",
               color: steerColor),
-        .init(stimulusID: "MDN", roles: ["mdn"],
+        .init(stimulusID: "MDN", indices: { $0.mdn }, roles: ["mdn"],
               nameEN: "Walk backward (MDN)", nameKO: "뒤로 걷기 (MDN, 문워커)",
               whatEN: "“Moonwalker” neurons: a strong burst makes the fly back up, e.g. at a dead end.",
               whatKO: "‘문워커’ 뉴런입니다. 강하게 켜지면 막다른 곳에서처럼 뒷걸음질합니다.",
               color: rgb(1.0, 0.20, 0.80)),
-        .init(stimulusID: "DNp09", roles: ["dnp09"],
+        .init(stimulusID: "DNp09", indices: { $0.fwd }, roles: ["dnp09"],
               nameEN: "Walk forward (DNp09)", nameKO: "앞으로 걷기 (DNp09)",
               whatEN: "Walking command: sets whether the fly walks and how fast.",
               whatKO: "걷기 명령 뉴런입니다. 걸을지 말지와 걷는 속도를 정합니다.",
               color: rgb(0.25, 1.0, 0.35)),
-        .init(stimulusID: "DNg11", roles: ["dng11"],
+        .init(stimulusID: "DNg11", indices: { $0.groom }, roles: ["dng11"],
               nameEN: "Grooming (DNg11)", nameKO: "몸 손질 (DNg11, 그루밍)",
               whatEN: "Grooming command: the urge to clean the body with the legs.",
               whatKO: "다리로 몸을 닦는 ‘손질’ 행동을 하게 하는 뉴런입니다.",
               color: rgb(0.75, 0.55, 1.0)),
-        .init(stimulusID: "escW", roles: ["escw"],
+        .init(stimulusID: "escW", indices: { $0.escw }, roles: ["escw"],
               nameEN: "Escape wings (DNp02/04/11)", nameKO: "도망 날갯짓 (DNp02/04/11)",
               whatEN: "Wing effort during escape and take-off; also raises the wings under threat.",
               whatKO: "도망치거나 날아오를 때 날개를 움직이게 하는 뉴런입니다.",
               color: rgb(1.0, 0.35, 0.25)),
-        .init(stimulusID: "LC4/LPLC2-left", roles: [],
+        .init(stimulusID: "LC4/LPLC2-left", indices: { $0.loomLeft }, roles: [],
               nameEN: "Looming, left eye (LC4/LPLC2)", nameKO: "다가오는 물체 감지 — 왼쪽 눈 (LC4/LPLC2)",
               whatEN: "Visual danger detector: fires when something grows quickly in the left eye.",
               whatKO: "왼쪽 눈에 무언가 빠르게 커지면(부딪힐 듯 다가오면) 반응하는 시각 뉴런입니다.",
               color: loomColor),
-        .init(stimulusID: "LC4/LPLC2-right", roles: [],
+        .init(stimulusID: "LC4/LPLC2-right", indices: { $0.loomRight }, roles: [],
               nameEN: "Looming, right eye (LC4/LPLC2)", nameKO: "다가오는 물체 감지 — 오른쪽 눈 (LC4/LPLC2)",
               whatEN: "Visual danger detector: fires when something grows quickly in the right eye.",
               whatKO: "오른쪽 눈에 무언가 빠르게 커지면 반응하는 시각 뉴런입니다.",
               color: loomColor),
-        .init(stimulusID: "LC4/LPLC2", roles: ["lc4", "lplc2"],
+        .init(stimulusID: "LC4/LPLC2", indices: { $0.loomLeft + $0.loomRight }, roles: ["lc4", "lplc2"],
+              clusterNames: ("Looming detectors (LC4/LPLC2)", "다가오는 물체 감지 (LC4/LPLC2)"),
               nameEN: "Looming, both eyes (LC4/LPLC2)", nameKO: "다가오는 물체 감지 — 양쪽 눈 (LC4/LPLC2)",
               whatEN: "Visual danger detectors of both eyes; they feed the escape neuron (GF).",
               whatKO: "양쪽 눈의 위험 감지 뉴런입니다. 비상 탈출 뉴런(GF)에 신호를 넘깁니다.",
               color: loomColor),
-        .init(stimulusID: "ascend", roles: ["ascend"],
+        .init(stimulusID: "ascend", indices: { $0.ascend }, roles: ["ascend"],
               nameEN: "Leg feedback (ascending)", nameKO: "다리 감각 (몸 → 뇌)",
               whatEN: "Carries the feel of the legs stepping from the body up to the brain.",
               whatKO: "다리가 땅을 딛는 느낌을 몸에서 뇌로 올려 보냅니다.",
               color: feedbackColor),
-        .init(stimulusID: "sens", roles: ["sens"],
+        .init(stimulusID: "sens", indices: { $0.sens }, roles: ["sens"],
               nameEN: "Wind / tap (older channel)", nameKO: "바람·두드림 (예전 방식)",
               whatEN: "The older generic wind/tap input; the antenna wind groups below are the detailed version.",
               whatKO: "예전에 쓰던 단순한 바람/두드림 입력입니다. 아래 더듬이 바람 감각이 더 자세한 버전입니다.",
               color: feedbackColor),
-        .init(stimulusID: "ORN-food-left", roles: [],
+        .init(stimulusID: "ORN-food-left", indices: { $0.foodOdorLeft }, roles: [],
               nameEN: "Food smell, left (ORN)", nameKO: "먹이 냄새 — 왼쪽 (후각 뉴런 ORN)",
               whatEN: "Smell receptors on the left antenna that respond to food odour.",
               whatKO: "왼쪽 더듬이에서 먹이 냄새를 맡는 후각 뉴런입니다.",
               color: nil),
-        .init(stimulusID: "ORN-food-right", roles: [],
+        .init(stimulusID: "ORN-food-right", indices: { $0.foodOdorRight }, roles: [],
               nameEN: "Food smell, right (ORN)", nameKO: "먹이 냄새 — 오른쪽 (후각 뉴런 ORN)",
               whatEN: "Smell receptors on the right antenna that respond to food odour.",
               whatKO: "오른쪽 더듬이에서 먹이 냄새를 맡는 후각 뉴런입니다.",
               color: nil),
-        .init(stimulusID: "TRN-warm", roles: [],
+        .init(stimulusID: "TRN-warm", indices: { $0.thermoWarm }, roles: [],
               nameEN: "Warmth (TRN VP2)", nameKO: "따뜻함 감지 (TRN VP2)",
               whatEN: "Temperature receptors that respond to warming.",
               whatKO: "온도가 오르면 반응하는 온도 감각 뉴런입니다.",
               color: nil),
-        .init(stimulusID: "TRN-cool", roles: [],
+        .init(stimulusID: "TRN-cool", indices: { $0.thermoCool }, roles: [],
               nameEN: "Cold (TRN VP3a/b)", nameKO: "차가움 감지 (TRN VP3a/b)",
               whatEN: "Temperature receptors that respond to cooling.",
               whatKO: "온도가 내려가면 반응하는 온도 감각 뉴런입니다.",
               color: nil),
-        .init(stimulusID: "JO-C-wind", roles: [],
+        .init(stimulusID: "JO-C-wind", indices: { $0.windC }, roles: [],
               nameEN: "Antenna wind C (JO-C)", nameKO: "더듬이 바람 감지 C (JO-C)",
               whatEN: "Antenna neurons that sense steady air flow.",
               whatKO: "더듬이가 꾸준한 바람에 밀리는 것을 느끼는 뉴런입니다.",
               color: nil),
-        .init(stimulusID: "JO-E-wind", roles: [],
+        .init(stimulusID: "JO-E-wind", indices: { $0.windE }, roles: [],
               nameEN: "Antenna wind E (JO-E)", nameKO: "더듬이 바람 감지 E (JO-E)",
               whatEN: "Antenna neurons that sense air flow from the other direction.",
               whatKO: "더듬이가 반대 방향 바람에 밀리는 것을 느끼는 뉴런입니다.",
               color: nil),
-        .init(stimulusID: "HRN-dry", roles: [],
+        .init(stimulusID: "HRN-dry", indices: { $0.hygroDry }, roles: [],
               nameEN: "Dry air (HRN VP4)", nameKO: "건조함 감지 (HRN VP4)",
               whatEN: "Humidity receptors that respond to dry air.",
               whatKO: "공기가 건조하면 반응하는 습도 감각 뉴런입니다.",
               color: nil),
-        .init(stimulusID: "HRN-moist", roles: [],
+        .init(stimulusID: "HRN-moist", indices: { $0.hygroMoist }, roles: [],
               nameEN: "Moist air (HRN VP5)", nameKO: "습함 감지 (HRN VP5)",
               whatEN: "Humidity receptors that respond to moist air.",
               whatKO: "공기가 축축하면 반응하는 습도 감각 뉴런입니다.",
@@ -143,16 +148,17 @@ enum NeuronGuide {
         groups.first { $0.stimulusID == stimulusID }
     }
 
-    /// Short label for a clicked brain cluster, keyed by manifest role slug.
+    private static func group(role: String) -> NeuronGroupInfo? {
+        groups.first { $0.roles.contains(role) || $0.overlayRoles.contains(role) }
+    }
+
+    static func roleColor(_ role: String) -> NSColor {
+        group(role: role)?.color ?? feedbackColor
+    }
+
     static func clusterLabel(role: String) -> String? {
-        switch role {
-        case "dna01", "dna02":
-            return L("Steering neurons (DNa01/02)", "방향 조종 뉴런 (DNa01/02)")
-        case "lc4", "lplc2":
-            return L("Looming detectors (LC4/LPLC2)", "다가오는 물체 감지 (LC4/LPLC2)")
-        default:
-            return groups.first { $0.roles.contains(role) }?.name
-        }
+        guard let group = group(role: role) else { return nil }
+        return group.clusterNames.map { L($0.en, $0.ko) } ?? group.name
     }
 
     /// Rows for the colour legend: one per colour that appears in the 3D brain.
@@ -177,4 +183,8 @@ enum NeuronGuide {
                        "나머지 약 13만 9천 개 뉴런으로, 큰 분류별로 색이 다릅니다. 전체가 얼마나 활발한지가 ‘흥분도’로 쓰입니다.")))
         return rows
     }
+}
+
+func labPopulationIndices(_ sim: MetalSim, role: String) -> [Int] {
+    NeuronGuide.group(stimulusID: role)?.indices(sim) ?? []
 }

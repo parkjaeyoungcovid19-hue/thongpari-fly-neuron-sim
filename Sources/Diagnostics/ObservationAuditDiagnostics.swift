@@ -75,6 +75,35 @@ func runObservationAuditTest() {
     observed.step(2); _ = bus.popAll()
     check("display drain preserves exact GF latch", observed.consumeGF())
     check("GF latch consumption is destructive, not a read-only query", !observed.consumeGF())
+    let rateGetters: [(MetalSim) -> Float] = [
+        { $0.rateLoom }, { $0.rateDNaL }, { $0.rateDNaR }, { $0.rateMDN },
+        { $0.rateFwd }, { $0.rateGroom }, { $0.rateEscW }, { $0.rateFoodOdorL },
+        { $0.rateFoodOdorR }, { $0.rateThermoWarm }, { $0.rateThermoCool },
+        { $0.rateWindC }, { $0.rateWindE }, { $0.rateSugarGRN }, { $0.rateMN9 }, { $0.ratePop }
+    ]
+    let members = groups.filter { $0.1 != 2 }
+    let slots = members.map { $0.1 } + [15, 15, 0]
+    let occupied = Set(groups.flatMap { $0.2 })
+    let sugar = observed.sugarGRN.filter { !occupied.contains($0) }
+    let mn9 = observed.mn9.filter { !occupied.contains($0) }
+    let denominators = members.map { Float(max(1, $0.2.count)) } + [Float(max(1, sugar.count)), Float(max(1, mn9.count)), Float(c.n)]
+    observed.reset(); observed.tasteReadout = true
+    var expectedRates = [Float](repeating: 0, count: 16), allRatesEqual = true
+    for tick in 1...130 {
+        observed.step(1)
+        let counts = observed.lastStepGroupCounts()
+        let phase = ((tick - 1) / 32) & 1
+        for i in expectedRates.indices {
+            if i == 13 && phase != 0 || i == 14 && phase != 1 { continue }
+            let g = slots[i] == 0 ? observed.lastStepSpikes().count : Int(counts[slots[i]])
+            var r = expectedRates[i]; let n = denominators[i], a = observed.debugParams.rateAlpha
+            r += (Float(g) * 1000 / n - r) * a
+            expectedRates[i] = r
+        }
+        allRatesEqual = allRatesEqual && zip(rateGetters, expectedRates).allSatisfy { $0.0(observed).bitPattern == $0.1.bitPattern }
+    }
+    check("table rates preserve every original EMA bit across taste windows", allRatesEqual)
+    check("population table resolves menu indices", NeuronGuide.groups.allSatisfy { $0.stimulusID.map { !labPopulationIndices(observed, role: $0).isEmpty } ?? true })
     print("OBSERVATION AUDIT \(failures == 0 ? "PASS" : "FAIL") (\(failures) failures)")
     exit(failures == 0 ? 0 : 1)
 }

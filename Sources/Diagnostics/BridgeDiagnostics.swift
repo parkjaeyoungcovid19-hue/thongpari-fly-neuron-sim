@@ -1115,6 +1115,12 @@ func runBridgeTest() {
     check("old epoch events never enter the current timeline", staleEventBridge.labEvents(after: 0).events.isEmpty)
     _ = staleEventBridge.receiveLineForTesting(Data(#"{"type":"body","t":1}"#.utf8))
     check("untagged in-flight body is ineligible in deterministic mode", staleEventBridge.latestBody(maxAge: 3600) == nil)
+    let overflowBridge = FlyGymBridge(); _ = overflowBridge.beginConnectionForTesting()
+    for id in 1...130 {
+        _ = overflowBridge.receiveLineForTesting(Data("{\"type\":\"lab_state\",\"ack\":\(id),\"ok\":true}".utf8))
+        _ = overflowBridge.receiveLineForTesting(Data(#"{"type":"lab_event","event":"ring"}"#.utf8))
+    }
+    check("bounded ACK/event rings account for dropped entries", overflowBridge.ringDropsForTesting.acks == 2 && overflowBridge.ringDropsForTesting.events == 2 && overflowBridge.labAcks(after: 0).acks.count == 128 && overflowBridge.labEvents(after: 0).events.count == 128)
     print(failures == 0 ? "ALL BRIDGE TESTS PASS" : "\(failures) FAILURES")
     exit(failures == 0 ? 0 : 1)
 }

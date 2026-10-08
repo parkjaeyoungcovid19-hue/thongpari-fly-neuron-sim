@@ -30,3 +30,10 @@ The inherited GPU checker has deliberate FMA candidate failures and tolerated
 CPU accumulation/gait ulp differences. They match the saved baseline. The
 production-equal scenarios A/B/C/D/E'/H stay exactly zero, weights differ by zero,
 and the suite reports GPUCHECK PASS. See the final report for every delta line.
+
+P4 makes NeuronGuide the population/cluster/color/resolver table, moves telemetry
+into Lab, folds rate EMA/denominators/reset through GroupSpec while retaining
+caller getters, resolves receptor types once, and separates BrainPick from the
+explicit stimulus action. ACK/event overflow now has diagnostic counters. The
+observation audit compares every rate's Float bits against the original EMA
+expression for 130 steps across sugar/MN9 windows. No V7.2 exact primitive added.

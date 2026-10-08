@@ -364,28 +364,28 @@ final class MetalSim {
     var sensoryGate: Float = 1    // sleep gates sensory input
 
     // ---- outputs -------------------------------------------------------------
-    private(set) var rateLoom: Float = 0   // Hz per LC neuron (EMA)
-    private(set) var rateDNaL: Float = 0
-    private(set) var rateDNaR: Float = 0
-    private(set) var rateMDN: Float = 0
-    private(set) var rateFwd: Float = 0
-    private(set) var rateGroom: Float = 0
-    private(set) var rateEscW: Float = 0
-    private(set) var rateFoodOdorL: Float = 0
-    private(set) var rateFoodOdorR: Float = 0
-    private(set) var rateThermoWarm: Float = 0
-    private(set) var rateThermoCool: Float = 0
-    private(set) var rateWindC: Float = 0
-    private(set) var rateWindE: Float = 0
+    var rateLoom: Float { rates[0] }
+    var rateDNaL: Float { rates[1] }
+    var rateDNaR: Float { rates[2] }
+    var rateMDN: Float { rates[3] }
+    var rateFwd: Float { rates[4] }
+    var rateGroom: Float { rates[5] }
+    var rateEscW: Float { rates[6] }
+    var rateFoodOdorL: Float { rates[7] }
+    var rateFoodOdorR: Float { rates[8] }
+    var rateThermoWarm: Float { rates[9] }
+    var rateThermoCool: Float { rates[10] }
+    var rateWindC: Float { rates[11] }
+    var rateWindE: Float { rates[12] }
     // Taste telemetry, Hz per neuron; stays 0 unless `tasteReadout` is on. Each is
     // an EMA over the steps its multiplex window was counted (half of sim time).
-    private(set) var rateSugarGRN: Float = 0
-    private(set) var rateMN9: Float = 0
+    var rateSugarGRN: Float { rates[13] }
+    var rateMN9: Float { rates[14] }
     /// Exact cumulative readout since the last reset: spikes counted and steps
     /// sampled, index 0 sugar GRNs, 1 MN9 (mean Hz/neuron = spikes·1000/steps/n).
     private(set) var tasteSpikes = [0, 0]
     private(set) var tasteSampledMs = [0, 0]
-    private(set) var ratePop: Float = 0    // whole-population Hz per neuron
+    var ratePop: Float { rates[15] }
     private var gfLatch = false
     private(set) var simMs: Int = 0
     private(set) var totalSpikes: Int = 0
@@ -431,10 +431,16 @@ final class MetalSim {
 
     private var logSteps = 0, logSpikes = 0, logWallMicros = 0.0, logNextMs = 30_000
 
-    // EMA denominators
-    private let nLoom, nDNaL, nDNaR, nMDN, nFwd, nGroom, nEscW: Float
-    private let nFoodOdorL, nFoodOdorR, nThermoWarm, nThermoCool, nWindC, nWindE, nPop: Float
-    private let nSugarGRN, nMN9: Float
+    private struct GroupSpec {
+        let slot: Int
+        let denominator: Float
+        let tastePhase: Int?
+        init(_ slot: UInt8, _ count: Int, tastePhase: Int? = nil) {
+            self.slot = Int(slot); denominator = Float(max(1, count)); self.tastePhase = tastePhase
+        }
+    }
+    private let groupSpecs: [GroupSpec]
+    private var rates = [Float](repeating: 0, count: 16)
 
     /// Opt-in taste telemetry on the kernel histogram's single spare slot (15). Off
     /// by default so every sim --gpucheck builds keeps the 15-group ABI its CPU
@@ -501,16 +507,23 @@ final class MetalSim {
             // from a lab scalar (odor, temperature, wind) into current is still
             // an explicit modeling assumption; downstream propagation is the
             // unchanged full connectome.
+            let receptorTag: UInt8
             if type == "ORN_DM1" || type == "ORN_VA2" {
-                if c.side[i] == 1 { foodOdorLeft.append(i) }
-                else if c.side[i] == 2 { foodOdorRight.append(i) }
+                receptorTag = c.side[i] == 1 ? Group.foodL : (c.side[i] == 2 ? Group.foodR : 0)
+            } else if type == "TRN_VP2" { receptorTag = Group.thermoWarm
+            } else if type == "TRN_VP3a" || type == "TRN_VP3b" { receptorTag = Group.thermoCool
+            } else if type.hasPrefix("JO-C") && c.rowStart[i + 1] > c.rowStart[i] { receptorTag = Group.windC
+            } else if type.hasPrefix("JO-E") && c.rowStart[i + 1] > c.rowStart[i] { receptorTag = Group.windE
+            } else { receptorTag = 0 }
+            switch receptorTag {
+            case Group.foodL: foodOdorLeft.append(i)
+            case Group.foodR: foodOdorRight.append(i)
+            case Group.thermoWarm: thermoWarm.append(i)
+            case Group.thermoCool: thermoCool.append(i)
+            case Group.windC: windC.append(i)
+            case Group.windE: windE.append(i)
+            default: break
             }
-            if type == "TRN_VP2" { thermoWarm.append(i) }
-            if type == "TRN_VP3a" || type == "TRN_VP3b" { thermoCool.append(i) }
-            // Only cells with actual outgoing graph rows are useful as sensory
-            // input nodes.  This filters a few JO-C/E annotations with no edges.
-            if type.hasPrefix("JO-C") && c.rowStart[i + 1] > c.rowStart[i] { windC.append(i) }
-            if type.hasPrefix("JO-E") && c.rowStart[i + 1] > c.rowStart[i] { windE.append(i) }
             if type == "HRN_VP4" { hygroDry.append(i) }
             if type == "HRN_VP5" { hygroMoist.append(i) }
             // Identified by root ID only (see IdentifiedTasteNeurons); an ID missing
@@ -537,20 +550,7 @@ final class MetalSim {
             }
             // Receptor telemetry groups are diagnostic histograms only. They do
             // not change roles, wiring, input routing or any downstream dynamics.
-            if groupOf[i] == 0 {
-                if type == "ORN_DM1" || type == "ORN_VA2" {
-                    if c.side[i] == 1 { groupOf[i] = Group.foodL }
-                    else if c.side[i] == 2 { groupOf[i] = Group.foodR }
-                } else if type == "TRN_VP2" {
-                    groupOf[i] = Group.thermoWarm
-                } else if type == "TRN_VP3a" || type == "TRN_VP3b" {
-                    groupOf[i] = Group.thermoCool
-                } else if type.hasPrefix("JO-C") && c.rowStart[i + 1] > c.rowStart[i] {
-                    groupOf[i] = Group.windC
-                } else if type.hasPrefix("JO-E") && c.rowStart[i + 1] > c.rowStart[i] {
-                    groupOf[i] = Group.windE
-                }
-            }
+            if groupOf[i] == 0 { groupOf[i] = receptorTag }
         }
 
         func buf<T>(_ v: [T]) -> MTLBuffer? {
@@ -593,15 +593,17 @@ final class MetalSim {
         propGrid = MTLSize(width: 1024, height: 1, depth: 1)
         tgProp = MTLSize(width: 32, height: 1, depth: 1)
 
-        nLoom = Float(max(1, loomLeft.count + loomRight.count))
-        nDNaL = Float(max(1, dnaL.count)); nDNaR = Float(max(1, dnaR.count))
-        nMDN = Float(max(1, mdn.count)); nFwd = Float(max(1, fwd.count))
-        nGroom = Float(max(1, groom.count)); nEscW = Float(max(1, escw.count))
-        nFoodOdorL = Float(max(1, foodOdorLeft.count)); nFoodOdorR = Float(max(1, foodOdorRight.count))
-        nThermoWarm = Float(max(1, thermoWarm.count)); nThermoCool = Float(max(1, thermoCool.count))
-        nWindC = Float(max(1, windC.count)); nWindE = Float(max(1, windE.count))
-        nSugarGRN = Float(max(1, tasteTagSugar.count)); nMN9 = Float(max(1, tasteTagMN9.count))
-        nPop = Float(max(1, n))
+        groupSpecs = [
+            GroupSpec(Group.loom, loomLeft.count + loomRight.count),
+            GroupSpec(Group.dnaL, dnaL.count), GroupSpec(Group.dnaR, dnaR.count),
+            GroupSpec(Group.mdn, mdn.count), GroupSpec(Group.fwd, fwd.count),
+            GroupSpec(Group.groom, groom.count), GroupSpec(Group.escw, escw.count),
+            GroupSpec(Group.foodL, foodOdorLeft.count), GroupSpec(Group.foodR, foodOdorRight.count),
+            GroupSpec(Group.thermoWarm, thermoWarm.count), GroupSpec(Group.thermoCool, thermoCool.count),
+            GroupSpec(Group.windC, windC.count), GroupSpec(Group.windE, windE.count),
+            GroupSpec(Group.taste, tasteTagSugar.count, tastePhase: 0),
+            GroupSpec(Group.taste, tasteTagMN9.count, tastePhase: 1), GroupSpec(0, n)
+        ]
         logNextMs = perfLogIntervalMs
         applySeed(seed)
     }
@@ -810,30 +812,19 @@ final class MetalSim {
             logSpikes += total
             let g = groupCountPtr + s * Group.slots
             if g[Int(Group.gf)] > 0 { gfLatch = true }
-            rateLoom += (Float(g[Int(Group.loom)]) * 1000 / nLoom - rateLoom) * a
-            rateDNaL += (Float(g[Int(Group.dnaL)]) * 1000 / nDNaL - rateDNaL) * a
-            rateDNaR += (Float(g[Int(Group.dnaR)]) * 1000 / nDNaR - rateDNaR) * a
-            rateMDN  += (Float(g[Int(Group.mdn)])  * 1000 / nMDN  - rateMDN)  * a
-            rateFwd  += (Float(g[Int(Group.fwd)])  * 1000 / nFwd  - rateFwd)  * a
-            rateGroom += (Float(g[Int(Group.groom)]) * 1000 / nGroom - rateGroom) * a
-            rateEscW += (Float(g[Int(Group.escw)]) * 1000 / nEscW - rateEscW) * a
-            rateFoodOdorL += (Float(g[Int(Group.foodL)]) * 1000 / nFoodOdorL - rateFoodOdorL) * a
-            rateFoodOdorR += (Float(g[Int(Group.foodR)]) * 1000 / nFoodOdorR - rateFoodOdorR) * a
-            rateThermoWarm += (Float(g[Int(Group.thermoWarm)]) * 1000 / nThermoWarm - rateThermoWarm) * a
-            rateThermoCool += (Float(g[Int(Group.thermoCool)]) * 1000 / nThermoCool - rateThermoCool) * a
-            rateWindC += (Float(g[Int(Group.windC)]) * 1000 / nWindC - rateWindC) * a
-            rateWindE += (Float(g[Int(Group.windE)]) * 1000 / nWindE - rateWindE) * a
             let tastePhase = tasteReadout ? ((Int(params[s].stepIndex) - 1) / tasteWindowMs) & 1 : -1
             if tastePhase >= 0 {
                 tasteSpikes[tastePhase] += Int(g[Int(Group.taste)])
                 tasteSampledMs[tastePhase] += 1
             }
-            if tastePhase == 0 {
-                rateSugarGRN += (Float(g[Int(Group.taste)]) * 1000 / nSugarGRN - rateSugarGRN) * a
-            } else if tastePhase == 1 {
-                rateMN9 += (Float(g[Int(Group.taste)]) * 1000 / nMN9 - rateMN9) * a
+            for (i, spec) in groupSpecs.enumerated() {
+                if let phase = spec.tastePhase, phase != tastePhase { continue }
+                let count = spec.slot == 0 ? UInt32(total) : g[spec.slot]
+                let n = spec.denominator
+                var r = rates[i]
+                r += (Float(count) * 1000 / n - r) * a
+                rates[i] = r
             }
-            ratePop  += (Float(total) * 1000 / nPop - ratePop) * a
 
             if spikeBus != nil {
                 var pushed = 0, t = 0
@@ -914,12 +905,7 @@ final class MetalSim {
 
         loomL = 0; loomR = 0; gaitDrive = 0; gaitPhase = 0; airPuff = 0
         activityScale = 1; sensoryGate = 1
-        rateLoom = 0; rateDNaL = 0; rateDNaR = 0; rateMDN = 0
-        rateFwd = 0; rateGroom = 0; rateEscW = 0
-        rateFoodOdorL = 0; rateFoodOdorR = 0
-        rateThermoWarm = 0; rateThermoCool = 0
-        rateWindC = 0; rateWindE = 0; ratePop = 0
-        rateSugarGRN = 0; rateMN9 = 0
+        rates = [Float](repeating: 0, count: groupSpecs.count)
         tasteSpikes = [0, 0]; tasteSampledMs = [0, 0]
         gfLatch = false
         simMs = 0; totalSpikes = 0

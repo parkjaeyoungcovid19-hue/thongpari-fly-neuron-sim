@@ -72,6 +72,13 @@ final class FlyGymBridge {
         #endif
         return try encoder.encode(value)
     }
+    private var droppedAckCount = 0
+    private var droppedEventCount = 0
+    #if DIAGNOSTICS
+    var ringDropsForTesting: (acks: Int, events: Int) {
+        lock.lock(); defer { lock.unlock() }; return (droppedAckCount, droppedEventCount)
+    }
+    #endif
     private let lock = NSLock()
     private var running = false
     private var sock: Int32 = -1
@@ -296,7 +303,10 @@ final class FlyGymBridge {
            last.connectionGeneration == ack.connectionGeneration { return }
         labAckSerial += 1
         recentLabAcks.append((labAckSerial, ack))
-        if recentLabAcks.count > 128 { recentLabAcks.removeFirst(recentLabAcks.count - 128) }
+        if recentLabAcks.count > 128 {
+            droppedAckCount += recentLabAcks.count - 128
+            recentLabAcks.removeFirst(recentLabAcks.count - 128)
+        }
     }
 
     func latestLabEvent(maxAge: TimeInterval? = nil) -> LabEventNotice? {
@@ -1051,6 +1061,7 @@ final class FlyGymBridge {
             labEventSerial &+= 1
             recentLabEvents.append((labEventSerial, event))
             if recentLabEvents.count > 128 {
+                droppedEventCount += recentLabEvents.count - 128
                 recentLabEvents.removeFirst(recentLabEvents.count - 128)
             }
             labRecvCount += 1

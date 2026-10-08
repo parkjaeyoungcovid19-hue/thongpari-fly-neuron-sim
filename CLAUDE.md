@@ -41,6 +41,7 @@ Swift sources live under `Sources/<area>/` (`App`, `Brain`, `Bridge`, `Lab`,
 | `SimDiagnostics.swift` | `--simtest` / `--behaviortest` / `--v4timingtest` |
 | `FlyModel.swift` | procedural fly body + `Fly` behavior (states, gait, flight, ledges, sleep) |
 | `Sim.swift` | `Connectome` loader (manifest-driven, validates the CSR), `Role` ids, `BrainSignals`, `SpikeBus` |
+| `NeuronGuide.swift` / `LabTelemetry.swift` | population labels, colors, index resolution; Lab telemetry and CSV schema |
 | `MetalSim.swift` | `SimParams` (every knob + the resting-drive landmark table), `MetalShared` (pipelines, CSR buffers, load-time weight transform), `MetalSim` (per-neuron state, stim, batched `step()`) |
 | `LIF.metal` | the two compute kernels; its header states the per-step order and the fma caveat |
 | `BrainView.swift` | brain window: 139k-soma point cloud, 378-neuron role overlay, click-to-stimulate, spike flashes |
@@ -160,8 +161,8 @@ behavior (`signals: nil` path).
    in `init`'s role switch, resting drive in `applySeed` (command DNs use
    `baselineCommand` 0.022 — deliberately below the one-kick line; DNp09 has its
    own `baselineFwd` 0.032; never randomize per side for a bilateral pair,
-   asymmetry must come from wiring), plus an `nXyz` EMA denominator and a
-   `rateXyz` fold in `runBatch`.
+   asymmetry must come from wiring), plus a `GroupSpec` histogram slot/denominator and a
+   computed `rateXyz` backed by the table EMA in `runBatch`.
 6. **`SignalBuilder`** (MotorReadout.swift): normalize `rateXyz` into a new
    `BrainSignals` field — **always clamp** (an unclamped walkDrive once sent the
    fly to 1,100 pt/s). Read the resting distribution out of `--brainstats` first:
@@ -170,7 +171,7 @@ behavior (`signals: nil` path).
    dwell guard (≥0.4 s) for state changes, cooldown timers for one-shot actions;
    make sure the action works from every grounded state (MDN was once dead from
    idle).
-8. **`BrainView.swift`**: role color in the overlay + a `regionName` label
+8. **`NeuronGuide.swift`**: population resolver, role color + cluster label
    (clicking that region should demo the behavior).
 9. **Tests**: `tools/verify_data.py` checks the role counts against the manifest;
    add a `--behaviortest` scenario (stimulate → assert body reaction) and, if

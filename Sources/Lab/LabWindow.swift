@@ -421,9 +421,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             coordinator?.enqueueSimulation { $0.sim?.stimulate(indices, strength: strength, durationMs: duration) }
         }
         buildUI()
-        brainController?.onClickStimulus = { [weak self] picked, name, strength, durationMs in
-            self?.noteBrainClickStimulus(count: picked.count, name: name,
-                                         strength: strength, durationMs: durationMs)
+        brainController?.onPick = { [weak self] pick in
+            self?.noteBrainClickStimulus(count: pick.indices.count, name: pick.name,
+                                         strength: 0.25, durationMs: 400)
         }
         arenaPlacement.onPick = { [weak self] x, y in
             guard let self else { return }

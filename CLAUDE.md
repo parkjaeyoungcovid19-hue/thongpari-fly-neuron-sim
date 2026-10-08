@@ -31,6 +31,9 @@ When the main conversation runs on Fable 5, keep Fable lean and push heavy work 
 
 ## Files
 
+Swift sources live under `Sources/<area>/` (`App`, `Brain`, `Bridge`, `Lab`,
+`World`, `Diagnostics`); `LIF.metal` is in `Sources/Brain/`.
+
 | file | contents |
 |---|---|
 | `main.swift` | overlay scene, CLI dispatch, `Coordinator` (render-loop hub), `AppDelegate` (menu, timers, display switching) |
@@ -84,7 +87,7 @@ realtime; the loom latency and the walk duty are printed, not asserted — read 
 window edge`. It is a `bodyCheck` with no sim in it — re-run before investigating.
 
 **SourceKit note**: the IDE reports "Cannot find type ..." across files —
-false positives. The eight .swift files compile as one module via build.sh;
+false positives. Every .swift file under Sources/ compiles as one module via build.sh;
 trust the compiler, not single-file diagnostics.
 
 ## Threading model

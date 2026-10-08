@@ -283,27 +283,17 @@ Use it for **controlled comparisons inside the same model**, not as a claim that
 .
 ├── Virtual Fly Lab.command        Finder launcher (runs run_flygym.sh)
 ├── run_flygym.sh / package_app.sh CLI launcher / app bundle builder
-├── main.swift                     launch modes, Coordinator (brain ↔ body loop), AppDelegate
-├── MetalSim.swift, LIF.metal      GPU FlyWire spiking simulation
-├── SensoryModel.swift             modeled source → receptor drive
-├── MotorReadout.swift             population rates → BrainSignals
-├── FlyGymService.swift            app-owned backend process on a private port
-├── FlyGymBridge.swift             TCP transport, queues, connection lifecycle
-├── FlyGymPackets.swift, LabProtocol.swift   wire packets and lab telemetry types
-├── LabWindow.swift, LabChrome.swift         the Lab window, sidebar, inspector pages
-├── WorldViewer.swift, MuJoCoCanvas.swift    3D canvas: camera, picking, participate input, MuJoCo frames
-├── WorldEditor.swift              Edit mode: selected-object editor, handles, ACK bookkeeping
-├── EnvironmentProperty.swift      capability descriptors and revision-checked edits
-├── EnvironmentPanel.swift         the environment panel (Stimuli page)
-├── PlayerController.swift         WASD / mouse-look / focus / remap / look sensitivity
-├── BrainView.swift                139k-neuron point cloud (Brain page)
-├── ActivityCards.swift            read-only activity cards (Data page)
-├── ExperimentRecorder.swift       events + CSV recording
-├── LabLocalization.swift          English / Korean strings
-├── LabDiagnostics.swift           --labtest
-├── SimDiagnostics.swift           --simtest / --behaviortest / --v4timingtest
-├── BridgeDiagnostics.swift        --bridgetest and the live TCP loops, --inputprobe
-├── WorldEditorDiagnostics.swift, EnvironmentPanelDiagnostics.swift   --worldeditortest
+├── build.sh                       compiles every Sources/**/*.swift as one module
+├── Sources/
+│   ├── App/                       main.swift (launch modes, Coordinator, AppDelegate), FlyModel, BrainView, Environment
+│   ├── Brain/                     Sim, MetalSim + LIF.metal (GPU FlyWire spiking sim), SensoryModel, MotorReadout, FlyMood
+│   ├── Bridge/                    FlyGymService (app-owned backend), FlyGymBridge (TCP transport),
+│   │                              FlyGymPackets / LabProtocol (wire types), LabSession
+│   ├── Lab/                       LabWindow / LabChrome (window, sidebar, inspector), WorldViewer / MuJoCoCanvas (3D canvas),
+│   │                              PlayerController, ActivityCards, ExperimentRecorder, LabLocalization, NeuronGuide, …
+│   ├── World/                     WorldEditor, WorldEditHistory (undo/redo), SceneFile (.flyworld),
+│   │                              EnvironmentProperty, EnvironmentPanel
+│   └── Diagnostics/               --labtest, --simtest/--behaviortest, --gpucheck, --bridgetest, --worldeditortest, …
 ├── flygym_bridge/
 │   ├── bridge.py                  Python server (sessions, commands, input, snapshots)
 │   ├── fly_body.py                mock + real FlyGym body

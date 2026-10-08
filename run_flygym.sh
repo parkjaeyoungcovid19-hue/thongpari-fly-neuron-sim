@@ -41,7 +41,7 @@ fi
 # changes. Rebuild only when the executable is missing or a Swift/Metal/build
 # input is newer, so normal launches stay fast.
 if [ ! -x ./ThongpariFlyNeuronSim ] || \
-   find . -maxdepth 1 \( -name '*.swift' -o -name '*.metal' -o -name 'build.sh' \) -newer ./ThongpariFlyNeuronSim -print -quit | grep -q .; then
+   find Sources build.sh \( -name '*.swift' -o -name '*.metal' -o -name 'build.sh' \) -newer ./ThongpariFlyNeuronSim -print -quit | grep -q .; then
   echo "🔨 최신 소스로 Virtual Fly Lab 빌드 중..."
   ./build.sh || exit 1
 fi

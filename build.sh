@@ -1,7 +1,7 @@
 #!/bin/zsh
 # Build Thongpari Fly Neuron Sim
 cd "$(dirname "$0")"
-swiftc -O -swift-version 5 -j"$(sysctl -n hw.ncpu)" -o ThongpariFlyNeuronSim main.swift FlyModel.swift FlyGymPackets.swift FlyGymBridge.swift FlyGymService.swift BridgeDiagnostics.swift LabSession.swift LabProtocol.swift EnvironmentProperty.swift EnvironmentPanel.swift EnvironmentPanelDiagnostics.swift WorldEditor.swift SceneFile.swift WorldEditHistory.swift WorldEditHistoryDiagnostics.swift WorldEditorDiagnostics.swift WorldEditorAppKitDiagnostics.swift LabDiagnostics.swift LabViewState.swift PlayerController.swift LabGraphView.swift ExperimentRecorder.swift WorldViewer.swift LabLocalization.swift NeuronGuide.swift FlyMood.swift ActivityCards.swift LabChrome.swift MuJoCoCanvas.swift LabWindow.swift SensoryModel.swift MotorReadout.swift \
-    Sim.swift MetalSim.swift GPUCheck.swift ObservationAuditDiagnostics.swift Diagnostics.swift SimDiagnostics.swift BrainView.swift Environment.swift \
+# Every Swift file under Sources/ is one module; order does not matter.
+swiftc -O -swift-version 5 -j"$(sysctl -n hw.ncpu)" -o ThongpariFlyNeuronSim Sources/**/*.swift \
     -framework Cocoa -framework SceneKit -framework Metal || exit 1
 echo "Built ./ThongpariFlyNeuronSim"

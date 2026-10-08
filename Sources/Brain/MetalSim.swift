@@ -216,9 +216,9 @@ final class MetalShared {
 
         // ---- compile LIF.metal at runtime (no metallib build step) -------------
         let tCompile = DispatchTime.now()
-        guard let src = findResource("LIF.metal"),
+        guard let src = findResource("LIF.metal") ?? findResource("Sources/Brain/LIF.metal"),
               let text = try? String(contentsOf: src, encoding: .utf8) else {
-            throw Err("LIF.metal not found next to the executable or in the working directory")
+            throw Err("LIF.metal not found in the app bundle, next to the executable or under Sources/Brain")
         }
         let opts = MTLCompileOptions()
         opts.mathMode = .safe       // no reassociation (fma contraction still applies)

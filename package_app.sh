@@ -33,14 +33,14 @@ fi
 
 mkdir -p "$MACOS" "$RESOURCES" "$ICONSET"
 if [[ ! -x "$ROOT/ThongpariFlyNeuronSim" ]] || \
-   find "$ROOT" -maxdepth 1 \( -name '*.swift' -o -name '*.metal' -o -name 'build.sh' \) \
+   find "$ROOT/Sources" "$ROOT/build.sh" \( -name '*.swift' -o -name '*.metal' -o -name 'build.sh' \) \
      -newer "$ROOT/ThongpariFlyNeuronSim" -print -quit | grep -q .; then
   "$ROOT/build.sh"
 else
   print "Using current ./ThongpariFlyNeuronSim build"
 fi
 cp "$ROOT/ThongpariFlyNeuronSim" "$MACOS/ThongpariFlyNeuronSim"
-cp "$ROOT/LIF.metal" "$RESOURCES/LIF.metal"
+cp "$ROOT/Sources/Brain/LIF.metal" "$RESOURCES/LIF.metal"
 ditto --norsrc --noextattr "$ROOT/data" "$RESOURCES/data"
 
 SOURCE_WIDTH="$(sips -g pixelWidth "$SOURCE_IMAGE" | awk '/pixelWidth/ {print $2}')"

@@ -1,7 +1,7 @@
 {
   "format": "siliconfly.virtual-fly-lab.presets",
   "version": 1,
-  "description": "Reference specification synchronized with the built-in preset buttons in siliconfly/LabWindow.swift. The Swift UI currently executes these presets directly; this JSON is documentation/automation data and is not loaded by the UI.",
+  "description": "Reference specification synchronized with the built-in preset buttons in siliconfly/Sources/Lab/LabWindow.swift. The Swift UI currently executes these presets directly; this JSON is documentation/automation data and is not loaded by the UI.",
   "units": {
     "distance": "mm",
     "speed": "mm/s",

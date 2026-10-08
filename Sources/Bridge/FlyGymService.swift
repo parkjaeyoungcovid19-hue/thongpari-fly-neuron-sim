@@ -213,7 +213,9 @@ final class FlyGymService {
             try p.run()
             lock.lock()
             process = p; _state = .running; _startedAt = Date()
-            _lastOutputLine = ""; outputTail.removeAll(); logHandle = log
+            _lastOutputLine = ""; outputTail.removeAll()
+            try? logHandle?.close()
+            logHandle = log
             lock.unlock()
             fputs("flygym service: \(mode.rawValue) bridge pid \(p.processIdentifier) on 127.0.0.1:\(port)\n", stderr)
         } catch {

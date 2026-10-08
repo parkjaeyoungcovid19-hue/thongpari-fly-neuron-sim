@@ -242,7 +242,7 @@ final class EnvironmentPanel: NSObject {
         for label in [leftMaskValue, rightMaskValue] {
             label.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
             label.alignment = .right
-            label.widthAnchor.constraint(equalToConstant: 40).isActive = true
+            constrainSize(label, width: 40)
         }
         temperatureMode.removeAllItems()
         for mode in ["flywire_sensory", "environment_only", "modeled_physiology"] {

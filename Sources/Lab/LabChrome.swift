@@ -114,7 +114,7 @@ final class LabSidebarController: NSViewController, NSTableViewDataSource, NSTab
         }
         cell.imageView = icon
         cell.textField = text
-        NSLayoutConstraint.activate([
+        activateUnique([
             icon.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 4),
             icon.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             icon.widthAnchor.constraint(equalToConstant: 18),
@@ -165,7 +165,7 @@ enum LabForm {
         f.alignment = .right
         f.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         f.controlSize = .regular
-        f.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        constrainSize(f, width: 72)
         return f
     }
 
@@ -305,7 +305,7 @@ final class LabInspectorPage: NSViewController {
             section.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
         }
         stack.alignment = .centerX
-        NSLayoutConstraint.activate([
+        activateUnique([
             document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
             document.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
             document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
@@ -322,4 +322,32 @@ final class LabInspectorPage: NSViewController {
 func setStatus(_ label: NSTextField, _ text: String, _ color: NSColor? = nil) {
     if label.stringValue != text { label.stringValue = text }
     if let color, label.textColor != color { label.textColor = color }
+}
+
+func constrainSize(_ view: NSView, width: CGFloat? = nil, height: CGFloat? = nil) {
+    for (attribute, value) in [(NSLayoutConstraint.Attribute.width, width), (.height, height)] {
+        guard let value else { continue }
+        if let existing = view.constraints.first(where: {
+            $0.firstItem === view && $0.firstAttribute == attribute && $0.secondItem == nil && $0.relation == .equal
+        }) { existing.constant = value }
+        else { NSLayoutConstraint(item: view, attribute: attribute, relatedBy: .equal,
+                                  toItem: nil, attribute: .notAnAttribute, multiplier: 1, constant: value).isActive = true }
+    }
+}
+
+func activateUnique(_ constraints: [NSLayoutConstraint]) {
+    for constraint in constraints {
+        var owner = (constraint.firstItem as? NSView) ?? (constraint.firstItem as? NSLayoutGuide)?.owningView
+        var existing: NSLayoutConstraint?
+        while let view = owner, existing == nil {
+            existing = view.constraints.first {
+                $0.firstItem === constraint.firstItem && $0.secondItem === constraint.secondItem
+                && $0.firstAttribute == constraint.firstAttribute && $0.secondAttribute == constraint.secondAttribute
+                && $0.relation == constraint.relation && $0.multiplier == constraint.multiplier
+            }
+            owner = view.superview
+        }
+        if let existing { existing.constant = constraint.constant }
+        else { constraint.isActive = true }
+    }
 }

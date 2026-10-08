@@ -1062,25 +1062,66 @@ func runLabTest() {
           && ActivityCardKind.unsupported.label == "UNSUPPORTED",
           "unlabeled=\(unlabeled)")
 
-    let clickBridge = FlyGymBridge()
+    var cardSends = 0
+    FlyGymBridge.onOutboundForTesting = { cardSends += 1 }
     let missedClicks = clickEveryActivityCard(cardPanel)
     check("V5.7 every card click selects it and shows its source",
           missedClicks.isEmpty && cardPanel.selectedCard != nil, "missed=\(missedClicks)")
     check("V5.7 card clicks queue no bridge, lab or player command",
-          clickBridge.pendingDepth() == 0 && clickBridge.pendingLabDepth() == 0
-          && clickBridge.dequeueSendForTesting(at: Date()) == nil)
+          cardSends == 0)
     let controlBridge = FlyGymBridge()
     _ = clickEveryActivityCard(ActivityCardPanel()) { _ in
         _ = controlBridge.sendLab(action: "stimulate", target: "GF", strength: 0.5, durationMs: 30)
     }
     check("V5.7 control: a click wired to a lab command is detected by the same probe",
           controlBridge.pendingDepth() > 0)
+    check("card send observer sees the negative control", cardSends > 0)
+    FlyGymBridge.onOutboundForTesting = nil
 
     runSandboxToyChecks(check)
 
     check("interface language is pinned to English for suites",
           LabLanguage.current == .english && L("Observe", "관찰") == "Observe")
 
+    let spikeBus = SpikeBus()
+    let consumerA = spikeBus.subscribe(), consumerB = spikeBus.subscribe()
+    spikeBus.push([(1, false), (2, true)])
+    check("brain views have independent sampled-spike drains",
+          spikeBus.popAll(consumer: consumerA).map(\.neuron) == [1, 2]
+          && spikeBus.popAll(consumer: consumerB).map(\.neuron) == [1, 2]
+          && spikeBus.popAll(consumer: consumerA).isEmpty)
+    var pendingParticipant = ParticipantCommandPendingState()
+    let started = Date(timeIntervalSince1970: 100)
+    pendingParticipant.begin(commandID: 1, connectionGeneration: 1, at: started)
+    check("participant lost ACK expires after eight seconds",
+          !pendingParticipant.clearIfViewerLifecycleInvalid(playerAvailable: true, connectionGeneration: 1, now: started.addingTimeInterval(7.9))
+          && pendingParticipant.clearIfViewerLifecycleInvalid(playerAvailable: true, connectionGeneration: 1, now: started.addingTimeInterval(8))
+          && !pendingParticipant.isPending)
+    let formField = NSTextField()
+    for _ in 0..<10 { _ = LabForm.number(formField) }
+    check("repeated number form builds retain one width constraint", formField.constraints.filter { $0.firstAttribute == .width }.count == 1)
+    var csvSample = LabTelemetry(); csvSample.rateSugarGRN = 1.25; csvSample.rateMN9 = 2.5
+    let csvNames = LabTelemetry.csvHeader.trimmingCharacters(in: .newlines).split(separator: ",")
+    let csvValues = csvSample.csvLine.trimmingCharacters(in: .newlines).split(separator: ",", omittingEmptySubsequences: false)
+    check("CSV schema includes taste rates and aligns every column",
+          csvNames.count == csvValues.count && csvValues.suffix(2) == ["1.25000", "2.50000"])
+    var fullTimeline = LabCommandTimeline()
+    fullTimeline.append(entry(999))
+    for i in 0..<250 {
+        var resolved = entry(i); resolved.status = .applied
+        fullTimeline.append(resolved)
+    }
+    check("pending timeline survives resolved history eviction", fullTimeline.entries.count == 200 && fullTimeline.entries.first?.commandID == 999)
+    ackBridge.disconnectForTesting()
+    check("ACK ring excludes disconnected generations", ackBridge.labAcks(after: 0).acks.isEmpty)
+    _ = ackBridge.beginConnectionForTesting()
+    check("ACK ring excludes old generation after reconnect", ackBridge.labAcks(after: 0).acks.isEmpty)
+    let constraintsBefore = viewer.constraints.count
+    viewer.updateTrackingAreas(); viewer.updateTrackingAreas()
+    check("tracking updates do not add aim constraints", viewer.constraints.count == constraintsBefore)
+    let missingRadius = try? JSONDecoder().decode(WorldRenderPose.self, from: Data(#"{"id":"player","position_mm":[0,0,2.5],"orientation_quat_xyzw":[0,0,0,1]}"#.utf8))
+    var explicitRadius = missingRadius; explicitRadius?.collisionRadiusMM = 2.5
+    check("participant aim defaults to the pose path's 2.5 mm radius", missingRadius.flatMap(WorldViewer.participantAimRay(player:))?.originMM == explicitRadius.flatMap(WorldViewer.participantAimRay(player:))?.originMM && missingRadius.flatMap(WorldViewer.participantAimRay(player:)) != nil)
     print(failures == 0 ? "ALL LAB TESTS PASS" : "\(failures) LAB TEST FAILURES")
     exit(failures == 0 ? 0 : 1)
 }

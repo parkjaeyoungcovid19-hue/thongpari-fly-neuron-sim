@@ -292,6 +292,15 @@ final class WorldViewer: SCNView {
         camera.zNear = 0.2
         camera.zFar = 5000
         cameraNode.camera = camera
+        aimMark.translatesAutoresizingMaskIntoConstraints = false
+        aimMark.isHidden = true
+        addSubview(aimMark)
+        NSLayoutConstraint.activate([
+            aimMark.centerXAnchor.constraint(equalTo: centerXAnchor),
+            aimMark.centerYAnchor.constraint(equalTo: centerYAnchor),
+            aimMark.widthAnchor.constraint(equalToConstant: 12),
+            aimMark.heightAnchor.constraint(equalToConstant: 12)
+        ])
         worldScene.rootNode.addChildNode(cameraNode)
         resetObservationCamera()
         // The static shell has no authoritative extent yet. The first backend
@@ -324,15 +333,7 @@ final class WorldViewer: SCNView {
                                   owner: self, userInfo: nil)
         addTrackingArea(area)
         playerTrackingArea = area
-        aimMark.translatesAutoresizingMaskIntoConstraints = false
-        aimMark.isHidden = true
-        addSubview(aimMark)
-        NSLayoutConstraint.activate([
-            aimMark.centerXAnchor.constraint(equalTo: centerXAnchor),
-            aimMark.centerYAnchor.constraint(equalTo: centerYAnchor),
-            aimMark.widthAnchor.constraint(equalToConstant: 12),
-            aimMark.heightAnchor.constraint(equalToConstant: 12)
-        ])
+
     }
 
     private func cameraTargetForCurrentMode() -> SCNVector3 {
@@ -416,7 +417,7 @@ final class WorldViewer: SCNView {
     }
 
     static func participantAimRay(player: WorldRenderPose) -> WorldViewerRay? {
-        guard let radius = player.collisionRadiusMM else { return nil }
+        let radius = player.collisionRadiusMM ?? 2.5
         return participantAimRay(positionMM: player.positionMM,
                                  quatXYZW: player.orientationQuatXYZW,
                                  radiusMM: radius)

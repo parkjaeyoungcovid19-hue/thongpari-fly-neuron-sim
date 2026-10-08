@@ -3,7 +3,10 @@ import Cocoa
 
 func runWorldEditorAppKitChecks(_ check:(String,Bool)->Void) {
     let root=URL(fileURLWithPath:CommandLine.arguments[0]).deletingLastPathComponent()
-    let caps=try! JSONDecoder().decode(EnvironmentCapabilities.self,from:Data(contentsOf:root.appendingPathComponent("fixtures/environment_capabilities/valid.json")))
+    guard let bytes = try? Data(contentsOf: root.appendingPathComponent("fixtures/environment_capabilities/valid.json")),
+          let caps = try? JSONDecoder().decode(EnvironmentCapabilities.self, from: bytes) else {
+        check("environment fixture decodes", false); return
+    }
     let identity=WorldEditorIdentity(generation:4,sessionID:"editor",epoch:2)
     let schedule=LabCommandSchedule(sessionID:"editor",epoch:2,requestedTick:40)
     let camera=WorldViewerMuJoCoCamera(positionMM:[0,-100,40],forward:[0,1,-0.3],distanceMM:100,fovyDeg:45)

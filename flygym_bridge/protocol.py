@@ -1348,6 +1348,9 @@ class LabStatePacket:
 @dataclass
 class LabEventPacket:
     event: str = ""
+    session_id: str | None = None
+    epoch: int | None = None
+    sim_tick: int | None = None
     data: dict = field(default_factory=dict)
 
     @staticmethod
@@ -1356,10 +1359,14 @@ class LabEventPacket:
             raise ValueError("lab event must be an object")
         event = str(d.get("event", ""))[:64]
         data = d.get("data", {})
-        return LabEventPacket(event=event, data=dict(data) if isinstance(data, dict) else {})
+        return LabEventPacket(event=event, data=dict(data) if isinstance(data, dict) else {},
+                              session_id=d.get("session_id"), epoch=d.get("epoch"), sim_tick=d.get("sim_tick"))
 
     def to_dict(self) -> dict:
-        return {"type": LAB_EVENT_TYPE, "event": self.event, "data": self.data}
+        wire = {"type": LAB_EVENT_TYPE, "event": self.event, "data": self.data}
+        if self.session_id is not None:
+            wire.update(session_id=self.session_id, epoch=self.epoch, sim_tick=self.sim_tick)
+        return wire
 
 
 class LabCommandQueue:

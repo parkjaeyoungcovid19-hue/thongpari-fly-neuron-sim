@@ -571,12 +571,17 @@ struct LabEventDetail: Decodable, Equatable {
 struct LabEventNotice: Decodable, FlyGymStampedPacket {
     var type: String = "lab_event"
     var event: String = ""
+    var sessionID: String?
+    var epoch: Int?
+    var simTick: Int?
     var detail: LabEventDetail?
     var receivedAt: Date = Date()
     var connectionGeneration: UInt64 = 0
 
     enum CodingKeys: String, CodingKey {
-        case type, event
+        case type, event, epoch
+        case sessionID = "session_id"
+        case simTick = "sim_tick"
         case detail = "data"
     }
 
@@ -584,6 +589,9 @@ struct LabEventNotice: Decodable, FlyGymStampedPacket {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         type = try c.decodeIfPresent(String.self, forKey: .type) ?? "lab_event"
         event = try c.decodeIfPresent(String.self, forKey: .event) ?? ""
+        sessionID = try c.decodeIfPresent(String.self, forKey: .sessionID)
+        epoch = try c.decodeIfPresent(Int.self, forKey: .epoch)
+        simTick = try c.decodeIfPresent(Int.self, forKey: .simTick)
         detail = try? c.decodeIfPresent(LabEventDetail.self, forKey: .detail)
     }
 
@@ -1389,38 +1397,93 @@ extension LabTelemetry {
         bodyConnectionGeneration = fb.connectionGeneration
     }
 
-    static let csvHeader = "wall_time,sim_ms,pop_hz,loom_hz,dna_l_hz,dna_r_hz,mdn_hz,dnp09_hz,dng11_hz,escw_hz,loom_l,loom_r,air_puff,gait_drive,odor_drive_l,odor_drive_r,thermo_warm_drive,thermo_cool_drive,wind_c_drive,wind_e_drive,temp_c,body_vx,body_yaw_rate,body_contact_mean,body_loom_l,body_loom_r,brightness_l,brightness_r,occupancy_l,occupancy_r,optic_expansion_l,optic_expansion_r,flash_l,flash_r,odor_l,odor_r,nearest_food_mm,fly_state,body_sim_s,body_sim_dt,body_wall_dt,body_sim_wall_ratio,body_packet_age_s,body_generation,body_eye_sample_sim_tick,receptor_odor_l_hz,receptor_odor_r_hz,receptor_warm_hz,receptor_cool_hz,receptor_wind_c_hz,receptor_wind_e_hz,brain_signals_available,brain_walk,brain_turn,brain_escape,brain_backward,brain_groom,brain_wing,brain_arousal,brain_tempo,brain_sleep,brain_nervous,controller_left,controller_right,body_wind_strength,body_wind_direction_deg,body_wind_sensory,body_touch_strength,body_touch_sensory,session_id,session_epoch,session_sim_tick,session_mode,session_phase,session_paused,body_result_tick\n"
-
+    private static let csvColumns: [(name: String, format: String, value: (LabTelemetry) -> CVarArg)] = [
+        ("wall_time", "%.6f", { $0.wallTime }),
+        ("sim_ms", "%d", { $0.simMs }),
+        ("pop_hz", "%.5f", { $0.ratePop }),
+        ("loom_hz", "%.5f", { $0.rateLoom }),
+        ("dna_l_hz", "%.5f", { $0.rateDNaL }),
+        ("dna_r_hz", "%.5f", { $0.rateDNaR }),
+        ("mdn_hz", "%.5f", { $0.rateMDN }),
+        ("dnp09_hz", "%.5f", { $0.rateFwd }),
+        ("dng11_hz", "%.5f", { $0.rateGroom }),
+        ("escw_hz", "%.5f", { $0.rateEscW }),
+        ("loom_l", "%.5f", { $0.loomL }),
+        ("loom_r", "%.5f", { $0.loomR }),
+        ("air_puff", "%.5f", { $0.airPuff }),
+        ("gait_drive", "%.5f", { $0.gaitDrive }),
+        ("odor_drive_l", "%.5f", { $0.odorDriveL }),
+        ("odor_drive_r", "%.5f", { $0.odorDriveR }),
+        ("thermo_warm_drive", "%.5f", { $0.thermoWarmDrive }),
+        ("thermo_cool_drive", "%.5f", { $0.thermoCoolDrive }),
+        ("wind_c_drive", "%.5f", { $0.windCDrive }),
+        ("wind_e_drive", "%.5f", { $0.windEDrive }),
+        ("temp_c", "%.3f", { $0.temperatureC }),
+        ("body_vx", "%.7f", { $0.bodyVX }),
+        ("body_yaw_rate", "%.7f", { $0.bodyYawRate }),
+        ("body_contact_mean", "%.5f", { $0.bodyContactMean }),
+        ("body_loom_l", "%.5f", { $0.bodyLoomL }),
+        ("body_loom_r", "%.5f", { $0.bodyLoomR }),
+        ("brightness_l", "%.5f", { $0.bodyBrightnessL }),
+        ("brightness_r", "%.5f", { $0.bodyBrightnessR }),
+        ("occupancy_l", "%.5f", { $0.bodyOccupancyL }),
+        ("occupancy_r", "%.5f", { $0.bodyOccupancyR }),
+        ("optic_expansion_l", "%.5f", { $0.bodyOpticExpansionL }),
+        ("optic_expansion_r", "%.5f", { $0.bodyOpticExpansionR }),
+        ("flash_l", "%.5f", { $0.bodyFlashL }),
+        ("flash_r", "%.5f", { $0.bodyFlashR }),
+        ("odor_l", "%.5f", { $0.bodyOdorL }),
+        ("odor_r", "%.5f", { $0.bodyOdorR }),
+        ("nearest_food_mm", "%.3f", { $0.bodyNearestFoodDistanceMm }),
+        ("fly_state", "%@", { $0.flyState.replacingOccurrences(of: ",", with: "_") }),
+        ("body_sim_s", "%.6f", { $0.bodySimTime }),
+        ("body_sim_dt", "%.6f", { $0.bodySimDt }),
+        ("body_wall_dt", "%.6f", { $0.bodyWallDt }),
+        ("body_sim_wall_ratio", "%.6f", { $0.bodySimWallRatio }),
+        ("body_packet_age_s", "%.6f", { $0.bodyPacketAgeS }),
+        ("body_generation", "%llu", { $0.bodyConnectionGeneration }),
+        ("body_eye_sample_sim_tick", "%d", { $0.bodyEyeSampleSimTick }),
+        ("receptor_odor_l_hz", "%.5f", { $0.rateFoodOdorL }),
+        ("receptor_odor_r_hz", "%.5f", { $0.rateFoodOdorR }),
+        ("receptor_warm_hz", "%.5f", { $0.rateThermoWarm }),
+        ("receptor_cool_hz", "%.5f", { $0.rateThermoCool }),
+        ("receptor_wind_c_hz", "%.5f", { $0.rateWindC }),
+        ("receptor_wind_e_hz", "%.5f", { $0.rateWindE }),
+        ("brain_signals_available", "%d", { $0.brainSignalsAvailable ? 1 : 0 }),
+        ("brain_walk", "%.5f", { $0.brainWalkDrive }),
+        ("brain_turn", "%.5f", { $0.brainTurnBias }),
+        ("brain_escape", "%d", { $0.brainEscape ? 1 : 0 }),
+        ("brain_backward", "%d", { $0.brainBackward ? 1 : 0 }),
+        ("brain_groom", "%.5f", { $0.brainGroomDrive }),
+        ("brain_wing", "%.5f", { $0.brainWingDrive }),
+        ("brain_arousal", "%.5f", { $0.brainArousal }),
+        ("brain_tempo", "%.5f", { $0.brainTempo }),
+        ("brain_sleep", "%d", { $0.brainSleep ? 1 : 0 }),
+        ("brain_nervous", "%.5f", { $0.brainNervous }),
+        ("controller_left", "%.5f", { $0.bodyControllerLeft }),
+        ("controller_right", "%.5f", { $0.bodyControllerRight }),
+        ("body_wind_strength", "%.5f", { $0.bodyWindStrength }),
+        ("body_wind_direction_deg", "%.5f", { $0.bodyWindDirectionDeg }),
+        ("body_wind_sensory", "%d", { $0.bodyWindSensory ? 1 : 0 }),
+        ("body_touch_strength", "%.5f", { $0.bodyTouchStrength }),
+        ("body_touch_sensory", "%d", { $0.bodyTouchSensory ? 1 : 0 }),
+        ("session_id", "%@", { $0.sessionID.replacingOccurrences(of: ",", with: "_") }),
+        ("session_epoch", "%d", { $0.sessionEpoch }),
+        ("session_sim_tick", "%d", { $0.sessionSimTick }),
+        ("session_mode", "%@", { $0.sessionMode.replacingOccurrences(of: ",", with: "_") }),
+        ("session_phase", "%@", { $0.sessionPhase.replacingOccurrences(of: ",", with: "_") }),
+        ("session_paused", "%d", { $0.sessionPaused ? 1 : 0 }),
+        ("body_result_tick", "%d", { $0.bodyResultTick }),
+        ("sugar_grn_hz", "%.5f", { $0.rateSugarGRN }),
+        ("mn9_hz", "%.5f", { $0.rateMN9 })
+    ]
+    static let csvHeader = csvColumns.map(\.name).joined(separator: ",") + "\n"
     var csvLine: String {
-        let safeState = flyState.replacingOccurrences(of: ",", with: "_")
-        let base = String(format: "%.6f,%d,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.3f,%.7f,%.7f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.3f,%@,%.6f,%.6f,%.6f,%.6f,%.6f,%llu",
-                          wallTime, simMs, ratePop, rateLoom, rateDNaL, rateDNaR,
-                          rateMDN, rateFwd, rateGroom, rateEscW, loomL, loomR,
-                          airPuff, gaitDrive, odorDriveL, odorDriveR,
-                          thermoWarmDrive, thermoCoolDrive, windCDrive, windEDrive,
-                          temperatureC, bodyVX, bodyYawRate,
-                          bodyContactMean, bodyLoomL, bodyLoomR,
-                          bodyBrightnessL, bodyBrightnessR, bodyOccupancyL, bodyOccupancyR,
-                          bodyOpticExpansionL, bodyOpticExpansionR, bodyFlashL, bodyFlashR,
-                          bodyOdorL, bodyOdorR, bodyNearestFoodDistanceMm,
-                          safeState, bodySimTime, bodySimDt, bodyWallDt, bodySimWallRatio,
-                          bodyPacketAgeS, bodyConnectionGeneration)
-        let eyeProvenance = ",\(bodyEyeSampleSimTick)"
-        let diagnostic = String(format: ",%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%d,%.5f,%.5f,%d,%d,%.5f,%.5f,%.5f,%.5f,%d,%.5f,%.5f,%.5f,%.5f,%.5f,%d,%.5f,%d",
-                                rateFoodOdorL, rateFoodOdorR, rateThermoWarm, rateThermoCool,
-                                rateWindC, rateWindE, brainSignalsAvailable ? 1 : 0,
-                                brainWalkDrive, brainTurnBias, brainEscape ? 1 : 0,
-                                brainBackward ? 1 : 0, brainGroomDrive, brainWingDrive,
-                                brainArousal, brainTempo, brainSleep ? 1 : 0, brainNervous,
-                                bodyControllerLeft, bodyControllerRight,
-                                bodyWindStrength, bodyWindDirectionDeg, bodyWindSensory ? 1 : 0,
-                                bodyTouchStrength, bodyTouchSensory ? 1 : 0)
-        let safeSession = sessionID.replacingOccurrences(of: ",", with: "_")
-        let safeMode = sessionMode.replacingOccurrences(of: ",", with: "_")
-        let safePhase = sessionPhase.replacingOccurrences(of: ",", with: "_")
-        let session = ",\(safeSession),\(sessionEpoch),\(sessionSimTick),\(safeMode),\(safePhase),\(sessionPaused ? 1 : 0),\(bodyResultTick)\n"
-        return base + eyeProvenance + diagnostic + session
+        let values = Self.csvColumns.map { $0.value(self) }
+        assert(values.count == Self.csvColumns.count)
+        return String(format: Self.csvColumns.map(\.format).joined(separator: ",") + "\n", arguments: values)
     }
+
 }
 
 /// Single mapping table for direct-neural lab stimulation. These are existing

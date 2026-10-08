@@ -1109,6 +1109,12 @@ func runBridgeTest() {
           labSends == 32 && fair.pendingLabDepth() == 0
           && normalBrainSends > 1 && maxBrainGap <= 0.100,
           String(format: "lab=%d brain=%d maxGap=%.1fms", labSends, normalBrainSends, maxBrainGap * 1000))
+    let staleEventBridge = FlyGymBridge(); _ = staleEventBridge.beginConnectionForTesting()
+    _ = staleEventBridge.sendSessionControl(action: "begin", sessionID: "event-test", epoch: 2, simTick: 0, mode: .deterministic)
+    _ = staleEventBridge.receiveLineForTesting(Data(#"{"type":"lab_event","event":"old","session_id":"event-test","epoch":1}"#.utf8))
+    check("old epoch events never enter the current timeline", staleEventBridge.labEvents(after: 0).events.isEmpty)
+    _ = staleEventBridge.receiveLineForTesting(Data(#"{"type":"body","t":1}"#.utf8))
+    check("untagged in-flight body is ineligible in deterministic mode", staleEventBridge.latestBody(maxAge: 3600) == nil)
     print(failures == 0 ? "ALL BRIDGE TESTS PASS" : "\(failures) FAILURES")
     exit(failures == 0 ? 0 : 1)
 }

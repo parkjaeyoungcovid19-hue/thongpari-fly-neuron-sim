@@ -549,6 +549,14 @@ class Bridge:
                 self._queue_lab_response(response)
         return applied
 
+    def _try_paused_edit_transaction(self, allowed_ops=None):
+        try:
+            self._apply_paused_edit_transaction(allowed_ops)
+            return True
+        except Exception as exc:
+            print(f"bridge: paused edit transaction failed: {exc}", flush=True)
+            return False
+
     def _apply_paused_edit_transaction(self, allowed_ops=None):
         """V6.6: while an interactive session is paused, apply the edits at the
         head of the queue at the frozen owner tick. No MuJoCo step, LabWorld
@@ -804,7 +812,11 @@ class Bridge:
                     getattr(request, "_player_input_receive_generation",
                             self.player_input_receive_generation))
                 self._reject_player_inputs_before_generation(begin_generation)
+                # Drain before promoting ownership: buffered old-session events
+                # must never acquire the new session's identity.
+                self._collect_lab_events()
                 self.session_id = request.session_id
+                self._collect_lab_events()
                 self.session_epoch = request.epoch
                 self.session_tick = request.sim_tick
                 self.session_mode = request.mode
@@ -856,6 +868,7 @@ class Bridge:
                     reset_generation,
                     status="rejected_pre_reset",
                     error="player input arrived before session reset")
+                self._collect_lab_events()
                 self.session_epoch = request.epoch
                 self.session_tick = request.sim_tick
                 self._reset_session_caches()
@@ -952,7 +965,8 @@ class Bridge:
                 continue
             data = dict(item)
             event = str(data.pop("event", "lab_event"))[:64]
-            self._queue_lab_response(LabEventPacket(event=event, data=data))
+            self._queue_lab_response(LabEventPacket(event=event, data=data, session_id=self.session_id,
+                                                   epoch=self.session_epoch, sim_tick=self._current_owner_tick()))
 
     @staticmethod
     def _encode_connection_response(packet, manifest_cache):
@@ -1068,7 +1082,8 @@ class Bridge:
 
             if self.session_mode == "deterministic":
                 if self.session_paused:
-                    self._apply_paused_edit_transaction(allowed_ops={"export_scene", "load_scene"})
+                    if not self._try_paused_edit_transaction({"export_scene", "load_scene"}):
+                        break
                 step_request = None if self.session_paused else self._pop_experiment_step()
                 if step_request is not None:
                     result = self._process_experiment_step(step_request)
@@ -1096,10 +1111,7 @@ class Bridge:
                 # edits apply, as an explicit pause transaction (V6.6).
                 last = now_mono
                 next_tick = now_mono
-                try:
-                    self._apply_paused_edit_transaction()
-                except Exception as e:
-                    print(f"bridge: paused edit transaction failed: {e}", flush=True)
+                if not self._try_paused_edit_transaction():
                     break
                 try:
                     for response in self._drain_lab_responses():

@@ -23,11 +23,13 @@ enum LabViewMode: String, CaseIterable, Codable {
 
 struct ParticipantCommandPendingState: Equatable {
     private(set) var commandID: Int?
+    private(set) var startedAt: Date?
     private(set) var connectionGeneration: UInt64?
 
     var isPending: Bool { commandID != nil }
 
-    mutating func begin(commandID: Int, connectionGeneration: UInt64) {
+    mutating func begin(commandID: Int, connectionGeneration: UInt64, at now: Date = Date()) {
+        startedAt = now
         self.commandID = commandID
         self.connectionGeneration = connectionGeneration
     }
@@ -40,9 +42,10 @@ struct ParticipantCommandPendingState: Equatable {
 
     @discardableResult
     mutating func clearIfViewerLifecycleInvalid(playerAvailable: Bool,
-                                                connectionGeneration: UInt64) -> Bool {
+                                                connectionGeneration: UInt64, now: Date = Date()) -> Bool {
         guard isPending else { return false }
-        guard !playerAvailable || self.connectionGeneration != connectionGeneration else {
+        guard !playerAvailable || self.connectionGeneration != connectionGeneration ||
+              startedAt.map({ now.timeIntervalSince($0) >= 8 }) == true else {
             return false
         }
         clear()
@@ -51,6 +54,7 @@ struct ParticipantCommandPendingState: Equatable {
 
     mutating func clear() {
         commandID = nil
+        startedAt = nil
         connectionGeneration = nil
     }
 }
@@ -381,7 +385,7 @@ struct LabTimelineEntry: Equatable {
 
 struct LabCommandTimeline: Equatable {
     static let ackTimeout: TimeInterval = 5
-    /// Larger than the bridge's 32-command queue, so a pending row is never evicted.
+    /// Bound resolved history; pending rows are retained until resolved or expired.
     static let capacity = 200
     private(set) var entries: [LabTimelineEntry] = []
 
@@ -390,7 +394,14 @@ struct LabCommandTimeline: Equatable {
 
     mutating func append(_ entry: LabTimelineEntry) {
         entries.append(entry)
-        if entries.count > Self.capacity { entries.removeFirst(entries.count - Self.capacity) }
+        trimResolvedHistory()
+    }
+
+    private mutating func trimResolvedHistory() {
+        while entries.count > Self.capacity {
+            guard let index = entries.firstIndex(where: { !$0.status.isPending }) else { break }
+            entries.remove(at: index)
+        }
     }
 
     /// Resolves the pending (or timed-out: a late ACK still reports the truth)
@@ -405,6 +416,7 @@ struct LabCommandTimeline: Equatable {
         entries[i].status = ack.ok ? .applied : .rejected
         entries[i].appliedTick = ack.ok ? ack.appliedTick : nil
         entries[i].message = ack.ok ? "" : (ack.message.isEmpty ? (ack.status ?? L("rejected", "거절됨")) : ack.message)
+        trimResolvedHistory()
         return true
     }
 
@@ -418,6 +430,7 @@ struct LabCommandTimeline: Equatable {
                 entries[i].status = .timedOut
             }
         }
+        trimResolvedHistory()
     }
 }
 

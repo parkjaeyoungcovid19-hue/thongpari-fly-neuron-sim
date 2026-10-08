@@ -83,8 +83,7 @@ or shader change; they are the ground truth. Key invariants:
 walk drive, the click-stim path, the siesta floor, GPU state consistency and
 realtime; the loom latency and the walk duty are printed, not asserted — read them.
 
-`--behaviortest` carries a pre-existing ~1-in-8 flake, `ledge attach + follow
-window edge`. It is a `bodyCheck` with no sim in it — re-run before investigating.
+`--behaviortest` carries a pre-existing ~1-in-8 flake, `ledge follow window edge`. It is a `bodyCheck` with no sim in it — re-run before investigating.
 
 **SourceKit note**: the IDE reports "Cannot find type ..." across files —
 false positives. Every .swift file under Sources/ compiles as one module via build.sh;
@@ -97,13 +96,14 @@ trust the compiler, not single-file diagnostics.
   `Coordinator.enqueue {}` (lock + pending-actions queue, drained per frame).
 - Main thread: timers (mouse 30 Hz, windows 0.7 s), menu actions, global
   click monitor — these only call enqueue/setters.
-- Brain window has its own render delegate; spikes cross via `SpikeBus` (locked).
+- Brain window has its own render delegate; spikes cross via `SpikeBus` (locked, bounded per-view consumers).
 - `MetalSim.step()` is **synchronous on the render thread**: one command buffer
   per ≤64-step batch (`maxBatch`), sub-batched again at stim expiries so
   `extInput` is exact for every step, then `commit()` + `waitUntilCompleted()`.
 - `MetalShared` (device, queue, pipelines, CSR buffers) is shared and immutable;
   a second sim reuses it unless the weight knobs changed.
-- `MetalSim.stimulate()` is the only cross-thread method (lock + pending list
+- Brain clicks go through `Coordinator.enqueueSimulation` so deterministic
+  boundaries apply. `MetalSim.stimulate()` is the cross-thread method (lock + pending list
   merged at the top of `step()`).
 
 ## Neuron → behavior mapping

@@ -161,11 +161,15 @@ final class BrainRenderDriver: NSObject, SCNSceneRendererDelegate {
     private let flashAction = SCNAction.sequence([.fadeOut(duration: FLASH_FADE), .hide()])
     private let gfFlashAction = SCNAction.sequence([.fadeOut(duration: FLASH_FADE_GF), .hide()])
     private var next = 0
+    private let consumer: UUID?
 
     init(sim: MetalSim, flashPool: [SCNNode]) {
         self.sim = sim
         self.flashPool = flashPool
+        consumer = sim.spikeBus?.subscribe()
     }
+
+    deinit { if let consumer { sim.spikeBus?.unsubscribe(consumer) } }
 
     func flash(neuron: Int, isGF: Bool) {
         guard neuron < sim.n, !flashPool.isEmpty else { return }
@@ -182,7 +186,7 @@ final class BrainRenderDriver: NSObject, SCNSceneRendererDelegate {
 
     func renderer(_ renderer: SCNSceneRenderer, updateAtTime time: TimeInterval) {
         guard let bus = sim.spikeBus else { return }
-        let batch = bus.popAll()
+        let batch = consumer.map { bus.popAll(consumer: $0) } ?? []
         guard !batch.isEmpty else { return }
         // Take the slice evenly across the batch so the halos land all over the
         // brain rather than all inside the last simulated millisecond. This final
@@ -231,6 +235,7 @@ final class BrainWindowController {
     /// Called after a click stimulates a cluster (indices, cluster name,
     /// strength, duration ms) so a host such as the Lab can record the direct
     /// neural intervention. The stimulation itself happens here either way.
+    var onStimulate: (([Int], Float, Int) -> Void)?
     var onClickStimulus: (([Int], String, Float, Int) -> Void)?
     private let stimRing: SCNNode
     private let label = NSTextField(labelWithString: "")
@@ -329,7 +334,7 @@ final class BrainWindowController {
         let picked = neigh.prefix(PICK_MAX).map { $0.i }   // never empty: the anchor is in it
 
         let strength: Float = 0.25, durationMs = 400
-        sim.stimulate(picked, strength: strength, durationMs: durationMs)
+        onStimulate?(picked, strength, durationMs)
         for k in stride(from: 0, to: picked.count, by: max(1, picked.count / 24)) {
             driver.flash(neuron: picked[k], isGF: false)   // light the whole ball, not its core
         }

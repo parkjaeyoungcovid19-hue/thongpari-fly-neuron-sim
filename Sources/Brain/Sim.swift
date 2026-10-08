@@ -25,9 +25,25 @@ struct BrainSignals {
 final class SpikeBus {
     private let lock = NSLock()
     private var events: [(neuron: Int, isGF: Bool)] = []
+    private var consumers: [UUID: [(neuron: Int, isGF: Bool)]] = [:]
+    func subscribe() -> UUID {
+        lock.lock(); defer { lock.unlock() }
+        let id = UUID(); consumers[id] = []; return id
+    }
+    func unsubscribe(_ id: UUID) {
+        lock.lock(); defer { lock.unlock() }; consumers.removeValue(forKey: id)
+    }
+    func popAll(consumer id: UUID) -> [(neuron: Int, isGF: Bool)] {
+        lock.lock(); defer { lock.unlock() }
+        let batch = consumers[id] ?? []; consumers[id] = []; return batch
+    }
     func push(_ e: [(Int, Bool)]) {
         guard !e.isEmpty else { return }
         lock.lock()
+        for id in Array(consumers.keys) {
+            consumers[id]!.append(contentsOf: e)
+            if consumers[id]!.count > 256 { consumers[id]!.removeFirst(consumers[id]!.count - 256) }
+        }
         events.append(contentsOf: e)
         if events.count > 256 { events.removeFirst(events.count - 256) }
         lock.unlock()

@@ -60,10 +60,16 @@ final class FlyGymBridge {
         lock.lock(); defer { lock.unlock() }
         return _connected ? cachedEnvironmentCapabilities : nil
     }
+    #if DIAGNOSTICS
+    static var onOutboundForTesting: (() -> Void)?
+    #endif
     private let encoder = JSONEncoder()
     private let encoderLock = NSLock()
     private func encodeJSON<T: Encodable>(_ value: T) throws -> Data {
         encoderLock.lock(); defer { encoderLock.unlock() }
+        #if DIAGNOSTICS
+        Self.onOutboundForTesting?()
+        #endif
         return try encoder.encode(value)
     }
     private let lock = NSLock()
@@ -280,7 +286,7 @@ final class FlyGymBridge {
     /// lab_state repeats its last ACK; consecutive duplicates are stored once.
     func labAcks(after serial: UInt64) -> (acks: [LabAck], serial: UInt64) {
         lock.lock(); defer { lock.unlock() }
-        return (recentLabAcks.filter { $0.serial > serial }.map(\.ack), labAckSerial)
+        return (recentLabAcks.filter { $0.serial > serial && _connected && $0.ack.connectionGeneration == _connectionGeneration }.map(\.ack), labAckSerial)
     }
 
     private func setLatestLabAckLocked(_ ack: LabAck) {
@@ -781,7 +787,7 @@ final class FlyGymBridge {
 
     private func beginConnectionLocked(_ fd: Int32) {
         cachedEnvironmentCapabilities = nil
-        inboundScanOffset = 0
+        testingInboundScanOffset = 0
         sock = fd
         _connected = true
         _connectionGeneration &+= 1
@@ -1000,6 +1006,9 @@ final class FlyGymBridge {
             _latestRayPickResult = pick
             return true
         case .body(let pkt):
+            if requestedSessionMode == .deterministic {
+                staleSessionPacketCount += 1; return true
+            }
             var fb = FlyGymBodyFeedback(pkt)
             fb.receivedAt = receivedAt
             fb.connectionGeneration = generation
@@ -1033,6 +1042,9 @@ final class FlyGymBridge {
             }
             return true
         case .labEvent(var event):
+            guard requestedSessionID == nil || (event.sessionID == requestedSessionID && event.epoch == requestedEpoch) else {
+                staleSessionPacketCount += 1; return true
+            }
             event.receivedAt = receivedAt
             event.connectionGeneration = generation
             _latestLabEvent = event
@@ -1071,7 +1083,7 @@ final class FlyGymBridge {
         let generation = _connectionGeneration
         lock.unlock()
         buffer.append(chunk)
-        drainInboundBuffer(&buffer, fd: fd, generation: generation, receivedAt: receivedAt)
+        drainInboundBuffer(&buffer, fd: fd, generation: generation, receivedAt: receivedAt, scanOffset: &testingInboundScanOffset)
     }
 
     func disconnectForTesting() {
@@ -1228,11 +1240,11 @@ final class FlyGymBridge {
 
     /// Split newline-delimited protocol frames, route complete lines through the
     /// production parser/arbitration path, and bound malformed partial input.
-    private var inboundScanOffset = 0
+    private var testingInboundScanOffset = 0
     private func drainInboundBuffer(_ buf: inout Data, fd: Int32, generation: UInt64,
-                                    receivedAt: Date = Date()) {
+                                    receivedAt: Date = Date(), scanOffset: inout Int) {
         var consumed = 0
-        var scan = min(inboundScanOffset, buf.count)
+        var scan = min(scanOffset, buf.count)
         while scan < buf.count {
             let newline: Int? = buf.withUnsafeBytes { raw in
                 guard let base = raw.baseAddress,
@@ -1253,9 +1265,9 @@ final class FlyGymBridge {
             consumed = nl + 1; scan = consumed
         }
         if consumed > 0 { buf.removeFirst(consumed) }
-        inboundScanOffset = scan - consumed
+        scanOffset = scan - consumed
         if buf.count > maxInboundLineBytes {
-            buf.removeAll(keepingCapacity: true); inboundScanOffset = 0
+            buf.removeAll(keepingCapacity: true); scanOffset = 0
             lock.lock()
             if currentConnectionLocked(fd: fd, generation: generation) { malformedCount += 1 }
             lock.unlock()
@@ -1264,6 +1276,7 @@ final class FlyGymBridge {
 
     private func recvLoop() {
         var buf = Data()
+        var inboundScanOffset = 0
         var bufferFD: Int32 = -1
         var bufferGeneration: UInt64 = 0
         let tmp = UnsafeMutablePointer<UInt8>.allocate(capacity: 65536)
@@ -1289,7 +1302,7 @@ final class FlyGymBridge {
             let n = Darwin.recv(fd, tmp, 65536, 0)
             if n > 0 {
                 buf.append(tmp, count: n)
-                drainInboundBuffer(&buf, fd: fd, generation: generation)
+                drainInboundBuffer(&buf, fd: fd, generation: generation, scanOffset: &inboundScanOffset)
             } else if n == 0 {
                 markDown(fd, generation: generation); buf.removeAll(); inboundScanOffset = 0 // orderly close -> reconnect
                 bufferFD = -1; bufferGeneration = 0

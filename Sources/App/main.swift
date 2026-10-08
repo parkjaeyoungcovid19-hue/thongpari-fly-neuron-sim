@@ -163,6 +163,10 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     private var deterministicResetControlInFlight = false
     private var resumeAfterDeterministicReset = false
     private var deterministicResetCompletions: [() -> Void] = []
+    private let interactiveStartLock = NSLock()
+    private var hasInteractiveSession: Bool {
+        lock.lock(); defer { lock.unlock() }; return interactiveSessionStarted
+    }
     private var interactiveSessionStarted = false
     private var interactiveSessionGeneration: UInt64?
 
@@ -257,6 +261,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     /// actual requested tick still comes from the latest atomic backend snapshot.
     @discardableResult
     func ensureInteractivePlayerInputSession() -> Bool {
+        interactiveStartLock.lock(); defer { interactiveStartLock.unlock() }
         let current = labSession.snapshot()
         if current.mode == .deterministic { return current.phase != .failed }
         guard let bridge = flyGym, bridge.playerInputV5_5Available else { return false }
@@ -271,7 +276,9 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         lock.unlock()
         if alreadyStarted { return true }
 
+        simulationLock.lock()
         let tick = sim?.simMs ?? 0
+        simulationLock.unlock()
         let start = labSession.beginNew(mode: .interactive, initialTick: tick)
         labSession.markInteractiveRunning(at: tick)
         guard bridge.sendSessionControl(action: "begin", sessionID: start.sessionID,
@@ -368,7 +375,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
                 self.sendPauseControlIfReady()
             } else {
                 self.lock.lock(); self.localNeuralPaused = true; self.lock.unlock()
-                if self.interactiveSessionStarted {
+                if self.hasInteractiveSession {
                     _ = self.labSession.requestPause()
                     self.sendPauseControlIfReady()
                     self.ensureDeterministicDriver()
@@ -390,7 +397,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
                                               epoch: s.epoch, simTick: s.simTick,
                                               mode: .deterministic)
             } else {
-                guard self.interactiveSessionStarted,
+                guard self.hasInteractiveSession,
                       self.labSession.requestResume(), let bridge = self.flyGym else {
                     // Legacy peers cannot provide the V4 body pause barrier. Keep
                     // the old local-only behavior rather than pretending an ACK
@@ -481,8 +488,20 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
     }
 
     private func beginOrPauseInteractiveSession() {
+        interactiveStartLock.lock(); defer { interactiveStartLock.unlock() }
         guard let bridge = flyGym, bridge.deterministicV4Available else { return }
+        lock.lock()
+        let started = interactiveSessionStarted && interactiveSessionGeneration == bridge.connectionGeneration
+        lock.unlock()
+        if started {
+            _ = labSession.requestPause()
+            sendPauseControlIfReady()
+            ensureDeterministicDriver()
+            return
+        }
+        simulationLock.lock()
         let tick = sim?.simMs ?? 0
+        simulationLock.unlock()
         let start = labSession.beginNew(mode: .interactive, initialTick: tick)
         labSession.markInteractiveRunning(at: tick)
         guard bridge.sendSessionControl(action: "begin", sessionID: start.sessionID,
@@ -491,8 +510,10 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
             labSession.fail("failed to queue interactive pause session begin")
             return
         }
+        lock.lock()
         interactiveSessionStarted = true
         interactiveSessionGeneration = bridge.connectionGeneration
+        lock.unlock()
         _ = labSession.requestPause()
         if let seq = bridge.sendSessionControl(action: "pause", sessionID: start.sessionID,
                                                epoch: start.epoch, simTick: tick,
@@ -1277,6 +1298,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if let sim = sim, let c = connectome {
             let wc = BrainWindowController(connectome: c, sim: sim, screen: screen)
+            wc.onStimulate = { [weak coordinator] indices, strength, duration in
+                coordinator?.enqueueSimulation { $0.sim?.stimulate(indices, strength: strength, durationMs: duration) }
+            }
             wc.show()
             brainWC = wc
         }
@@ -1464,7 +1488,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         else { coordinator.requestSessionResume() }
         // Keep SceneKit rendering while paused so telemetry/status and the lab UI
         // remain live. V4 pause freezes simulation clocks, not presentation.
-        coordinator.lastTime = nil
+        coordinator.enqueue { $0.lastTime = nil }
         sender.title = paused ? "Resume" : "Pause"
     }
     @objc func toggleBrain() {
@@ -1510,7 +1534,10 @@ if args.contains("--bridgetest") {
 if args.contains("--worldeditortest") {
     runWorldEditorTest()
 }
-if let i = args.firstIndex(of: "--envpanelshot"), i + 1 < args.count {
+if let i = args.firstIndex(of: "--envpanelshot") {
+    guard i + 1 < args.count, !args[i + 1].hasPrefix("--") else {
+        fputs("usage: --envpanelshot DIRECTORY\n", stderr); exit(2)
+    }
     runEnvironmentPanelShot(directory: args[i + 1])
 }
 if args.contains("--labtest") {

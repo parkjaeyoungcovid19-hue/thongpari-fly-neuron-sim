@@ -417,6 +417,9 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         if let connectome, let sim = coordinator.sim, let screen = NSScreen.main {
             brainController = BrainWindowController(connectome: connectome, sim: sim, screen: screen)
         }
+        brainController?.onStimulate = { [weak coordinator] indices, strength, duration in
+            coordinator?.enqueueSimulation { $0.sim?.stimulate(indices, strength: strength, durationMs: duration) }
+        }
         buildUI()
         brainController?.onClickStimulus = { [weak self] picked, name, strength, durationMs in
             self?.noteBrainClickStimulus(count: picked.count, name: name,
@@ -724,7 +727,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         // hitTest passes through to WorldViewer for existing camera/pick gestures.
         worldEditor.overlay.translatesAutoresizingMaskIntoConstraints = false
         worldViewer.addSubview(worldEditor.overlay, positioned: .above, relativeTo: mujocoFrameView)
-        NSLayoutConstraint.activate([
+        activateUnique([
             worldEditor.overlay.leadingAnchor.constraint(equalTo: worldViewer.leadingAnchor),
             worldEditor.overlay.trailingAnchor.constraint(equalTo: worldViewer.trailingAnchor),
             worldEditor.overlay.topAnchor.constraint(equalTo: worldViewer.topAnchor),
@@ -756,7 +759,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             return (id, self.pendingCommandSchedules[id] ?? schedule)
         }
         worldViewer.bringAimMarkToFront()
-        NSLayoutConstraint.activate([
+        activateUnique([
             mujocoFrameView.leadingAnchor.constraint(equalTo: worldViewer.leadingAnchor),
             mujocoFrameView.trailingAnchor.constraint(equalTo: worldViewer.trailingAnchor),
             mujocoFrameView.topAnchor.constraint(equalTo: worldViewer.topAnchor),
@@ -777,7 +780,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             stack.edgeInsets = NSEdgeInsets(top: 5, left: 10, bottom: 5, right: 8)
             stack.translatesAutoresizingMaskIntoConstraints = false
             effect.addSubview(stack)
-            NSLayoutConstraint.activate([
+            activateUnique([
                 stack.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
                 stack.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
                 stack.topAnchor.constraint(equalTo: effect.topAnchor),
@@ -843,13 +846,13 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         moodHUD.setAccessibilityLabel(L("Fly mood (estimate)", "파리 기분 (추정)"))
 
         if let status = canvasStatusHUD {
-            NSLayoutConstraint.activate([
+            activateUnique([
                 status.leadingAnchor.constraint(equalTo: worldViewer.leadingAnchor, constant: 12),
                 status.topAnchor.constraint(equalTo: worldViewer.topAnchor, constant: 12),
                 status.trailingAnchor.constraint(lessThanOrEqualTo: cameraHUD.leadingAnchor, constant: -12)
             ])
         }
-        NSLayoutConstraint.activate([
+        activateUnique([
             cameraHUD.trailingAnchor.constraint(equalTo: worldViewer.trailingAnchor, constant: -12),
             cameraHUD.topAnchor.constraint(equalTo: worldViewer.topAnchor, constant: 12),
             gunHUD.centerXAnchor.constraint(equalTo: worldViewer.centerXAnchor),
@@ -894,7 +897,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             v.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(v)
         }
-        NSLayoutConstraint.activate([
+        activateUnique([
             worldViewer.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor),
             worldViewer.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             worldViewer.trailingAnchor.constraint(equalTo: container.trailingAnchor),
@@ -1606,7 +1609,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
 
     private func worldPage() -> NSViewController {
         objectID.placeholderString = L("auto", "자동")
-        objectID.widthAnchor.constraint(equalToConstant: 120).isActive = true
+        constrainSize(objectID, width: 120)
         _ = LabForm.status(worldObjectStatusLabel)
         _ = LabForm.status(worldCapacityLabel, mono: true)
         _ = LabForm.status(playerInputStatusLabel)
@@ -1631,7 +1634,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         createOnArenaClick.title = L("Create on map click", "지도를 클릭하면 바로 만들기")
         createOnArenaClick.state = .off
         arenaPlacement.translatesAutoresizingMaskIntoConstraints = false
-        arenaPlacement.heightAnchor.constraint(equalToConstant: 250).isActive = true
+        constrainSize(arenaPlacement, height: 250)
         arenaPlacement.selectedShape = selectedValue(objectShape, fallback: "box")
         arenaPlacement.selectedPoint = (d(objectX), d(objectY))
         saveSceneButton = button(L("Save scene…", "장면 저장…"), #selector(saveScene))
@@ -1709,7 +1712,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             stack.spacing = 8
             return stack
         }
-        panel.windDirectionDial.widthAnchor.constraint(equalToConstant: 36).isActive = true
+        constrainSize(panel.windDirectionDial, width: 36)
         return LabInspectorPage([
             section(L("Now at the fly", "지금 파리 위치의 값"),
                     help: L("Measured, not set: the latest body data from the physics simulator (position, odor, eye brightness, taste) and the receptor current the brain side actually injected this frame. Temperature and wind are the same everywhere in the arena; odor and light depend on where the fly is.", "설정값이 아니라 측정값입니다. 물리 시뮬레이터가 보낸 최신 몸 데이터(위치·냄새·눈 밝기·맛)와, 뇌 쪽이 이번 프레임에 감각 뉴런에 실제로 넣은 전류입니다. 온도와 바람은 사육장 어디서나 같고, 냄새와 빛은 파리가 있는 곳에 따라 달라집니다."),
@@ -1757,7 +1760,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             let view = brainController.embeddedView
             view.removeFromSuperview()
             view.translatesAutoresizingMaskIntoConstraints = false
-            view.heightAnchor.constraint(equalToConstant: 280).isActive = true
+            constrainSize(view, height: 280)
             view.wantsLayer = true
             view.layer?.cornerRadius = 8
             view.layer?.masksToBounds = true
@@ -1804,7 +1807,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             swatch.layer?.backgroundColor = row.color.cgColor
             swatch.layer?.cornerRadius = 5
             swatch.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([swatch.widthAnchor.constraint(equalToConstant: 10),
+            activateUnique([swatch.widthAnchor.constraint(equalToConstant: 10),
                                          swatch.heightAnchor.constraint(equalToConstant: 10)])
             let name = NSTextField(labelWithString: row.name)
             name.font = .systemFont(ofSize: 11, weight: .semibold)
@@ -1844,7 +1847,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         }
         for g in [neuralGraph, commandGraph, sensoryGraph, flywireSensoryGraph, bodyGraph, visionGraph] {
             g.translatesAutoresizingMaskIntoConstraints = false
-            g.heightAnchor.constraint(equalToConstant: 120).isActive = true
+            constrainSize(g, height: 120)
         }
         activityCards = ActivityCardPanel(selected: activityCards.selectedCard)
         return LabInspectorPage([
@@ -2022,7 +2025,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             protocolLabel.stringValue = L("FlyGym bridge — disabled (launch with --flygym for physical-world controls)", "물리 시뮬레이터 꺼짐 — 물리 세계를 조작하려면 시뮬레이터와 함께 실행하세요")
             return nil
         }
-        let schedule = coordinator.labCommandSchedule() ?? scheduleOverride
+        let schedule = LabCommandSchedule.choose(explicit: scheduleOverride, fallback: coordinator.labCommandSchedule())
         let id: Int
         if action == "interaction" {
             guard let toolID, let actorID, schedule != nil,
@@ -2380,17 +2383,22 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         recorder.mark(kind: "reset", detail: "modeled sensory interventions")
     }
 
+    private func recordDirectNeural(detail: String) {
+        let session = coordinator.sessionSnapshot(), schedule = coordinator.labCommandSchedule()
+        recorder.mark(kind: "direct_neural", detail: detail,
+                      sessionID: session.sessionID, epoch: session.epoch, simTick: session.simTick,
+                      requestedTick: schedule?.requestedTick, appliedTick: nil,
+                      appliedEpoch: nil,
+                      status: schedule == nil ? "queued_local" : "scheduled_local_boundary")
+    }
+
     /// A point-cloud click stimulates neurons directly; record it like the
     /// population button so every direct neural intervention is on the timeline.
     private func noteBrainClickStimulus(count: Int, name: String, strength: Float, durationMs: Int) {
         let schedule = coordinator.labCommandSchedule()
-        let session = coordinator.sessionSnapshot()
         noteLocal("stimulate", "brain click \(name) (\(count) neurons) ×\(strength) \(durationMs) ms",
                   kind: .directNeural, tick: schedule?.requestedTick)
-        recorder.mark(kind: "direct_neural",
-                      detail: "brain_click cluster=\(name) neurons=\(count) strength=\(strength) duration_ms=\(durationMs)",
-                      sessionID: session.sessionID, epoch: session.epoch, simTick: session.simTick,
-                      requestedTick: schedule?.requestedTick)
+        recordDirectNeural(detail: "brain_click cluster=\(name) neurons=\(count) strength=\(strength) duration_ms=\(durationMs)")
     }
 
     @objc private func stimulateBrain() {
@@ -2398,16 +2406,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         let strength = Float(max(0, min(2, d(brainStrength, fallback: 0.3))))
         let duration = ms(brainDuration, fallback: 300)
         let schedule = coordinator.labCommandSchedule()
-        let session = coordinator.sessionSnapshot()
         coordinator.labStimulatePopulation(role, strength: strength, durationMs: duration)
         noteLocal("stimulate", "\(role) ×\(strength) \(duration) ms", kind: .directNeural,
                   tick: schedule?.requestedTick)
-        recorder.mark(kind: "direct_neural", detail: "role=\(role) strength=\(strength) duration_ms=\(duration)",
-                      sessionID: session.sessionID, epoch: session.epoch, simTick: session.simTick,
-                      requestedTick: schedule?.requestedTick,
-                      appliedTick: schedule?.requestedTick,
-                      appliedEpoch: schedule?.epoch,
-                      status: schedule == nil ? nil : "scheduled_local_boundary")
+        recordDirectNeural(detail: "role=\(role) strength=\(strength) duration_ms=\(duration)")
     }
 
     private func runPreset(_ name: String) {
@@ -2445,24 +2447,17 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             after: { [weak self] in
                 guard let self else { return }
                 self.coordinator.labStimulatePopulation(role, strength: strength, durationMs: duration)
-                let s = self.coordinator.sessionSnapshot()
                 let schedule = self.coordinator.labCommandSchedule()
                 self.noteLocal("stimulate", "preset \(role) ×\(strength) \(duration) ms",
                                kind: .directNeural, tick: schedule?.requestedTick)
-                self.recorder.mark(kind: "direct_neural",
-                                   detail: "preset role=\(role) strength=\(strength) duration_ms=\(duration)",
-                                   sessionID: s.sessionID, epoch: s.epoch, simTick: s.simTick,
-                                   requestedTick: schedule?.requestedTick,
-                                   appliedTick: schedule?.requestedTick,
-                                   appliedEpoch: schedule?.epoch,
-                                   status: "scheduled_local_boundary")
+                self.recordDirectNeural(detail: "preset role=\(role) strength=\(strength) duration_ms=\(duration)")
             }) {
             return
         }
         coordinator.labResetBrain()
         coordinator.labStimulatePopulation(role, strength: strength, durationMs: duration)
         noteLocal("stimulate", "preset \(role) ×\(strength) \(duration) ms", kind: .directNeural)
-        recorder.mark(kind: "direct_neural", detail: "preset role=\(role) strength=\(strength) duration_ms=\(duration)")
+        recordDirectNeural(detail: "preset role=\(role) strength=\(strength) duration_ms=\(duration)")
     }
 
     private func runLoomPresetAfterReset(_ name: String) {

@@ -158,3 +158,10 @@ canonical JSON content changes. Reconnect starts a fresh cache. Omission means
 present manifest still receives strict Swift validation; malformed optional
 manifests do not replace the cache. Session/epoch filtering precedes caching.
 ACKs and other state fields keep their existing cadence and meaning.
+
+Session-owned `lab_event` packets now include `session_id`, `epoch`, and
+`sim_tick`. The owner drains buffered events before begin/reset promotes that
+identity. Swift rejects events with missing or mismatched identity once a V4
+session has been requested. Before a session exists, legacy untagged events
+remain accepted. In deterministic sessions Swift accepts body feedback only
+from the matching `experiment_step_result`, never untagged standalone `body`.

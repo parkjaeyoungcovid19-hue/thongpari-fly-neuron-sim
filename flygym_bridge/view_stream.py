@@ -105,6 +105,8 @@ class ViewStream:
             if not chunk:
                 break
             buf += chunk
+            if len(buf) > (2 << 20):
+                break
             while b"\n" in buf:
                 line, buf = buf.split(b"\n", 1)
                 try:

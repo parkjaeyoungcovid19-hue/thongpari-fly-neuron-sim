@@ -1,8 +1,0 @@
-metal-sim: Apple M2 N=139255 E=15091983 load 254 ms compile 2 ms
-PASS  deterministic neural test advances exactly 12x20ms: simMs=240
-PASS  V4 neural + SignalBuilder invariant at 60fps: simMs=240 spikes=50842/50842
-PASS  V4 neural + SignalBuilder invariant at 120fps: simMs=240 spikes=50842/50842
-PASS  V4 neural + SignalBuilder invariant at stall: simMs=240 spikes=50842/50842
-PASS  accepted deterministic body result ignores wall-age freshness
-ALL V4 TIMING TESTS PASS
-EXIT 0

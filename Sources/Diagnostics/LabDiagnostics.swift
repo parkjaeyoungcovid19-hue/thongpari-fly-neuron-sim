@@ -1088,18 +1088,40 @@ func runLabTest() {
 private func runEnvironmentCapabilityChecks(_ check: (String, Bool, String) -> Void) {
     let root = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
         .appendingPathComponent("fixtures/environment_capabilities", isDirectory: true)
-    let required = ["valid.json", "missing-field.json", "bad-range.json", "bad-unit.json", "bad-type.json",
-                    "duplicate-id.json", "wrong-vector.json", "bad-default.json", "unknown-version.json"]
-    check("V6.1 shared fixtures present", required.allSatisfy {
-        FileManager.default.fileExists(atPath: root.appendingPathComponent($0).path)
-    }, root.path)
-    guard let urls = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return }
-    let fixtures = urls.filter { $0.pathExtension == "json" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
     let decoder = JSONDecoder()
-    for url in fixtures {
-        let name = url.lastPathComponent
-        guard let data = try? Data(contentsOf: url) else { check("V6.1 fixture read " + name, false, "unreadable"); continue }
-        let expectedValid = name.hasPrefix("valid")
+    guard let validData = try? Data(contentsOf: root.appendingPathComponent("valid.json")),
+          let valid = try? JSONSerialization.jsonObject(with: validData) as? [String: Any],
+          let mutationsData = try? Data(contentsOf: root.appendingPathComponent("mutations.json")),
+          let mutations = try? JSONSerialization.jsonObject(with: mutationsData) as? [[Any]] else {
+        check("V6.1 shared fixtures present", false, root.path); return
+    }
+    var fixtures: [(String, Bool, Data)] = [("valid", true, validData)]
+    if let boundaries = try? Data(contentsOf: root.appendingPathComponent("valid-boundaries.json")) {
+        fixtures.append(("valid-boundaries", true, boundaries))
+    } else { check("V6.1 boundaries fixture present", false, root.path) }
+    for mutation in mutations {
+        let name = mutation[0] as! String, accepted = mutation[1] as! Bool
+        let index = mutation[2] as! Int, field = mutation[3] as! String
+        var manifest = valid
+        var descriptors = manifest["descriptors"] as! [[String: Any]]
+        if index == -1 {
+            manifest[field] = mutation[4] is NSNull ? nil : mutation[4]
+        } else {
+            descriptors[index][field] = mutation[4] is NSNull ? nil : mutation[4]
+            if name == "bad-context-notes" { descriptors[index]["default"] = NSNull() }
+            if name == "bad-unicode-choice" {
+                var choices = descriptors[index]["choices"] as! [String]
+                choices[0] = "\u{E9}"
+                descriptors[index]["choices"] = choices
+            }
+            manifest["descriptors"] = descriptors
+        }
+        if let data = try? JSONSerialization.data(withJSONObject: manifest) {
+            fixtures.append((name, accepted, data))
+        } else { check("V6.1 mutation " + name, false, "invalid mutation") }
+    }
+    check("V6.1 shared fixtures present", fixtures.count == mutations.count + 2, root.path)
+    for (name, expectedValid, data) in fixtures {
         let decoded = try? decoder.decode(EnvironmentCapabilities.self, from: data)
         check("V6.1 strict fixture " + name, (decoded != nil) == expectedValid, expectedValid ? "accept" : "reject")
         guard let manifest = try? JSONSerialization.jsonObject(with: data) else {

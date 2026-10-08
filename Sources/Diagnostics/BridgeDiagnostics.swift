@@ -906,12 +906,26 @@ func runBridgeTest() {
           && receivedLargeState?.authoritativeSlotFree?["box"] == 0,
           "bytes=\(largePayloadBytes) objects=\(receivedLargeState?.authoritativeObjects?.count ?? -1)")
 
-    // Shared Python-produced supported max-pool state: the additive V6 block
-    // pushed this previously fitting frame over 512 KiB. Exercise the actual
-    // fragmented recv guard, not only JSON decoding. Missing fixture fails.
+    // Build the max-pool transport case from the current manifest at test time.
     let fixtureRoot = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
-    let v6Frame = try? Data(contentsOf: fixtureRoot.appendingPathComponent("fixtures/bridge/v6-large-state.ndjson"))
-    check("V6.1 configured pool transport fixture exists", v6Frame != nil)
+    let manifestData = try? Data(contentsOf: fixtureRoot.appendingPathComponent("fixtures/environment_capabilities/valid.json"))
+    let manifest = manifestData.flatMap { try? JSONSerialization.jsonObject(with: $0) }
+    var maxObjects: [[String: Any]] = []
+    for shape in ["box", "sphere", "wall", "food", "car", "trap"] {
+        for i in 0..<256 {
+            maxObjects.append(["id": "\(shape)-\(i)-" + String(repeating: "x", count: 160),
+                               "shape": shape, "position_mm": [Double(i), Double(-i), 5.0],
+                               "size_mm": [10.0, 10.0, 10.0], "yaw_deg": 0.0,
+                               "revision": i, "classification": "PHYSICAL",
+                               "visual_marker_only": false, "neural_connected": true])
+        }
+    }
+    let maxState: [String: Any] = ["type": "lab_state", "ack": 101, "ok": true,
+        "session_id": "v6-large-fixture", "epoch": 1, "sim_tick": 40,
+        "state": ["objects": maxObjects, "environment_capabilities": manifest ?? NSNull()]]
+    var v6Frame = try? JSONSerialization.data(withJSONObject: maxState)
+    v6Frame?.append(0x0A)
+    check("V6.1 configured pool transport case generated", v6Frame != nil && manifest != nil)
     if let frame = v6Frame {
         let bridge = FlyGymBridge(port: 17899)
         _ = bridge.beginConnectionForTesting()

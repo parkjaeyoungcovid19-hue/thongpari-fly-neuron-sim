@@ -14,3 +14,11 @@ flygym-venv/
 flygym-venv
 flygym_bridge/__pycache__/
 *.pyc
+
+# Local validation evidence; reports and probe scripts stay tracked.
+notes/validation/**/*.png
+notes/validation/**/*.log
+notes/validation/**/*.txt
+notes/validation/**/*.csv
+notes/validation/**/*.jsonl
+notes/validation/**/*.flyworld

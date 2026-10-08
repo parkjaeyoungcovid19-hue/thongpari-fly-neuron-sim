@@ -1,2 +1,0 @@
-OK: /Users/apgx/Documents/Codex Projects/초파리/siliconfly/flygym_bridge/experiment_presets.json — 11 presets validated
-EXIT 0

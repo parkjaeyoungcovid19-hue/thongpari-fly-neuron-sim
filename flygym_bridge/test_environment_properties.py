@@ -29,12 +29,24 @@ class EnvironmentPropertiesTests(unittest.TestCase):
             validate_manifest(manifest)
 
     def test_shared_fixtures(self):
-        paths = sorted(FIXTURES.glob("*.json"))
-        self.assertGreaterEqual(len(paths), 9)
-        for path in paths:
-            with self.subTest(fixture=path.name):
-                manifest = json.loads(path.read_text())
-                if path.name.startswith("valid"):
+        valid = json.loads((FIXTURES / "valid.json").read_text())
+        cases = [("valid", True, valid), ("valid-boundaries", True,
+                  json.loads((FIXTURES / "valid-boundaries.json").read_text()))]
+        for name, accepted, index, field, value in json.loads((FIXTURES / "mutations.json").read_text()):
+            manifest = deepcopy(valid)
+            target = manifest if index == -1 else manifest["descriptors"][index]
+            if value is None:
+                target.pop(field, None)
+            else:
+                target[field] = value
+            if name == "bad-context-notes":
+                target["default"] = None
+            if name == "bad-unicode-choice":
+                target["choices"][0] = "\u00e9"
+            cases.append((name, accepted, manifest))
+        for name, accepted, manifest in cases:
+            with self.subTest(fixture=name):
+                if accepted:
                     validate_manifest(manifest)
                 else:
                     with self.assertRaises(ValueError):

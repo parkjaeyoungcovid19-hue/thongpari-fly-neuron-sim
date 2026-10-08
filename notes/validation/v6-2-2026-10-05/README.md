@@ -2,7 +2,7 @@
 
 ## 판정
 
-**V6.2 자동 검증 통과.** 잘못된 값의 edit는 세계 상태를 전혀 바꾸지 않고 오류 위치와 함께 거절된다. Swift와 Python이 공유 fixture 35개에서 같은 판정과 같은 첫 실패 경로를 낸다. 이번 단계에는 UI 변경이 없다(편집 UI는 V6.3). V5 GUI 수용과 V6 전체는 아직 미완료다.
+**V6.2 자동 검증 통과.** 잘못된 값의 edit는 세계 상태를 전혀 바꾸지 않고 오류 위치와 함께 거절된다. Swift와 Python이 공유 fixture 40개에서 같은 판정과 같은 첫 실패 경로를 낸다. 이번 단계에는 UI 변경이 없다(편집 UI는 V6.3). V5 GUI 수용과 V6 전체는 아직 미완료다.
 
 기준 HEAD: 7990674 + 미커밋 변경. AC 전원, lowpowermode 0. 설치·커밋·푸시는 하지 않았다.
 
@@ -27,7 +27,7 @@
 
 - Python: [validate_edit·EditError·EDIT_DESCRIPTORS](../../../flygym_bridge/environment_properties.py), [apply_edit·environment_revision](../../../flygym_bridge/lab_world.py), [LabStatePacket.edit](../../../flygym_bridge/protocol.py), [ACK 연결](../../../flygym_bridge/bridge.py)
 - Swift: [EnvironmentEdit·EnvironmentEditResult](../../../EnvironmentProperty.swift), [LabCommand.editProperty·ACK/revision decode](../../../LabProtocol.swift), [LabAck 전달](../../../FlyGymBridge.swift)
-- 공유 fixture: [fixtures/environment_edits](../../../fixtures/environment_edits/), 35개(accept 10, reject 25: 범위 초과/미만, 단위 오류·누락, 미정의·spawn-only·transient 속성, 타입 혼동, 벡터 길이·성분, 대상, revision, 모르는 필드, schema)
+- 공유 fixture: [fixtures/environment_edits](../../../fixtures/environment_edits/), 40개(현재 fixture 디렉터리 기준: 범위 초과/미만, 단위 오류·누락, 미정의·spawn-only·transient 속성, 타입 혼동, 벡터 길이·성분, 대상, revision, 모르는 필드, schema)
 - 테스트: [Python 11개](../../../flygym_bridge/test_environment_edits.py), [Swift --labtest](../../../LabDiagnostics.swift), [TCP --labloop](../../../BridgeDiagnostics.swift)
 
 ## 실행 결과

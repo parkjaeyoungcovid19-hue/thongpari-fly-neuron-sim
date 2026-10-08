@@ -1,6 +1,0 @@
-realbody: prewarming full body pipeline
-realbody: ready
-bridge listening on 127.0.0.1:17841 mode=flygym
-bridge: client connected
-bridge: session brain=0 body=10 lab=3 applied=3 rejected=0 brain_hz=0.0
-bridge: client disconnected

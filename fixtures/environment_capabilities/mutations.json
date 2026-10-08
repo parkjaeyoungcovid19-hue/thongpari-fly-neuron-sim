@@ -1,0 +1,16 @@
+[
+  ["missing-field", false, 0, "label", null],
+  ["bad-range", false, 1, "min", [1001, -1000, -1000]],
+  ["bad-unit", false, 1, "unit", "humidity"],
+  ["bad-type", false, 1, "value_type", "text"],
+  ["duplicate-id", false, 1, "property_id", "object.shape"],
+  ["wrong-vector", false, 1, "default", [0, 0]],
+  ["bad-default", false, 1, "default", [1001, 0, 0]],
+  ["unknown-version", false, -1, "schema_version", 2],
+  ["bad-control-whitespace", false, 0, "label", "Object shape\u001f"],
+  ["bad-context-notes", false, 0, "notes", "   "],
+  ["bad-unicode-choice", false, 0, "default", "e\u0301"],
+  ["valid-without-object-operations", true, -1, "object_operations", null],
+  ["valid-unicode-precomposed", true, 0, "property_id", "\u00e9"],
+  ["valid-unicode-composed", true, 1, "property_id", "e\u0301"]
+]

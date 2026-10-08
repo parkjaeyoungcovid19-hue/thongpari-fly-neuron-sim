@@ -1,4 +1,0 @@
-bridge listening on 127.0.0.1:17841 mode=mock
-bridge: client connected
-bridge: session brain=0 body=38 lab=5 applied=5 rejected=0 brain_hz=0.0
-bridge: client disconnected

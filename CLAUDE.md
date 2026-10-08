@@ -51,7 +51,7 @@ Swift sources live under `Sources/<area>/` (`App`, `Brain`, `Bridge`, `Lab`,
 | `etl.py` | Codex dumps + connectivity parquet → `data/connectome.json` + `neurons.bin` + `synapses.bin` |
 | `tools/verify_data.py` | re-reads the binaries from the manifest alone (knows nothing of `etl.py`); non-zero exit on any failure |
 | `data/` | shipped connectome, ~95 MB (CC BY-NC 4.0 — see `data/DATA_LICENSE.md`) |
-| `notes/` | the port's working reports 01–09 + `docs-runs.txt`; index in `notes/README.md` |
+| `notes/` | validation reports/probes tracked, bulky local evidence ignored; the port's working reports 01–09 + `docs-runs.txt`; index in `notes/README.md` |
 | `reference/`, `cache/` | local-only checkouts and raw dumps, git-excluded via `.git/info/exclude` — never commit them |
 
 ## Build, run, verify
@@ -247,6 +247,10 @@ behavior (`signals: nil` path).
   README numbers came from.
 - `notes/` holds the port's working reports (01 recon → 09 docs) and the brain
   screenshots; `notes/README.md` indexes them. They are working notes, not docs.
-- `.gitignore` covers the binary, logs, and root-level PNGs (diagnostics
+- `.gitignore` covers bulky `notes/validation` evidence (kept on disk), the binary, logs, and root-level PNGs (diagnostics
   outputs); intentional images live in `assets/`. `reference/` and `cache/` are
   excluded through `.git/info/exclude` and stay local.
+
+Environment capability diagnostics apply `fixtures/environment_capabilities/mutations.json`
+to the current `valid.json`; `valid-boundaries.json` remains explicit. The bridge
+max-pool framing fixture is generated in Swift, rather than stored as NDJSON.

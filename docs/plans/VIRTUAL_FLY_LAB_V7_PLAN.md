@@ -90,6 +90,8 @@ individual_id, event_id, selected groups/neurons, time window. 읽기 전용 조
 
 **완료 출력:** membership과 source를 상세 패널에서 조회.
 
+**2026-10-09 구현:** [V7.4–7.5 보고서](../reports/V7_4_5_COMPLETION_REPORT.md). `NeuralGroupRegistry.swift`(`neural_group.v1`), Lab Brain 기능 그룹 패널, `--registrytest`.
+
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V7.4` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 
 ### 7.5. 사건 전후 buffer
@@ -97,6 +99,8 @@ individual_id, event_id, selected groups/neurons, time window. 읽기 전용 조
 **할 일:** simulation time 기준 전 0.5초/후 1초를 기본 설정으로 수집한다. window 부족/중첩/손실을 validity로 기록한다.
 
 **완료 출력:** pause 동안 wall time 때문에 window가 완성되지 않음.
+
+**2026-10-09 구현:** 같은 보고서. `InteractionWindow.swift`(`interaction_window.v1`), `EventWindowBuffer.swift`, Lab Brain 사건 전후 섹션, `--eventwindowtest`.
 
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V7.5` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 

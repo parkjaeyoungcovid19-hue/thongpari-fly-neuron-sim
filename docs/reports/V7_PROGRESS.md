@@ -1,14 +1,14 @@
 # Virtual Fly Lab V7 진행표
 
-2026-10-09 갱신 · 사용자 요청 범위 **V7.3까지**. 선행 [V6 완료](V6_COMPLETION_REPORT.md), [V7.2 전 리팩토링](PRE_V7_2_REFACTOR.md). 전체 V7은 미완료이며 V7.4 이후는 시작하지 않는다.
+2026-10-09 갱신 · 사용자 요청 범위 **V7.5까지**. 선행 [V6 완료](V6_COMPLETION_REPORT.md), [V7.2 전 리팩토링](PRE_V7_2_REFACTOR.md). 전체 V7은 미완료이며 V7.6 이후는 시작하지 않았다.
 
 | 단계 | 상태 | 출력·검사 |
 |---|---|---|
 | V7.1 기존 관측 audit | **완료** | [audit](V7_OBSERVATION_AUDIT.md), BrainSignals 10개와 모든 기존 rate 단위/EMA/분모, exact count vs lossy sampled 시각화 분리. [완료 보고서](V7_1_COMPLETION_REPORT.md), observation audit·CPU/GPU·최종 local real GUI exit0/확인. Finder startup 제약은 별도 기록 |
 | V7.2 정확 관측 primitive | **구현·headless 검증** | 선택 ≤256 뉴런의 tick별 정확 spike stream(LIF.metal `observeSlot`), 한도 capability, JSON 계약. `--observetest`: 600 tick 독립 CPU 참조와 전 tick 일치, 무부작용, fixture/결측/overflow. [보고서](V7_2_3_COMPLETION_REPORT.md) |
 | V7.3 읽기/자극 분리 | **구현·headless 검증** | 기본 클릭 = 읽기 전용 선택, ⚡ 스위치 = 직접 자극, 주입 표시. `--observetest` V7-02: 선택 100회+실제 클릭 경로 10회 후 자극 요청·extInput 불변. 실제 GUI는 보고서 참조 |
-| V7.4 기능 그룹 registry | 미착수 | 현재 role/type/root ID 목록 audit만 수행 |
-| V7.5 사건 전후 buffer | 미착수 | 새 buffer 없음 |
+| V7.4 기능 그룹 registry | **구현·headless·GUI 검증** | `neural_group.v1` 22개 그룹(위협 4·운동 7·감각 10·분류되지 않음 1, 각성은 등록 그룹 없음), dataset hash 결속, 256 초과 그룹은 부분 집합 대체 없이 관측 불가. Lab Brain 기능 그룹 패널. `--registrytest` 70/70. [보고서](V7_4_5_COMPLETION_REPORT.md) |
+| V7.5 사건 전후 buffer | **구현·headless·GUI 검증** | `interaction_window.v1`, sim tick 기준 전 500/후 1000 tick, 수집 ≤16·보관 ≤64, 넘침·겹침·손실을 validity로 기록, 일시 정지 중 미완성. `--eventwindowtest` 82/82. 실제 GUI 검사(G8 N/A, 온도 모드 미확인). 같은 보고서 |
 | V7.6 통합 timeline | 미착수 | 기존 command/event timeline 보존 |
 | V7.7 관측 기반 설명 | 미착수 | 새로운 생각/감정 추론 없음 |
 

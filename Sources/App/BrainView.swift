@@ -1,6 +1,8 @@
 // BrainView.swift — live visualization of the real FlyWire v783 brain: all
 // 139,255 somas as a rotating point cloud, the escape circuit highlighted on
 // top, and sampled LIF flashes at real neuron locations (not an exact spike trace).
+// A click SELECTS a cluster for exact observation (V7.3, read-only); it only
+// stimulates while the explicit ⚡ switch is on.
 
 import Cocoa
 import SceneKit
@@ -224,14 +226,27 @@ final class BrainWindowController {
     private let brainGroup: SCNNode
     private let view: BrainSCNView
     var embeddedView: BrainSCNView { view }
-    /// Called after a click stimulates a cluster (indices, cluster name,
-    /// strength, duration ms) so a host such as the Lab can record the direct
-    /// neural intervention. The stimulation itself happens here either way.
-    var onStimulate: (([Int], Float, Int) -> Void)?
-    var onPick: ((BrainPick) -> Void)?
+    /// A click while the ⚡ switch is off: read-only selection. The host arms
+    /// exact observation; nothing here may inject current.
+    var onSelect: ((BrainPick) -> Void)?
+    /// A click while the ⚡ switch is on: the host applies the direct neural
+    /// stimulation (strength, duration ms) and records it. This controller
+    /// never calls `sim.stimulate` itself.
+    var onStimulate: ((BrainPick, Float, Int) -> Void)?
+    static let clickStrength: Float = 0.25, clickDurationMs = 400
+    /// The explicit stimulation toggle. Off by default.
+    var clickStimulates = false { didSet { syncMode() } }
+    let stimulateSwitch = NSButton(checkboxWithTitle: "", target: nil, action: nil)
     private let stimRing: SCNNode
+    private let selectRing: SCNNode
     private let label = NSTextField(labelWithString: "")
+    private let injectionLabel = NSTextField(labelWithString: "")
     private var labelHider: DispatchWorkItem?
+    private var injectionTimer: Timer?
+    /// selectionID the sim had when this view marked its pick; the marker is
+    /// dropped once another view replaces or clears that selection.
+    private var markedAfterSelectionID: Int?
+    private var languageObserver: NSObjectProtocol?
 
     init(connectome: Connectome, sim: MetalSim, screen: NSScreen) {
         self.sim = sim
@@ -242,7 +257,6 @@ final class BrainWindowController {
         panel = NSPanel(contentRect: NSRect(origin: origin, size: size),
                         styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel],
                         backing: .buffered, defer: false)
-        panel.title = "Fly Brain — sampled spikes · FlyWire v783 (click = stimulate)"
         panel.level = .floating
         panel.isFloatingPanel = true
         panel.becomesKeyOnlyIfNeeded = true
@@ -268,6 +282,20 @@ final class BrainWindowController {
         stimRing.isHidden = true
         bs.brainGroup.addChildNode(stimRing)
 
+        // persistent marker of the read-only selection (cool colour, no fade)
+        let selGeo = SCNSphere(radius: 0.75)
+        let sm = SCNMaterial()
+        sm.lightingModel = .constant
+        sm.diffuse.contents = NSColor.black
+        sm.emission.contents = NSColor(calibratedRed: 0.35, green: 0.85, blue: 1.0, alpha: 1)
+        sm.blendMode = .add
+        sm.transparency = 0.22
+        sm.isDoubleSided = true
+        selGeo.materials = [sm]
+        selectRing = SCNNode(geometry: selGeo)
+        selectRing.isHidden = true
+        bs.brainGroup.addChildNode(selectRing)
+
         view = BrainSCNView(frame: NSRect(origin: .zero, size: size))
         view.scene = bs.scene
         view.pointOfView = bs.cameraNode
@@ -275,7 +303,6 @@ final class BrainWindowController {
         view.preferredFramesPerSecond = 30
         view.delegate = driver
         view.isPlaying = true
-        view.setAccessibilityLabel(L("Sampled spike visualization; click stimulates neurons", "표본 발화 시각화; 클릭하면 뉴런 자극"))
         view.autoresizingMask = [.width, .height]
         panel.contentView = view
 
@@ -288,10 +315,81 @@ final class BrainWindowController {
         label.isHidden = true
         view.addSubview(label)
 
+        for (field, y) in [(injectionLabel, size.height - 46)] {
+            field.font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
+            field.textColor = NSColor(calibratedRed: 1, green: 0.85, blue: 0.45, alpha: 1)
+            field.wantsLayer = true
+            field.layer?.backgroundColor = NSColor(calibratedWhite: 0, alpha: 0.6).cgColor
+            field.layer?.cornerRadius = 4
+            field.isHidden = true
+            field.frame = NSRect(x: 8, y: y, width: size.width - 16, height: 16)
+            field.autoresizingMask = [.width, .minYMargin]
+            view.addSubview(field)
+        }
+        stimulateSwitch.target = self
+        stimulateSwitch.action = #selector(toggleStimulate)
+        stimulateSwitch.font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        stimulateSwitch.wantsLayer = true
+        stimulateSwitch.layer?.backgroundColor = NSColor(calibratedWhite: 0, alpha: 0.55).cgColor
+        stimulateSwitch.layer?.cornerRadius = 5
+        stimulateSwitch.frame = NSRect(x: 8, y: size.height - 26, width: 200, height: 20)
+        stimulateSwitch.autoresizingMask = [.maxXMargin, .minYMargin]
+        view.addSubview(stimulateSwitch)
+        syncMode()
+
         view.onHover = { [weak self] hovering in
             self?.brainGroup.isPaused = hovering   // hold the rotation while aiming
         }
         view.onClick = { [weak self] p in self?.handleClick(at: p) }
+
+        // Shows the direct `stimulate()` current the sim is injecting (clicks,
+        // population buttons, presets), read from the sim. Expiry is in sim
+        // time, so it stays up while paused. Modeled sensory drives are not shown.
+        let t = Timer(timeInterval: 0.2, repeats: true) { [weak self] _ in self?.refreshInjection() }
+        RunLoop.main.add(t, forMode: .common)
+        injectionTimer = t
+        languageObserver = NotificationCenter.default.addObserver(
+            forName: .labLanguageChanged, object: nil, queue: .main) { [weak self] _ in self?.syncMode() }
+    }
+
+    deinit {
+        injectionTimer?.invalidate()
+        if let languageObserver { NotificationCenter.default.removeObserver(languageObserver) }
+    }
+
+    @objc private func toggleStimulate() { clickStimulates = stimulateSwitch.state == .on }
+
+    private func syncMode() {
+        stimulateSwitch.state = clickStimulates ? .on : .off
+        let title = L("⚡ Click stimulates", "⚡ 클릭하면 자극")
+        stimulateSwitch.attributedTitle = NSAttributedString(string: title, attributes: [
+            .foregroundColor: clickStimulates ? NSColor.systemYellow : NSColor(calibratedWhite: 0.92, alpha: 1),
+            .font: NSFont.systemFont(ofSize: 11, weight: .semibold)])
+        stimulateSwitch.sizeToFit()
+        stimulateSwitch.setAccessibilityLabel(L("Click stimulates (direct neural stimulation)", "클릭하면 자극 (뉴런 직접 자극)"))
+        panel.title = clickStimulates
+            ? L("Fly Brain — ⚡ click = STIMULATE · sampled spikes", "초파리 뇌 — ⚡ 클릭 = 직접 자극 · 표본 발화")
+            : L("Fly Brain — click = select (read-only) · sampled spikes", "초파리 뇌 — 클릭 = 선택(읽기 전용) · 표본 발화")
+        view.setAccessibilityLabel(clickStimulates
+            ? L("Sampled spike visualization; click stimulates neurons directly", "표본 발화 시각화; 클릭하면 뉴런을 직접 자극")
+            : L("Sampled spike visualization; click selects neurons for exact observation without stimulating", "표본 발화 시각화; 클릭하면 자극 없이 정확 관측할 뉴런을 선택"))
+    }
+
+    private func refreshInjection() {
+        if let after = markedAfterSelectionID, sim.observer.pending() == nil {
+            let sel = sim.observer.selection()
+            if sel.isEmpty || sel.selectionID > after + 1 {
+                selectRing.isHidden = true; markedAfterSelectionID = nil
+            }
+        }
+        let st = sim.directStimulationStatus()
+        let live = st.active > 0 || st.pending > 0
+        injectionLabel.isHidden = !live
+        guard live else { return }
+        injectionLabel.stringValue = st.active > 0
+            ? String(format: L("⚡ injecting: %d neurons · %d stim(s) · until t=%d ms", "⚡ 주입 중: 뉴런 %d개 · 자극 %d건 · t=%d ms까지"),
+                     st.neurons, st.active, st.untilMs)
+            : L("⚡ injection queued", "⚡ 주입 대기 중")
     }
 
     private func handleClick(at p: NSPoint) {
@@ -302,9 +400,33 @@ final class BrainWindowController {
         let b = group.simdConvertPosition(SIMD3<Float>(Float(far.x), Float(far.y), Float(far.z)), from: nil)
         let d = simd_normalize(b - a)
 
-        if let pick = pick(rayOrigin: a, direction: d) {
-            onPick?(pick)
-            stimulate(pick)
+        if let pick = pick(rayOrigin: a, direction: d) { activate(pick) }
+    }
+
+    /// The click path after picking: stimulate only when the switch is on.
+    func activate(_ pick: BrainPick) {
+        if clickStimulates { stimulate(pick) } else { select(pick) }
+    }
+
+    /// Read-only: marks the cluster and hands it to the host for exact
+    /// observation. No current, no stimulation callback.
+    func select(_ pick: BrainPick) {
+        markedAfterSelectionID = sim.observer.selection().selectionID
+        onSelect?(pick)
+        selectRing.position = SCNVector3(CGFloat(pick.anchor.x), CGFloat(pick.anchor.y), CGFloat(pick.anchor.z))
+        selectRing.isHidden = false
+        showLabel("◎ " + pick.name.replacingOccurrences(of: "⚡ ", with: "") + L(" — selected, not stimulated", " — 선택됨, 자극 안 함"))
+    }
+
+    func clearSelectionMarker() { selectRing.isHidden = true; markedAfterSelectionID = nil }
+
+    /// The one production wiring: selection arms observation through the
+    /// coordinator; a ⚡ click stimulates through it and then calls `record`.
+    func connect(to coordinator: Coordinator, record: ((BrainPick, Float, Int) -> Void)? = nil) {
+        onSelect = { [weak coordinator] pick in coordinator?.observeBrainPick(pick) }
+        onStimulate = { [weak coordinator] pick, strength, duration in
+            coordinator?.enqueueSimulation { $0.sim?.stimulate(pick.indices, strength: strength, durationMs: duration) }
+            record?(pick, strength, duration)
         }
     }
 
@@ -337,8 +459,7 @@ final class BrainWindowController {
 
     func stimulate(_ pick: BrainPick) {
         let picked = pick.indices
-        let strength: Float = 0.25, durationMs = 400
-        onStimulate?(picked, strength, durationMs)
+        onStimulate?(pick, Self.clickStrength, Self.clickDurationMs)
         for k in stride(from: 0, to: picked.count, by: max(1, picked.count / 24)) {
             driver.flash(neuron: picked[k], isGF: false)
         }
@@ -408,9 +529,16 @@ final class BrainWindowController {
         let vis = screen.visibleFrame
         panel.setFrameOrigin(NSPoint(x: vis.maxX - size.width - 18, y: vis.minY + 18))
     }
+
+    /// "root 720575… · TYPE · class" for one neuron.
+    func neuronLabel(_ i: Int) -> String {
+        guard i >= 0 && i < conn.n else { return "?" }
+        return "root \(conn.rootId[i]) · \(conn.typeName[i]) · \(conn.superClassNames[Int(conn.superClass[i])])"
+    }
 }
 
-/// A read-only result; selecting it never enqueues neural current.
+/// A read-only result; selecting it never enqueues neural current. Indices are
+/// nearest-first from the clicked soma.
 struct BrainPick {
     let indices: [Int]
     let anchor: SIMD3<Float>

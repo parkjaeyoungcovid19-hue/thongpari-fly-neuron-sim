@@ -123,9 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         if let sim = sim, let c = connectome {
             let wc = BrainWindowController(connectome: c, sim: sim, screen: screen)
-            wc.onStimulate = { [weak coordinator] indices, strength, duration in
-                coordinator?.enqueueSimulation { $0.sim?.stimulate(indices, strength: strength, durationMs: duration) }
-            }
+            wc.connect(to: coordinator)
             wc.show()
             brainWC = wc
         }

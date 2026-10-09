@@ -391,6 +391,8 @@ final class MetalSim {
     private(set) var totalSpikes: Int = 0
 
     let spikeBus: SpikeBus?
+    /// V7.2 exact observation of a small selection (see NeuralObservation.swift).
+    let observer: NeuralObserver
 
     // ---- diagnostics ---------------------------------------------------------
     var deviceName: String { shared.device.name }
@@ -419,6 +421,8 @@ final class MetalSim {
     private let vBuf, refrBuf, baselineBuf, inputKindBuf, phaseBuf, groupOfBuf: MTLBuffer
     private let extInputBuf, excBuf, inhBuf, spikeListBuf: MTLBuffer
     private let spikeCountBuf, groupCountBuf, sampleBuf: MTLBuffer
+    private let observeSlotBuf, observedBuf: MTLBuffer
+    private var observedNeurons: [Int] = []
     private let extPtr: UnsafeMutablePointer<Float>
     private let spikeCountPtr, groupCountPtr, samplePtr, spikeListPtr: UnsafeMutablePointer<UInt32>
     private let gridN: MTLSize, tgUpdate: MTLSize, propGrid: MTLSize, tgProp: MTLSize
@@ -463,6 +467,19 @@ final class MetalSim {
     private var modeledDrives: [ModeledSensoryChannel: ModeledDrive] = [:]
     private var extDirty = Set<Int>()
     private let stimLock = NSLock()
+    /// Accepted `stimulate` calls since launch (never reset): an injection log
+    /// counter, so "selection did not stimulate" is checkable.
+    private var stimulationRequests = 0
+    private var publishedStimulation = DirectStimulationStatus()
+
+    /// What direct current is being injected, as of the last `step()`.
+    struct DirectStimulationStatus: Equatable {
+        var requests = 0          // accepted stimulate() calls since launch
+        var pending = 0           // queued, not yet applied
+        var active = 0            // stims applied and not yet expired
+        var neurons = 0           // distinct neurons they drive
+        var untilMs = 0           // latest expiry tick of the active set
+    }
 
     init?(connectome c: Connectome, spikeBus: SpikeBus?, seed: UInt32 = 0x5EED_1F1F,
           params: SimParams = SimParams()) {
@@ -471,6 +488,7 @@ final class MetalSim {
         self.p = params
         self.seed = seed
         self.loadMs = c.loadMs
+        observer = NeuralObserver(rootIds: c.rootId)
         self.ringSlots = params.inhDelayMs + 1
         n = c.n
         roles = c.roleName
@@ -568,7 +586,10 @@ final class MetalSim {
               let slB = dev.makeBuffer(length: n * 4, options: .storageModeShared),
               let scB = dev.makeBuffer(length: maxBatch * 4, options: .storageModeShared),
               let gcB = dev.makeBuffer(length: maxBatch * Group.slots * 4, options: .storageModeShared),
-              let smB = dev.makeBuffer(length: maxBatch * 32 * 4, options: .storageModeShared)
+              let smB = dev.makeBuffer(length: maxBatch * 32 * 4, options: .storageModeShared),
+              let osB = dev.makeBuffer(length: n * 2, options: .storageModeShared),
+              let obB = dev.makeBuffer(length: maxBatch * ObservationCapability.exactSelectionLimit,
+                                       options: .storageModeShared)
         else { fputs("metal-sim: could not allocate the per-neuron buffers\n", stderr); return nil }
         tasteTagSugar = sugarGRN.filter { groupOf[$0] == 0 }
         tasteTagMN9 = mn9.filter { groupOf[$0] == 0 }
@@ -580,6 +601,8 @@ final class MetalSim {
         vBuf = vB; refrBuf = rB; baselineBuf = bB; inputKindBuf = kB; phaseBuf = phB
         groupOfBuf = gB; extInputBuf = eiB; excBuf = exB; inhBuf = inB; spikeListBuf = slB
         spikeCountBuf = scB; groupCountBuf = gcB; sampleBuf = smB
+        observeSlotBuf = osB; observedBuf = obB
+        memset(osB.contents(), 0xFF, osB.length)   // 0xFFFF = not observed
         extPtr = eiB.contents().bindMemory(to: Float.self, capacity: n)
         spikeCountPtr = scB.contents().bindMemory(to: UInt32.self, capacity: maxBatch)
         groupCountPtr = gcB.contents().bindMemory(to: UInt32.self, capacity: maxBatch * Group.slots)
@@ -646,8 +669,59 @@ final class MetalSim {
         stimLock.lock()
         pendingStims.append(Stim(idx: indices, strength: strength, durationMs: durationMs))
         if pendingStims.count > 8 { pendingStims.removeFirst() }
+        stimulationRequests += 1
+        publishedStimulation.requests = stimulationRequests
+        publishedStimulation.pending = pendingStims.count
         stimLock.unlock()
     }
+
+    /// Any thread. Reflects the last `step()` plus calls queued since.
+    func directStimulationStatus() -> DirectStimulationStatus {
+        stimLock.lock(); defer { stimLock.unlock() }
+        return publishedStimulation
+    }
+
+    private func publishStimulation() {
+        let neurons = Set(activeStims.flatMap(\.idx)).count
+        let until = activeStims.map(\.untilMs).max() ?? 0
+        stimLock.lock()
+        publishedStimulation = DirectStimulationStatus(
+            requests: stimulationRequests, pending: pendingStims.count,
+            active: activeStims.count, neurons: neurons, untilMs: until)
+        stimLock.unlock()
+    }
+
+    // MARK: - Exact observation (V7.2)
+
+    /// Replaces the exact selection. Simulation-owner thread only (between
+    /// `step()` calls). A request over the limit is rejected as a whole unless
+    /// `truncate` is set, in which case the first `limit` distinct indices are
+    /// kept (callers pass them nearest-first) and the rest reported as omitted —
+    /// they are never shown as exact. Observation starts with the next step.
+    @discardableResult
+    func setObservation(_ indices: [Int], name: String = "", truncate: Bool = false)
+        -> Result<ObservationSelectionInfo, ObservationError> {
+        var request = indices, omitted = 0
+        if truncate {
+            var seen = Set<Int>()
+            let distinct = indices.filter { seen.insert($0).inserted }
+            request = Array(distinct.prefix(observer.limit))
+            omitted = distinct.count - request.count
+        }
+        let neurons: [Int]
+        switch observer.validate(request) {
+        case .failure(let e): return .failure(e)
+        case .success(let v): neurons = v
+        }
+        let slots = observeSlotBuf.contents().bindMemory(to: UInt16.self, capacity: n)
+        for i in observedNeurons { slots[i] = 0xFFFF }
+        for (k, i) in neurons.enumerated() { slots[i] = UInt16(k) }
+        observedNeurons = neurons
+        observer.arm(neurons, name: name, omitted: omitted, startTick: simMs + 1)
+        return .success(observer.selection())
+    }
+
+    func clearObservation() { setObservation([]) }
 
     func consumeGF() -> Bool { let s = gfLatch; gfLatch = false; return s }
 
@@ -732,6 +806,7 @@ final class MetalSim {
             remaining -= k
             dropFinishedStims()
         }
+        publishStimulation()
 
         if perfLogIntervalMs > 0 && simMs >= logNextMs {
             fputs(String(format: "metal-sim: %d steps in %.0f ms (%.0f µs/step, %.0f spikes/step avg)\n",
@@ -777,6 +852,10 @@ final class MetalSim {
         memset(spikeCountBuf.contents(), 0, k * 4)
         memset(groupCountBuf.contents(), 0, k * Group.slots * 4)
         memset(sampleBuf.contents(), 0xFF, k * 32 * 4)   // 0xFFFFFFFF = empty slot
+        let observing = !observedNeurons.isEmpty
+        let rowWidth = ObservationCapability.exactSelectionLimit
+        if observing { memset(observedBuf.contents(), 0, k * rowWidth) }
+        let firstTick = simMs - k + 1   // the params loop above already advanced simMs
 
         guard let cb = shared.queue.makeCommandBuffer(),
               let enc = cb.makeComputeCommandEncoder() else { return }
@@ -788,6 +867,8 @@ final class MetalSim {
                        shared.weightFx].enumerated() {
             enc.setBuffer(b, offset: 0, index: i)
         }
+        enc.setBuffer(observeSlotBuf, offset: 0, index: 17)
+        enc.setBuffer(observedBuf, offset: 0, index: 18)
         for s in 0..<k {
             var sp = params[s]
             let phase = (Int(sp.stepIndex) - 1) / tasteWindowMs & 1
@@ -840,6 +921,11 @@ final class MetalSim {
         lastSpikeCount = Int(spikeCountPtr[k - 1])
         for i in 0..<Group.slots { lastGroupCounts[i] = groupCountPtr[(k - 1) * Group.slots + i] }
         spikeBus?.push(bus)
+        if observing {
+            observer.record(firstTick: firstTick, count: k,
+                            rows: UnsafePointer(observedBuf.contents().bindMemory(to: UInt8.self, capacity: k * rowWidth)),
+                            rowWidth: rowWidth)
+        }
 
         let micros = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1000
         logWallMicros += micros
@@ -901,7 +987,10 @@ final class MetalSim {
         activeStims.removeAll(keepingCapacity: true)
         modeledDrives.removeAll(keepingCapacity: true)
         extDirty.removeAll(keepingCapacity: true)
+        publishedStimulation = DirectStimulationStatus(requests: stimulationRequests)
         stimLock.unlock()
+        // The selection survives a reset; its ticks restart in a new epoch.
+        observer.newEpoch()
 
         loomL = 0; loomR = 0; gaitDrive = 0; gaitPhase = 0; airPuff = 0
         activityScale = 1; sensoryGate = 1

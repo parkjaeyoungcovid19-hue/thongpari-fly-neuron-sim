@@ -15,6 +15,12 @@
 //   5. threshold: refr <= 0 && v >= 1 -> v = 0, refr = 2, spike
 //   6. lif_propagate: this step's spikes -> excAcc (next step) / inhRing (+4 ms)
 //
+// Exact observation (V7.2): `observeSlot` maps a neuron to its slot in the
+// current selection (0..255, 0xFFFF = not observed). A spiking observed neuron
+// sets its byte in this step's row of `observed`. It is a write-only readout:
+// nothing in the dynamics reads it, so membranes/spikes are bit-identical
+// with or without a selection.
+//
 // Synaptic accumulation is Int32 fixed point (see MetalSim.fixedPointScale), so
 // atomics are integer and the result is independent of thread order.
 
@@ -67,6 +73,8 @@ kernel void lif_update(
     device atomic_uint*   groupCounts [[buffer(11)]],
     device uint*          sampled     [[buffer(12)]],
     constant StepParams&  P           [[buffer(16)]],
+    device const ushort*  observeSlot [[buffer(17)]],
+    device uchar*         observed    [[buffer(18)]],
     uint gid [[thread_position_in_grid]])
 {
     if (gid >= P.n) { return; }
@@ -126,6 +134,10 @@ kernel void lif_update(
         // Presentation-only lossy sample: last writer wins in each of 32 slots.
         // Selection depends on GPU write order; exact counts/spikeList above do not.
         sampled[P.slot * 32u + ((h >> 3u) & 31u)] = gid;
+        // Exact: a neuron spikes at most once per step and owns its slot, so a
+        // plain store is race-free (LIF.metal hardcodes the 256-slot row).
+        ushort o = observeSlot[gid];
+        if (o != 0xFFFFu) { observed[P.slot * 256u + uint(o)] = 1u; }
     }
 }
 

@@ -54,7 +54,8 @@ Swift sources live under `Sources/<area>/` (`App`, `Brain`, `Bridge`, `Lab`,
 | `NeuronGuide.swift` / `LabTelemetry.swift` | population labels, colors, index resolution; Lab telemetry and CSV schema |
 | `MetalSim.swift` | `SimParams` (every knob + the resting-drive landmark table), `MetalShared` (pipelines, CSR buffers, load-time weight transform), `MetalSim` (per-neuron state, stim, batched `step()`) |
 | `LIF.metal` | the two compute kernels; its header states the per-step order and the fma caveat |
-| `BrainView.swift` | brain window: 139k-soma point cloud, 378-neuron role overlay, click-to-stimulate, spike flashes |
+| `BrainView.swift` | brain window: 139k-soma point cloud, 378-neuron role overlay, click = read-only selection (stimulates only with the ⚡ switch on), live injection line, sampled spike flashes |
+| `NeuralObservation.swift` | V7.2 exact observation: ≤256 selected neurons, per-tick spike bits from the kernel, `NeuralObservation` JSON contract (root IDs as strings) |
 | `Environment.swift` | permission-free senses: `WindowSense` (ledges/looms), circadian curve, user idle, thermal tempo |
 | `FlyGymBridge.swift` | optional localhost NDJSON client for FlyGym: DN commands out, proprioception + stereo-vision looming back into existing gait/LC4-LPLC2 inputs |
 | `Diagnostics.swift` | `--brainstats [s]`: rest-regime rates by class/role/cell type, hotspot probe, in-weight audit, `weightScale = 0` control |
@@ -79,7 +80,7 @@ Swift sources live under `Sources/<area>/` (`App`, `Brain`, `Bridge`, `Lab`,
 ./ThongpariFlyNeuronSim --seed 0x1234      # pin the sim seed (decimal or 0x hex) for any mode
 ```
 
-The Swift source glob automatically includes split files. `package_app.sh` compiles its own release binary without DIAGNOSTICS and strips it; it also signs/verifies the bundle. Release diagnostic flags exit 2. For headless regression, run all `--simtest`, `--behaviortest`, `--gpucheck`, `--labtest`, `--bridgetest`, `--v4test` (`--v4sessiontest` alias), `--v4timingtest`, `--worldeditortest`, and `--observationaudittest` flags.
+The Swift source glob automatically includes split files. `package_app.sh` compiles its own release binary without DIAGNOSTICS and strips it; it also signs/verifies the bundle. Release diagnostic flags exit 2. For headless regression, run all `--simtest`, `--behaviortest`, `--gpucheck`, `--labtest`, `--bridgetest`, `--v4test` (`--v4sessiontest` alias), `--v4timingtest`, `--worldeditortest`, `--observationaudittest`, and `--observetest` flags.
 
 Python mock unit checks use one runner (real MuJoCo and flaky timing gates are outside discovery):
 
@@ -125,7 +126,8 @@ trust the compiler, not single-file diagnostics.
 - `MetalShared` (device, queue, pipelines, CSR buffers) is shared and immutable;
   a second sim reuses it unless the weight knobs changed.
 - Brain clicks go through `Coordinator.enqueueSimulation` so deterministic
-  boundaries apply. `MetalSim.stimulate()` is the cross-thread method (lock + pending list
+  boundaries apply: a selection arms `MetalSim.setObservation` there, a ⚡ click
+  `stimulate`. `NeuralObserver` is locked; any thread may query it. `MetalSim.stimulate()` is the cross-thread method (lock + pending list
   merged at the top of `step()`).
 
 ## Neuron → behavior mapping

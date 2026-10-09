@@ -1,6 +1,6 @@
 # Virtual Fly Lab V7 — 정확한 뉴런 관측과 상호작용 타임라인
 
-작성: 2026-09-13 · 갱신: 2026-10-08 · 상태: **V7.1 audit 완료 / V7.2–7.7 PLANNED**
+작성: 2026-09-13 · 갱신: 2026-10-09 · 상태: **V7.1–7.3 구현 / V7.4–7.7 PLANNED**
 
 선행: **V6 완료 후에만 착수**. 병렬로 다음 버전 기능을 구현하거나 버전 순서를 바꾸지 않는다.
 
@@ -70,6 +70,8 @@ individual_id, event_id, selected groups/neurons, time window. 읽기 전용 조
 
 **완료 출력:** 한도 안에서 count/rate가 참조와 일치.
 
+**2026-10-09 구현:** [V7.2–7.3 보고서](../reports/V7_2_3_COMPLETION_REPORT.md). `NeuralObservation.swift`, LIF.metal `observeSlot`/`observed`, `--observetest`.
+
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V7.2` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 
 ### 7.3. 읽기/자극 분리
@@ -77,6 +79,8 @@ individual_id, event_id, selected groups/neurons, time window. 읽기 전용 조
 **할 일:** 기본 BrainView 클릭을 선택으로 바꾸고 명시적 자극 toggle 및 확인 가능한 injection 표시를 만든다. 기존 실험 자극 기능은 유지한다.
 
 **완료 출력:** 선택만으로 extInput 변화 없음.
+
+**2026-10-09 구현:** 같은 보고서. 기본 클릭 = 읽기 전용 선택, ⚡ 스위치 = 직접 자극, 뇌 화면 안 주입 표시.
 
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V7.3` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 

@@ -194,7 +194,6 @@ extension LabWindowController {
             view.wantsLayer = true
             view.layer?.cornerRadius = 8
             view.layer?.masksToBounds = true
-            view.setAccessibilityLabel(L("FlyWire sampled spike visualization. Clicking a cluster stimulates it directly.", "초파리 뇌 표본 발화 시각화. 뉴런 덩어리를 클릭하면 그 부분을 직접 자극합니다."))
             brainView = view
         } else {
             brainView = LabForm.note(L("The brain model is not loaded in this session.", "이번 실행에서는 뇌 모델을 불러오지 않았습니다."))
@@ -207,10 +206,18 @@ extension LabWindowController {
         _ = LabForm.status(brainRoleDescription)
         updateBrainRoleDescription()
         _ = LabForm.number(brainStrength); _ = LabForm.number(brainDuration)
+        _ = LabForm.status(brainSelectionLabel)
+        _ = LabForm.status(brainObservationLabel, mono: true)
+        updateBrainObservation()
         return LabInspectorPage([
             section(L("Sampled spike visualization", "표본 발화 시각화"),
-                    help: L("All 139,255 somata are shown. Flashes are a lossy sample, without exact counts or timing. Data rates use exact simulated spike counts per neuron and an approximately 120 ms simulation-time EMA. Clicking applies direct neural stimulation.", "뉴런 139,255개를 표시합니다. 반짝임은 일부 발화만 보여 주며 정확한 횟수·시간을 뜻하지 않습니다. Data 발화율은 실제 시뮬레이션 집계의 뉴런당 평균, 약 120 ms simulation-time EMA입니다. 클릭하면 뉴런을 직접 자극합니다."),
-                    [LabForm.note(L("Sampled flashes — counts and timing are incomplete. Click = direct stimulation.", "표본 반짝임 — 횟수·시간이 불완전합니다. 클릭 = 직접 자극.")), brainView]),
+                    help: L("All 139,255 somata are shown. Flashes are a lossy sample, without exact counts or timing. Data rates use exact simulated spike counts per neuron and an approximately 120 ms simulation-time EMA. A click only selects a cluster for exact observation; it stimulates only while the ⚡ switch in the view is on.", "뉴런 139,255개를 표시합니다. 반짝임은 일부 발화만 보여 주며 정확한 횟수·시간을 뜻하지 않습니다. Data 발화율은 실제 시뮬레이션 집계의 뉴런당 평균, 약 120 ms simulation-time EMA입니다. 클릭은 정확 관측할 뉴런 덩어리를 고르기만 하며, 화면 안의 ⚡ 스위치를 켰을 때만 직접 자극합니다."),
+                    [LabForm.note(L("Sampled flashes — counts and timing are incomplete. Click = select (no stimulation). ⚡ switch on = click stimulates.", "표본 반짝임 — 횟수·시간이 불완전합니다. 클릭 = 선택(자극 없음). ⚡ 스위치를 켜면 클릭 = 직접 자극.")), brainView]),
+            section(L("Selected neurons — exact observation (read-only)", "선택한 뉴런 — 정확 관측 (읽기 전용)"),
+                    help: String(format: L("Exact spike counts for up to %d selected neurons, read from the simulation every 1 ms step (not the sampled flashes). Rate = spikes × 1000 ÷ (observed ms × neurons), in Hz per neuron. Ticks before the selection or older than %.3f s are reported as missing, never as zeros. Selecting never injects current.", "선택한 뉴런 최대 %d개의 발화를 시뮬레이션 1 ms 단계마다 정확히 셉니다(표본 반짝임이 아님). 발화율 = 발화 수 × 1000 ÷ (관측한 ms × 뉴런 수), 뉴런당 Hz입니다. 선택하기 전이나 %.3f초보다 오래된 구간은 0이 아니라 ‘빠진 구간’으로 표시합니다. 선택만으로는 전류를 넣지 않습니다."),
+                                   ObservationCapability.exactSelectionLimit, Double(ObservationCapability.retainedTicks) / 1000),
+                    [brainSelectionLabel, brainObservationLabel,
+                     LabForm.buttons([button(L("Clear selection", "선택 해제"), #selector(clearBrainSelection))], columns: 1)]),
             section(L("What the colours mean", "색 안내 — 각 뉴런이 하는 일"),
                     [NeuronGuide.legendView()]),
             section(L("Stimulate a population", "뉴런 그룹 직접 자극하기"), kind: .directNeural,
@@ -223,6 +230,54 @@ extension LabWindowController {
     }
 
     @objc private func brainRoleChanged() { updateBrainRoleDescription() }
+
+    @objc func clearBrainSelection() {
+        coordinator.clearBrainObservation()
+        brainController?.clearSelectionMarker()
+    }
+
+    /// Refreshes the exact-observation readout (called from `refresh()`).
+    func updateBrainObservation() {
+        guard let (info, last1s) = coordinator.brainObservation(windowMs: 1000) else {
+            brainSelectionLabel.stringValue = L("The brain model is not loaded.", "뇌 모델을 불러오지 않았습니다.")
+            brainObservationLabel.stringValue = ""
+            return
+        }
+        if let pending = coordinator.sim?.observer.pending() {
+            brainSelectionLabel.stringValue = pending.isEmpty
+                ? L("Clearing the selection — applies when the simulation runs.", "선택 해제 대기 — 시뮬레이션이 돌면 적용됩니다.")
+                : "◎ \(pending) — " + L("queued; exact observation starts when the simulation runs (paused now?)", "대기 중; 시뮬레이션이 돌면 정확 관측을 시작합니다 (지금 일시 정지?)")
+            brainObservationLabel.stringValue = ""
+            return
+        }
+        guard !info.isEmpty else {
+            brainSelectionLabel.stringValue = L("Nothing selected — click the brain above.", "선택 없음 — 위 뇌를 클릭하세요.")
+            brainObservationLabel.stringValue = String(format: L("exact limit %d neurons · retained %d ms", "정확 관측 한도 뉴런 %d개 · 보관 %d ms"),
+                                                       ObservationCapability.exactSelectionLimit, ObservationCapability.retainedTicks)
+            return
+        }
+        var head = "◎ \(info.name) — " + String(format: L("%d neurons observed exactly", "뉴런 %d개 정확 관측"), info.neurons.count)
+        if info.omitted > 0 {
+            head += String(format: L(" (%d more beyond the %d limit are NOT observed)", " (한도 %d개를 넘은 %d개는 관측 안 함)"),
+                           info.omitted, ObservationCapability.exactSelectionLimit)
+        }
+        if let first = info.neurons.first, let label = brainController?.neuronLabel(first) {
+            head += "\n" + L("nearest: ", "가장 가까운 뉴런: ") + label
+        }
+        brainSelectionLabel.stringValue = head
+        let all = coordinator.brainObservation(windowMs: nil)?.1
+        func line(_ title: String, _ o: NeuralObservation?) -> String {
+            guard let o else { return title + L(": no simulated step yet", ": 아직 계산된 단계 없음") }
+            let rate = o.rateHzPerNeuron.map { String(format: "%.2f Hz/%@", $0, L("neuron", "뉴런")) } ?? "—"
+            var t = String(format: L("%@: %d spikes · %@ · t=%d…%d (%d ms)", "%@: 발화 %d회 · %@ · t=%d…%d (%d ms)"), title, o.spikeCount, rate,
+                           o.startTick, o.endTick, o.observedTicks)
+            if o.droppedSamples > 0 { t += String(format: L(" · %d ms missing", " · %d ms 빠짐"), o.droppedSamples) }
+            return t + " · " + o.source.rawValue + "/" + o.validity.rawValue
+        }
+        brainObservationLabel.stringValue = line(L("last 1 s", "최근 1초"), last1s) + "\n"
+            + line(L("retained", "보관 전체"), all) + "\n"
+            + String(format: L("epoch %d · selection #%d", "epoch %d · 선택 #%d"), info.brainEpoch, info.selectionID)
+    }
 
     func updateBrainRoleDescription() {
         let group = NeuronGuide.group(stimulusID: selectedValue(brainRole, fallback: "GF"))

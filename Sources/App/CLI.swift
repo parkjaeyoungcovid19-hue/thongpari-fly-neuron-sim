@@ -24,6 +24,7 @@ func dispatchCLI() {
         ("--snapshot", { i in runSnapshot(path: args.count > i + 1 ? args[i + 1] : "preview.png"); exit(0) }),
         ("--brainshot", { i in runBrainshot(path: args.count > i + 1 ? args[i + 1] : "brain.png"); exit(0) }),
         ("--observationaudittest", { _ in runObservationAuditTest() }),
+        ("--observetest", { _ in runObservationTest() }),
         ("--gpucheck", { _ in runGPUCheck() }),
         ("--bridgetest", { _ in runBridgeTest() }),
         ("--worldeditortest", { _ in runWorldEditorTest() }),

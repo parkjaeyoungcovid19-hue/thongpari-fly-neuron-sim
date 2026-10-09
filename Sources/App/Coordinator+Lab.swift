@@ -90,6 +90,35 @@ extension Coordinator {
         }
     }
 
+    /// Read-only V7.3 brain selection: arms exact observation of the nearest
+    /// neurons of the pick (up to the exact limit). Never injects current.
+    func observeBrainPick(_ pick: BrainPick) {
+        let name = pick.name.replacingOccurrences(of: "⚡ ", with: "")
+        sim?.observer.markPending(name)
+        enqueueSimulation { c in _ = c.sim?.setObservation(pick.indices, name: name, truncate: true) }
+    }
+
+    func clearBrainObservation() {
+        sim?.observer.markPending("")
+        enqueueSimulation { c in c.sim?.clearObservation() }
+    }
+
+    /// Exact observation of the current selection over the last `windowMs`
+    /// simulated ms, tagged with the Lab session. Any thread.
+    func brainObservation(windowMs: Int?) -> (ObservationSelectionInfo, NeuralObservation?)? {
+        guard let sim else { return nil }
+        let info = sim.observer.selection()
+        guard !info.isEmpty else { return (info, nil) }
+        let session = labSession.snapshot()
+        let end = info.lastTick
+        let start = windowMs.map { max(1, end - $0 + 1) }
+        guard end >= 1 else { return (info, nil) }
+        let obs = try? sim.observer.observe(groupID: "selection-\(info.selectionID)", members: info.neurons,
+                                            start: start, end: end,
+                                            sessionID: session.sessionID, sessionEpoch: session.epoch).get()
+        return (info, obs)
+    }
+
     func labStimulatePopulation(_ role: String, strength: Float, durationMs: Int) {
         enqueueSimulation { c in
             guard let sim = c.sim else { return }

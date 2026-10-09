@@ -127,6 +127,8 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     let brainStrength = NSTextField(string: "0.30")
     let brainDuration = NSTextField(string: "300")
     let brainRoleDescription = NSTextField(wrappingLabelWithString: "")
+    let brainSelectionLabel = NSTextField(wrappingLabelWithString: "")
+    let brainObservationLabel = NSTextField(wrappingLabelWithString: "")
 
     let neuralGraph = LabGraphView(frame: .zero,
                                            names: ["brain", "loom", "walk", "back", "groom"])
@@ -232,13 +234,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         if let connectome, let sim = coordinator.sim, let screen = NSScreen.main {
             brainController = BrainWindowController(connectome: connectome, sim: sim, screen: screen)
         }
-        brainController?.onStimulate = { [weak coordinator] indices, strength, duration in
-            coordinator?.enqueueSimulation { $0.sim?.stimulate(indices, strength: strength, durationMs: duration) }
-        }
         buildUI()
-        brainController?.onPick = { [weak self] pick in
+        brainController?.connect(to: coordinator) { [weak self] pick, strength, duration in
             self?.noteBrainClickStimulus(count: pick.indices.count, name: pick.name,
-                                         strength: 0.25, durationMs: 400)
+                                         strength: strength, durationMs: duration)
         }
         arenaPlacement.onPick = { [weak self] x, y in
             guard let self else { return }
@@ -1615,6 +1614,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         refreshGunStatus()
         updateMood(t, now: now)
         activityCards.update(ActivityCardInput(telemetry: t, brainSimLoaded: coordinator.sim != nil))
+        updateBrainObservation()
         let rows = timeline.recent(5).map(\.line)
         timelineLabel.stringValue = rows.isEmpty
             ? L("t\(session.simTick) · No commands yet — stimuli, markers and their ACKs appear here", "아직 명령이 없습니다 — 자극, 구간 표시와 그 결과가 여기에 나타납니다")

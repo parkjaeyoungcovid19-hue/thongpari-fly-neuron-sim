@@ -207,6 +207,9 @@ func runEventWindowTest() {
                 && f.buffer.window(eventID: "O4")?.validity.overlappingEvents.contains("O1") == false)
         check("an overlapped window still reports exact counts but names its neighbours",
               f.buffer.window(eventID: "O1")?.groups.first?.response?.spikeCount == 130)
+        let o1 = f.buffer.window(eventID: "O1")
+        check("an overlapped window is not sufficient, also when the overlap arrives after it finished",
+              o1?.validity.sufficient == false && o1.flatMap { decodeWindow(jsonObject($0)) } == o1)
     }
     do {   // overflow
         let f = EWFixture()
@@ -352,6 +355,7 @@ func runEventWindowTest() {
                 && EventWindowIntent.classify(cmd("wind", strength: 1, physical: false, sensory: false)) == nil
                 && EventWindowIntent.classify(cmd("reset_world")) == nil && EventWindowIntent.classify(cmd("load_scene")) == nil
                 && EventWindowIntent.classify(cmd("temperature", mode: "environment_only")) == nil
+                && EventWindowIntent.classify(cmd("temperature", mode: "modeled_physiology")) == nil   // body tempo only
                 && EventWindowIntent.classify(cmd("temperature", mode: "flywire_sensory"))?.source == .sensoryModel)
     }
 
@@ -403,6 +407,16 @@ func runEventWindowTest() {
         check("bad: complete window carrying an invalidating flag", rejects(complete) { mutateWindow(&$0, "validity") { $0["brain_reset"] = true } })
         check("bad: wrong schema", rejects(complete) { $0["schema"] = "interaction_window.v0" })
         check("bad: overlapping_events lists the event itself", rejects(complete) { mutateWindow(&$0, "validity") { $0["overlapping_events"] = ["J"] } })
+        check("bad: selection_omitted missing, negative, or without a selection",
+              rejects(complete) { $0["selection_omitted"] = nil } && rejects(complete) { $0["selection_omitted"] = -1 }
+                && rejects(unknown) { $0["selection_id"] = NSNull(); $0["selection_omitted"] = 3 })
+        let t = EWFixture(neurons: [])
+        t.observer.arm(EWFixture.neurons, name: "pick", omitted: 144, startTick: 1)
+        t.feed(to: 599)
+        t.buffer.noteEvent(id: "T", kind: "unit", source: .directNeural, appliedTick: 600)
+        let truncated = t.buffer.window(eventID: "T")
+        check("a truncated pick is recorded with its omitted count and round-trips",
+              truncated?.selectionOmitted == 144 && truncated.flatMap { decodeWindow(jsonObject($0)) } == truncated)
     }
 
     // ---- recorder: one interaction_window line per finalized window -----------

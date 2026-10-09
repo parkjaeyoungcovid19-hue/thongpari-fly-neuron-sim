@@ -144,6 +144,7 @@ final class GroupRegistryPanel: NSStackView {
     /// gets an explicit "no registered group" row instead of vanishing.
     private func buildPicker(_ r: GroupRegistry) {
         picker.removeAllItems()
+        picker.menu?.autoenablesItems = false   // keep the headings unselectable
         func add(_ title: String, id: String?) {
             let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             item.representedObject = id

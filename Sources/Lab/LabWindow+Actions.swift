@@ -538,6 +538,7 @@ extension LabWindowController {
     @objc func stopRecording() {
         guard recorder.isRecording || recorder.isStopping else { return }
         noteLocal("recording", "stop requested", kind: .recording)
+        EventWindowIntent.recordCollecting(coordinator.sim?.eventWindows, to: recorder)
         recorder.stop { [weak self] outcome in
             DispatchQueue.main.async { self?.noteRecordingOutcome(outcome) }
         }
@@ -577,6 +578,7 @@ extension LabWindowController {
             return
         }
         noteLocal("recording", "stop for quit", kind: .recording)
+        EventWindowIntent.recordCollecting(coordinator.sim?.eventWindows, to: recorder)
         recorder.stop(reason: "application quit") { [weak self] outcome in
             DispatchQueue.main.async {
                 self?.noteRecordingOutcome(outcome)

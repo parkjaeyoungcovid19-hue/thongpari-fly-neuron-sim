@@ -136,7 +136,7 @@ final class EventWindowBuffer {
             appliedTick: usable,
             appliedTickOrigin: appliedTickOrigin ?? (usable == nil ? "unknown: no reliable neural tick" : "caller"),
             sensorySampleTick: sensorySampleTick, brainEpoch: info.brainEpoch,
-            selectionID: selectionID, config: config)
+            selectionID: selectionID, selectionOmitted: info.isEmpty ? 0 : info.omitted, config: config)
         if let a = usable {
             markOverlaps(of: &w, appliedTick: a)
             if a - w.preMs < 1 || info.firstTick > a - w.preMs { w.validity.baselineInsufficient = true }
@@ -263,7 +263,8 @@ final class EventWindowBuffer {
     /// Two events overlap when their analysis ranges [applied − pre, applied +
     /// post − 1] intersect in the same brain epoch (one's response then sits in
     /// the other's baseline or response). Flagged on both, including a window
-    /// that already finished (the recorder line of that one stays as written).
+    /// that already finished (it loses `sufficient`; the recorder line of that
+    /// one stays as written).
     private func markOverlaps(of w: inout InteractionWindow, appliedTick a: Int) {
         func intersects(_ o: InteractionWindow) -> Bool {
             guard let b = o.appliedTick, o.brainEpoch == w.brainEpoch, o.eventID != w.eventID else { return false }
@@ -279,6 +280,7 @@ final class EventWindowBuffer {
         for i in history.indices where intersects(history[i].window) {
             add(history[i].window.eventID, to: &w.validity)
             add(w.eventID, to: &history[i].window.validity)
+            history[i].window.validity.sufficient = history[i].window.impliedSufficient
         }
     }
 

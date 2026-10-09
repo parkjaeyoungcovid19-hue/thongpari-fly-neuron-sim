@@ -227,6 +227,8 @@ struct GroupRegistry {
     /// Registration order (parents before children for the built-in set).
     let definitions: [GroupDefinition]
     private let statuses: [String: GroupStatus]
+    /// Distinct member count per enabled group, counted once (the UI asks often).
+    private let distinctCounts: [String: Int]
     /// Set when the built-in registry could not be built; the UI shows it.
     private(set) var buildError: String?
 
@@ -256,6 +258,7 @@ struct GroupRegistry {
         self.dataset = dataset
         self.definitions = definitions
         statuses = Dictionary(uniqueKeysWithValues: definitions.map { ($0.groupID, Self.resolve($0, in: dataset)) })
+        distinctCounts = statuses.compactMapValues { if case .enabled(let m) = $0 { return Set(m).count } else { return nil } }
     }
 
     /// Hash first, then root IDs, then emptiness: the order of plan §6.
@@ -288,8 +291,8 @@ struct GroupRegistry {
         switch statuses[id] {
         case nil: return nil
         case .disabled(let r)?: return .unsupported(r)
-        case .enabled(let m)?:
-            let n = Set(m).count
+        case .enabled?:
+            let n = distinctCounts[id] ?? 0
             return n <= limit ? .exact(members: n) : .overLimit(members: n, limit: limit)
         }
     }
@@ -338,7 +341,7 @@ struct GroupRegistry {
     }
 
     fileprivate init(emptyFor dataset: GroupDataset, error: String) {
-        self.dataset = dataset; definitions = []; statuses = [:]; buildError = error
+        self.dataset = dataset; definitions = []; statuses = [:]; distinctCounts = [:]; buildError = error
     }
 }
 

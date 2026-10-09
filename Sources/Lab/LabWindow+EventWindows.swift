@@ -31,9 +31,10 @@ enum EventWindowIntent {
         case "touch":
             return ("touch", (c.sensory ?? true) ? .physicalAndSensoryModel : .physical)
         case "temperature", "set_temperature":
-            // environment_only changes the arena only; the modeled modes reach the brain.
-            guard let mode = c.mode, mode == "modeled_physiology" || mode == "flywire_sensory" else { return nil }
-            return ("temperature:\(mode)", .sensoryModel)
+            // Only flywire_sensory drives neurons (TRN current). environment_only
+            // changes the arena, and modeled_physiology only the body's tempo.
+            guard c.mode == "flywire_sensory" else { return nil }
+            return ("temperature:flywire_sensory", .sensoryModel)
         default:
             return classify(action: c.action)
         }
@@ -81,6 +82,15 @@ enum EventWindowIntent {
         }
     }
 
+    /// Writes the windows still collecting when a recording stops, as they are
+    /// (status collecting): once the recorder leaves `.recording` the sink above
+    /// drops them, and the event would otherwise have no window line at all.
+    static func recordCollecting(_ buffer: EventWindowBuffer?, to recorder: ExperimentRecorder) {
+        guard let buffer else { return }
+        let sink = recordingSink(recorder)
+        for w in buffer.windows().reversed() where w.status == .collecting { sink(w) }
+    }
+
     /// Without the sent command these cannot be classified honestly.
     static func dependsOnFlags(_ action: String) -> Bool {
         ["wind", "wind_puff", "touch", "temperature", "set_temperature"].contains(action)
@@ -107,7 +117,7 @@ extension LabWindowController {
         }
         let session = coordinator.sessionSnapshot()
         let anchor = EventWindowIntent.anchor(for: ack, in: session)
-        buffer.noteEvent(id: "cmd:\(session.sessionID):\(ack.id)", idOrigin: .labCommandID,
+        buffer.noteEvent(id: "cmd:\(ack.sessionID ?? session.sessionID):\(ack.id)", idOrigin: .labCommandID,
                          kind: intent.kind, source: intent.source,
                          appliedTick: anchor.tick, appliedTickOrigin: anchor.origin)
     }
@@ -183,6 +193,10 @@ final class EventWindowsLabel: NSTextField {
         for w in windows {
             let tick = w.appliedTick.map { "t\($0)" } ?? L("t unknown", "시각 모름")
             lines.append("\(w.eventKind) · \(w.source.rawValue) · \(tick) — \(statusText(w, paused: paused))")
+            if w.selectionOmitted > 0 {
+                lines.append("  " + String(format: L("selection: %d picked neuron(s) over the exact limit are not in it", "selection: 정확 관측 한도를 넘은 뉴런 %d개는 빠져 있음"),
+                                            w.selectionOmitted))
+            }
             for g in w.groups { lines.append("  " + groupText(g, w)) }
             if !w.validity.overlappingEvents.isEmpty {
                 lines.append("  " + String(format: L("overlaps %d other event(s): baseline/response are mixed", "다른 사건 %d개와 겹침: 이전/이후 구간이 섞여 있음"),
@@ -202,8 +216,11 @@ final class EventWindowsLabel: NSTextField {
             if paused { t += L(" · paused: simulation ticks stopped, the window does not advance", " · 일시 정지: 시뮬레이션 tick이 멈춰 창이 진행되지 않음") }
             return t
         case .complete:
-            return w.validity.sufficient ? L("complete", "완료")
-                : L("complete (baseline not observed)", "완료 (이전 구간 관측 부족)")
+            let v = w.validity
+            if v.sufficient { return L("complete", "완료") }
+            if v.baselineInsufficient { return L("complete (baseline not observed)", "완료 (이전 구간 관측 부족)") }
+            if !v.overlappingEvents.isEmpty { return L("complete (overlaps another event)", "완료 (다른 사건과 겹침)") }
+            return L("complete (not every group observed)", "완료 (관측 못 한 그룹 있음)")
         case .invalid:
             let v = w.validity
             var why: [String] = []

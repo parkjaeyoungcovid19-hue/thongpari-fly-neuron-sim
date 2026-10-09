@@ -99,7 +99,8 @@ struct InteractionValidity: Codable, Equatable {
     var noSelection = false
     var appliedTickUnknown = false
     var bufferOverflow = false
-    /// Both windows fully observed for every group, no flag that weakens that.
+    /// Both windows fully observed for every group, no overlapping event and
+    /// no other flag that weakens that.
     var sufficient = false
 
     /// Flags that make a window unusable on their own.
@@ -258,6 +259,9 @@ struct InteractionWindow: Codable, Equatable {
     var brainEpoch: Int
     /// Selection that was armed when the event was noted; nil when none.
     var selectionID: Int?
+    /// Picked neurons the exact limit left out of that selection (a truncated
+    /// brain pick). The `selection` group covers only the armed ones.
+    var selectionOmitted = 0
     var preMs: Int
     var postMs: Int
     var baselineWindow: TickWindow?
@@ -275,6 +279,7 @@ struct InteractionWindow: Codable, Equatable {
         case eventID = "event_id", eventIDOrigin = "event_id_origin", eventKind = "event_kind"
         case appliedTick = "applied_tick", appliedTickOrigin = "applied_tick_origin"
         case sensorySampleTick = "sensory_sample_tick", brainEpoch = "brain_epoch", selectionID = "selection_id"
+        case selectionOmitted = "selection_omitted"
         case preMs = "pre_ms", postMs = "post_ms", baselineWindow = "baseline_window"
         case responseWindow = "response_window", responseTicksCollected = "response_ticks_collected"
         case motorOutput = "motor_output", observedBodyAction = "observed_body_action"
@@ -282,10 +287,12 @@ struct InteractionWindow: Codable, Equatable {
 
     init(eventID: String, eventIDOrigin: InteractionEventIDOrigin, eventKind: String,
          source: InteractionEventSource, appliedTick: Int?, appliedTickOrigin: String,
-         sensorySampleTick: Int? = nil, brainEpoch: Int, selectionID: Int?, config: EventWindowConfig) {
+         sensorySampleTick: Int? = nil, brainEpoch: Int, selectionID: Int?, selectionOmitted: Int = 0,
+         config: EventWindowConfig) {
         self.eventID = eventID; self.eventIDOrigin = eventIDOrigin; self.eventKind = eventKind
         self.source = source; self.appliedTick = appliedTick; self.appliedTickOrigin = appliedTickOrigin
         self.sensorySampleTick = sensorySampleTick; self.brainEpoch = brainEpoch; self.selectionID = selectionID
+        self.selectionOmitted = selectionOmitted
         preMs = config.preMs; postMs = config.postMs
         if let a = appliedTick {
             baselineWindow = TickWindow(start: a - config.preMs, end: a - 1)
@@ -301,7 +308,8 @@ struct InteractionWindow: Codable, Equatable {
     /// flag to agree; the buffer assigns it with this.
     var impliedSufficient: Bool {
         status == .complete && !validity.baselineInsufficient && validity.droppedSamples == 0
-            && !validity.evicted && !validity.hasInvalidatingFlag && !groups.isEmpty
+            && !validity.evicted && !validity.hasInvalidatingFlag && validity.overlappingEvents.isEmpty
+            && !groups.isEmpty
             && groups.allSatisfy { $0.baseline != nil && $0.response != nil }
     }
 
@@ -326,6 +334,7 @@ struct InteractionWindow: Codable, Equatable {
         try present(.sensorySampleTick); sensorySampleTick = try c.decodeIfPresent(Int.self, forKey: .sensorySampleTick)
         brainEpoch = try c.decode(Int.self, forKey: .brainEpoch)
         try present(.selectionID); selectionID = try c.decodeIfPresent(Int.self, forKey: .selectionID)
+        selectionOmitted = try c.decode(Int.self, forKey: .selectionOmitted)
         preMs = try c.decode(Int.self, forKey: .preMs)
         postMs = try c.decode(Int.self, forKey: .postMs)
         try present(.baselineWindow); baselineWindow = try c.decodeIfPresent(TickWindow.self, forKey: .baselineWindow)
@@ -339,6 +348,7 @@ struct InteractionWindow: Codable, Equatable {
 
         guard schema == InteractionWindowCapability.schema else { throw fail("schema \(schema)") }
         guard !eventID.isEmpty, brainEpoch >= 0, (sensorySampleTick ?? 1) >= 1 else { throw fail("identity fields out of range") }
+        guard selectionOmitted >= 0, selectionID != nil || selectionOmitted == 0 else { throw fail("selection_omitted needs a selection and cannot be negative") }
         guard EventWindowConfig.validated(preMs: preMs, postMs: postMs) != nil else { throw fail("window lengths \(preMs)/\(postMs) are not servable") }
         guard (0...postMs).contains(responseTicksCollected) else { throw fail("response_ticks_collected out of range") }
         guard motorOutput == NotCollected(), observedBodyAction == NotCollected() else {
@@ -402,6 +412,7 @@ struct InteractionWindow: Codable, Equatable {
         try c.encode(sensorySampleTick, forKey: .sensorySampleTick)
         try c.encode(brainEpoch, forKey: .brainEpoch)
         try c.encode(selectionID, forKey: .selectionID)
+        try c.encode(selectionOmitted, forKey: .selectionOmitted)
         try c.encode(preMs, forKey: .preMs)
         try c.encode(postMs, forKey: .postMs)
         try c.encode(baselineWindow, forKey: .baselineWindow)

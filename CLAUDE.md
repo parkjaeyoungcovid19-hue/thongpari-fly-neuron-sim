@@ -56,6 +56,8 @@ Swift sources live under `Sources/<area>/` (`App`, `Brain`, `Bridge`, `Lab`,
 | `LIF.metal` | the two compute kernels; its header states the per-step order and the fma caveat |
 | `BrainView.swift` | brain window: 139k-soma point cloud, 378-neuron role overlay, click = read-only selection (stimulates only with the ⚡ switch on), live injection line, sampled spike flashes |
 | `NeuralObservation.swift` | V7.2 exact observation: ≤256 selected neurons, per-tick spike bits from the kernel, `NeuralObservation` JSON contract (root IDs as strings) |
+| `NeuralGroupRegistry.swift` | V7.4 functional group registry (`neural_group.v1`): 22 built-in groups bound to the dataset hash, source/evidence per group, >256-member groups unobservable (never a subset); `--registrytest` |
+| `InteractionWindow.swift` / `EventWindowBuffer.swift` | V7.5 pre/post-event windows (`interaction_window.v1`) on the sim tick clock: baseline 500 / response 1000 ticks, ≤16 collecting, ≤64 kept, overflow kept as invalid(buffer_overflow); `--eventwindowtest` |
 | `Environment.swift` | permission-free senses: `WindowSense` (ledges/looms), circadian curve, user idle, thermal tempo |
 | `FlyGymBridge.swift` | optional localhost NDJSON client for FlyGym: DN commands out, proprioception + stereo-vision looming back into existing gait/LC4-LPLC2 inputs |
 | `Diagnostics.swift` | `--brainstats [s]`: rest-regime rates by class/role/cell type, hotspot probe, in-weight audit, `weightScale = 0` control |
@@ -80,7 +82,7 @@ Swift sources live under `Sources/<area>/` (`App`, `Brain`, `Bridge`, `Lab`,
 ./ThongpariFlyNeuronSim --seed 0x1234      # pin the sim seed (decimal or 0x hex) for any mode
 ```
 
-The Swift source glob automatically includes split files. `package_app.sh` compiles its own release binary without DIAGNOSTICS and strips it; it also signs/verifies the bundle. Release diagnostic flags exit 2. For headless regression, run all `--simtest`, `--behaviortest`, `--gpucheck`, `--labtest`, `--bridgetest`, `--v4test` (`--v4sessiontest` alias), `--v4timingtest`, `--worldeditortest`, `--observationaudittest`, and `--observetest` flags.
+The Swift source glob automatically includes split files. `package_app.sh` compiles its own release binary without DIAGNOSTICS and strips it; it also signs/verifies the bundle. Release diagnostic flags exit 2. For headless regression, run all `--simtest`, `--behaviortest`, `--gpucheck`, `--labtest`, `--bridgetest`, `--v4test` (`--v4sessiontest` alias), `--v4timingtest`, `--worldeditortest`, `--observationaudittest`, `--observetest`, `--registrytest`, and `--eventwindowtest` flags.
 
 Python mock unit checks use one runner (real MuJoCo and flaky timing gates are outside discovery):
 

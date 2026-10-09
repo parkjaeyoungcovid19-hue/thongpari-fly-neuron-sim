@@ -13,13 +13,17 @@ private final class ParticipantAimMark: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        NSColor.labelColor.withAlphaComponent(0.8).setStroke()
+        // White cross on a dark outline: visible on a black sky and a bright floor.
         let path = NSBezierPath()
-        path.lineWidth = 1
-        path.move(to: NSPoint(x: bounds.midX - 4, y: bounds.midY))
-        path.line(to: NSPoint(x: bounds.midX + 4, y: bounds.midY))
-        path.move(to: NSPoint(x: bounds.midX, y: bounds.midY - 4))
-        path.line(to: NSPoint(x: bounds.midX, y: bounds.midY + 4))
+        path.move(to: NSPoint(x: bounds.midX - 5, y: bounds.midY))
+        path.line(to: NSPoint(x: bounds.midX + 5, y: bounds.midY))
+        path.move(to: NSPoint(x: bounds.midX, y: bounds.midY - 5))
+        path.line(to: NSPoint(x: bounds.midX, y: bounds.midY + 5))
+        NSColor.black.withAlphaComponent(0.75).setStroke()
+        path.lineWidth = 3
+        path.stroke()
+        NSColor.white.setStroke()
+        path.lineWidth = 1.2
         path.stroke()
     }
 }
@@ -302,8 +306,8 @@ final class WorldViewer: SCNView {
         NSLayoutConstraint.activate([
             aimMark.centerXAnchor.constraint(equalTo: centerXAnchor),
             aimMark.centerYAnchor.constraint(equalTo: centerYAnchor),
-            aimMark.widthAnchor.constraint(equalToConstant: 12),
-            aimMark.heightAnchor.constraint(equalToConstant: 12)
+            aimMark.widthAnchor.constraint(equalToConstant: 16),
+            aimMark.heightAnchor.constraint(equalToConstant: 16)
         ])
         worldScene.rootNode.addChildNode(cameraNode)
         resetObservationCamera()

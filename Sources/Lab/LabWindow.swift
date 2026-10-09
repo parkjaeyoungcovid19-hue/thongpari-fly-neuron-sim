@@ -10,6 +10,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     let recorder = ExperimentRecorder()
     var brainController: BrainWindowController?
     var timer: Timer?
+    private var lastGraphSimMs = -1
     private let timelineLabel = NSTextField(wrappingLabelWithString: L("No commands yet", "아직 명령 없음"))
     private let responseLabel = NSTextField(wrappingLabelWithString: L("Waiting for body and eye samples", "몸·눈 데이터를 기다리는 중"))
     let recordButton = NSButton(title: L("Record", "기록"), target: nil, action: nil)
@@ -512,6 +513,10 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @objc private func languageChanged() {
+        // buildUI() swaps the content controllers, which would refit the window
+        // to the new labels' size; the user's geometry must not change.
+        let frame = window?.frame
+        defer { if let frame { window?.setFrame(frame, display: true) } }
         let popups = [objectShape, touchTarget, foodVariant, flashEye, brainRole]
         let values = popups.map { $0.selectedItem?.representedObject as? String }
         let checks = [createOnArenaClick]
@@ -1637,7 +1642,11 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             }
         }
 
-        if window?.isVisible == true {
+        // Graphs advance with simulated time only: while paused the brain tick
+        // stands still, so the history must stay instead of scrolling to zero.
+        let simAdvanced = coordinator.sim == nil || t.simMs != lastGraphSimMs
+        lastGraphSimMs = t.simMs
+        if window?.isVisible == true && simAdvanced {
             neuralGraph.append([t.ratePop, t.rateLoom, t.rateFwd, t.rateMDN, t.rateGroom])
             commandGraph.append([t.rateDNaL, t.rateDNaR, t.rateMDN, t.rateFwd, t.rateGroom, t.rateEscW])
             sensoryGraph.append([t.loomL, t.loomR, t.airPuff, t.gaitDrive])

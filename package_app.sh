@@ -92,7 +92,14 @@ report_bundle_metadata() {
   find "$APP" \( -name '._*' -o -name '.DS_Store' \) -print >&2
   find "$APP" -type l -print >&2
 }
-if ! codesign --force --deep --sign - "$APP"; then
+# A stable identity keeps macOS privacy grants (and Gatekeeper's view of the
+# app) across rebuilds; an ad-hoc signature is a new app every build. Override
+# with THONGPARI_SIGN_IDENTITY (a name or SHA-1, or "-" for ad-hoc).
+SIGN_ID="${THONGPARI_SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null \
+  | awk '/Apple Development|Developer ID Application/ { print $2; exit }')}"
+SIGN_ID="${SIGN_ID:--}"
+print "Signing with ${SIGN_ID}"
+if ! codesign --force --deep --timestamp=none --sign "$SIGN_ID" "$APP"; then
   report_bundle_metadata
   exit 1
 fi

@@ -325,6 +325,8 @@ final class MetalSim {
     // ---- topology (shared with the connectome, no copies) --------------------
     let n: Int
     let roles: [String]
+    let rootIds: [UInt64]                         // FlyWire root id per neuron
+    let datasetHash: String                       // manifest neurons.bin sha256 (group registry binding)
     let types: [String]
     let positions: [SIMD3<Float>]
     private let roleId: [UInt8]
@@ -393,6 +395,18 @@ final class MetalSim {
     let spikeBus: SpikeBus?
     /// V7.2 exact observation of a small selection (see NeuralObservation.swift).
     let observer: NeuralObserver
+
+    // V7.4: built-in functional group registry, derived from the arrays above on
+    // first use (any thread) and then immutable.
+    private let registryLock = NSLock()
+    private var registryCache: GroupRegistry?
+    var groupRegistry: GroupRegistry {
+        registryLock.lock(); defer { registryLock.unlock() }
+        if let r = registryCache { return r }
+        let r = GroupRegistry.builtIn(sim: self)
+        registryCache = r
+        return r
+    }
 
     // ---- diagnostics ---------------------------------------------------------
     var deviceName: String { shared.device.name }
@@ -492,6 +506,8 @@ final class MetalSim {
         self.ringSlots = params.inhDelayMs + 1
         n = c.n
         roles = c.roleName
+        rootIds = c.rootId
+        datasetHash = c.datasetHash
         types = c.typeName
         positions = c.positions
         roleId = c.role

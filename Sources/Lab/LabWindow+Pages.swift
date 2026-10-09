@@ -218,6 +218,7 @@ extension LabWindowController {
                                    ObservationCapability.exactSelectionLimit, Double(ObservationCapability.retainedTicks) / 1000),
                     [brainSelectionLabel, brainObservationLabel,
                      LabForm.buttons([button(L("Clear selection", "선택 해제"), #selector(clearBrainSelection))], columns: 1)]),
+            section(L("Functional groups (registry)", "기능 그룹 (registry)"), help: GroupRegistryPanel.helpText, [GroupRegistryPanel(coordinator: coordinator)]),
             section(L("What the colours mean", "색 안내 — 각 뉴런이 하는 일"),
                     [NeuronGuide.legendView()]),
             section(L("Stimulate a population", "뉴런 그룹 직접 자극하기"), kind: .directNeural,

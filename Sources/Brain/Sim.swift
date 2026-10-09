@@ -89,6 +89,9 @@ enum Role {
 struct Connectome {
     let n: Int
     let e: Int
+    /// `files["neurons.bin"].sha256` from the manifest: the dataset identity a
+    /// `GroupDefinition` is bound to (NeuralGroupRegistry.swift).
+    let datasetHash: String
     let positions: [SIMD3<Float>]
     let superClass: [UInt8]
     let side: [UInt8]            // 0 center/unknown, 1 left, 2 right
@@ -123,8 +126,10 @@ private struct Manifest: Decodable {
         let superClasses: [String], sides: [String], nts: [String]
         let roles: [String], cellTypes: [String]
     }
+    struct FileRec: Decodable { let sha256: String }
     let neuronCount: Int
     let edgeCount: Int
+    let files: [String: FileRec]
     let arrays: [String: Rec]
     let stringTables: Tables
     let roleCounts: [String: Int]
@@ -191,6 +196,9 @@ func loadConnectome() -> Connectome? {
         }
         let bin = Bin(files: files, arrays: m.arrays)
         let n = m.neuronCount, e = m.edgeCount
+        guard let datasetHash = m.files["neurons.bin"]?.sha256, !datasetHash.isEmpty else {
+            throw Bin.Err("manifest has no files['neurons.bin'].sha256")
+        }
 
         guard m.stringTables.roles == Role.names else {
             throw Bin.Err("role table changed: \(m.stringTables.roles) != \(Role.names)")
@@ -266,7 +274,7 @@ func loadConnectome() -> Connectome? {
         }
 
         let ms = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1e6
-        return Connectome(n: n, e: e, positions: positions, superClass: superClass, side: side,
+        return Connectome(n: n, e: e, datasetHash: datasetHash, positions: positions, superClass: superClass, side: side,
                           nt: nt, role: role, rootId: rootId,
                           rowStart: rowStart, colIdxData: colIdxData, weightData: weightData,
                           superClassNames: classNames, ntNames: m.stringTables.nts,

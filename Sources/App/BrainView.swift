@@ -425,7 +425,9 @@ final class BrainWindowController {
     func connect(to coordinator: Coordinator, record: ((BrainPick, Float, Int) -> Void)? = nil) {
         onSelect = { [weak coordinator] pick in coordinator?.observeBrainPick(pick) }
         onStimulate = { [weak coordinator] pick, strength, duration in
-            coordinator?.enqueueSimulation { $0.sim?.stimulate(pick.indices, strength: strength, durationMs: duration) }
+            coordinator?.enqueueSimulation {
+                $0.applyDirectStimulation(pick.indices, strength: strength, durationMs: duration, kind: "brain_click:\(pick.name)")
+            }
             record?(pick, strength, duration)
         }
     }

@@ -15,6 +15,7 @@ extension Coordinator {
             c.labWindContinuous = continuous
             let duration = max(1, min(10_000, durationMs))
             c.labWindRemainingS = continuous ? 0 : Double(duration) / 1000.0
+            c.noteLocalSensoryEvent(kind: "wind")
         }
     }
 
@@ -42,6 +43,7 @@ extension Coordinator {
             c.labTouchDrive = 0.02 + 0.18 * s
             let duration = max(1, min(1_000, durationMs))
             c.labTouchRemainingS = Double(duration) / 1000.0
+            c.noteLocalSensoryEvent(kind: "touch")
         }
     }
 
@@ -124,8 +126,8 @@ extension Coordinator {
             guard let sim = c.sim else { return }
             let indices = labPopulationIndices(sim, role: role)
             guard !indices.isEmpty else { return }
-            sim.stimulate(indices, strength: min(2, max(0, strength)),
-                          durationMs: max(1, min(60_000, durationMs)))
+            c.applyDirectStimulation(indices, strength: min(2, max(0, strength)),
+                                     durationMs: max(1, min(60_000, durationMs)), kind: "population:\(role)")
         }
     }
 

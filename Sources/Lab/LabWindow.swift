@@ -743,9 +743,17 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         return controller
     }
 
+    /// Paused without a backend session (no bridge, or a peer without the V4
+    /// pause barrier): only the local brain stopped and the phase stays running.
+    private var locallyPaused: Bool {
+        guard viewState.sessionPhase == .running else { return false }
+        coordinator.lock.lock(); defer { coordinator.lock.unlock() }
+        return coordinator.localNeuralPaused
+    }
+
     @objc private func toggleRun() {
         switch viewState.sessionPhase {
-        case .running: pauseSession()
+        case .running: locallyPaused ? resumeSession() : pauseSession()
         case .paused: resumeSession()
         default: break
         }
@@ -1017,7 +1025,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         viewStateLabel.textColor = viewState.sessionPhase == .failed ? .systemRed : .labelColor
         sessionStatusLabel.stringValue = viewState.sessionStatusLine
         sessionStatusLabel.textColor = viewState.sessionPhase == .failed ? .systemRed : .labelColor
-        let paused = viewState.sessionPhase == .paused
+        let paused = viewState.sessionPhase == .paused || locallyPaused
         show(runButton, title: paused ? L("Resume", "재개") : L("Pause", "일시 정지"),
              symbol: paused ? "play.fill" : "pause.fill")
         runButton.isEnabled = viewState.sessionPhase == .running || paused

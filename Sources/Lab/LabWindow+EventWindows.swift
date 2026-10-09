@@ -203,8 +203,8 @@ final class EventWindowsLabel: NSTextField {
                                             w.validity.overlappingEvents.count))
             }
         }
-        lines.append(String(format: L("collecting %d/%d · kept %d/%d · overflow-displaced %d", "수집 중 %d/%d · 보관 %d/%d · 넘쳐서 밀려남 %d"),
-                            stats.collecting, InteractionWindowCapability.maxCollecting,
+        lines.append(String(format: L("latest %d shown · collecting %d/%d · kept %d/%d · overflow-displaced %d", "최근 %d개 표시 · 수집 중 %d/%d · 보관 %d/%d · 넘쳐서 밀려남 %d"),
+                            windows.count, stats.collecting, InteractionWindowCapability.maxCollecting,
                             stats.history, InteractionWindowCapability.maxHistory, stats.overflowDisplaced))
         return lines.joined(separator: "\n")
     }

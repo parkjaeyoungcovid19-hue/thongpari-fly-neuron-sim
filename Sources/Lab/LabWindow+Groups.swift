@@ -71,7 +71,9 @@ final class GroupRegistryPanel: NSStackView {
     private let statusLabel = NSTextField(wrappingLabelWithString: "")
     private(set) var observeButton = NSButton()
     private(set) var copyButton = NSButton()
-    private(set) var selectedGroup: String?
+    private(set) var selectedGroup: String? { didSet { if let selectedGroup { Self.remembered = selectedGroup } } }
+    /// Survives the panel being rebuilt (a language switch rebuilds the Lab UI).
+    private static var remembered: String?
     private var lastActionText = ""
     private var timer: Timer?
 
@@ -109,8 +111,9 @@ final class GroupRegistryPanel: NSStackView {
             addArrangedSubview(v)
             if !(v is NSPopUpButton) { v.widthAnchor.constraint(equalTo: widthAnchor).isActive = true }
         }
-        if let first = registry.definitions.first(where: { registry.members($0.groupID) != nil }) ?? registry.definitions.first {
-            select(groupID: first.groupID)
+        if let id = Self.remembered.flatMap({ registry.definition($0)?.groupID })
+            ?? (registry.definitions.first(where: { registry.members($0.groupID) != nil }) ?? registry.definitions.first)?.groupID {
+            select(groupID: id)
         }
     }
 

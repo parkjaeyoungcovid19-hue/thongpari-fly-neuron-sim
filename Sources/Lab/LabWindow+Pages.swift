@@ -258,7 +258,8 @@ extension LabWindowController {
                                                        ObservationCapability.exactSelectionLimit, ObservationCapability.retainedTicks)
             return
         }
-        var head = "◎ \(info.name) — " + String(format: L("%d neurons observed exactly", "뉴런 %d개 정확 관측"), info.neurons.count)
+        let name = coordinator.sim?.groupRegistry.relabel(info.name) ?? info.name
+        var head = "◎ \(name) — " + String(format: L("%d neurons observed exactly", "뉴런 %d개 정확 관측"), info.neurons.count)
         if info.omitted > 0 {
             head += String(format: L(" (%1$d more beyond the %2$d limit are NOT observed)", " (한도 %2$d개를 넘은 %1$d개는 관측 안 함)"),
                            info.omitted, ObservationCapability.exactSelectionLimit)

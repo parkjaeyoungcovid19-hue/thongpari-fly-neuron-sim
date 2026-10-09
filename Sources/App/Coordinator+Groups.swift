@@ -25,3 +25,11 @@ extension GroupText {
     /// The current interface language's text.
     var pick: String { L(en, ko) }
 }
+
+extension GroupRegistry {
+    /// A selection armed from a group carries its label in the language of the
+    /// moment; this shows it in the current one. Other names pass through.
+    func relabel(_ name: String) -> String {
+        definitions.first { $0.labels.en == name || $0.labels.ko == name }?.labels.pick ?? name
+    }
+}

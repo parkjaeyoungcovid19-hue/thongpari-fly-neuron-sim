@@ -246,6 +246,9 @@ func runRegistryTest() {
     }
     check("arming each exact-observable group selects exactly its members (omitted 0), queued then applied (\(armed) groups)",
           armBad.isEmpty && armed >= 18, armBad.joined(separator: "; "))
+    let gf = reg.definition("threat.gf")!.labels
+    check("a group-armed selection name shows in the current language; other names pass through",
+          reg.relabel(gf.en) == gf.pick && reg.relabel(gf.ko) == gf.pick && reg.relabel("brain pick 12") == "brain pick 12")
     check("arming groups issues no stimulation request and leaves extInput unchanged",
           sim.directStimulationStatus().requests == reqBefore && sim.debugExternalInput(everyone) == extBefore)
     _ = coord.observeGroup("threat.gf"); drain(); sim.step(10)

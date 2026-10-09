@@ -393,6 +393,8 @@ final class MetalSim {
     let spikeBus: SpikeBus?
     /// V7.2 exact observation of a small selection (see NeuralObservation.swift).
     let observer: NeuralObserver
+    /// V7.5 pre/post-event windows over `observer`; `step()` advances them on this thread.
+    let eventWindows: EventWindowBuffer
 
     // ---- diagnostics ---------------------------------------------------------
     var deviceName: String { shared.device.name }
@@ -489,6 +491,7 @@ final class MetalSim {
         self.seed = seed
         self.loadMs = c.loadMs
         observer = NeuralObserver(rootIds: c.rootId)
+        eventWindows = EventWindowBuffer(observer: observer)
         self.ringSlots = params.inhDelayMs + 1
         n = c.n
         roles = c.roleName
@@ -718,6 +721,7 @@ final class MetalSim {
         for (k, i) in neurons.enumerated() { slots[i] = UInt16(k) }
         observedNeurons = neurons
         observer.arm(neurons, name: name, omitted: omitted, startTick: simMs + 1)
+        eventWindows.advance()   // a selection change invalidates windows collecting on the old one
         return .success(observer.selection())
     }
 
@@ -926,6 +930,7 @@ final class MetalSim {
                             rows: UnsafePointer(observedBuf.contents().bindMemory(to: UInt8.self, capacity: k * rowWidth)),
                             rowWidth: rowWidth)
         }
+        eventWindows.advance()   // simulation ticks only: finalizes windows whose response is complete
 
         let micros = Double(DispatchTime.now().uptimeNanoseconds - t0.uptimeNanoseconds) / 1000
         logWallMicros += micros
@@ -991,6 +996,7 @@ final class MetalSim {
         stimLock.unlock()
         // The selection survives a reset; its ticks restart in a new epoch.
         observer.newEpoch()
+        eventWindows.advance()   // windows collecting in the old epoch become invalid(brain_reset)
 
         loomL = 0; loomR = 0; gaitDrive = 0; gaitPhase = 0; airPuff = 0
         activityScale = 1; sensoryGate = 1

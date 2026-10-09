@@ -139,7 +139,7 @@ final class ExperimentRecorder {
     func mark(kind: String, detail: String, commandID: Int? = nil,
               sessionID: String? = nil, epoch: Int? = nil, simTick: Int? = nil,
               requestedTick: Int? = nil, appliedTick: Int? = nil,
-              appliedEpoch: Int? = nil, status: String? = nil) {
+              appliedEpoch: Int? = nil, status: String? = nil, extra: [String: Any] = [:]) {
         var obj: [String: Any] = [
             "wall_time": Date().timeIntervalSince1970,
             "kind": kind,
@@ -153,6 +153,7 @@ final class ExperimentRecorder {
         if let appliedTick { obj["applied_tick"] = appliedTick }
         if let appliedEpoch { obj["applied_epoch"] = appliedEpoch }
         if let status { obj["status"] = status }
+        for (key, value) in extra { obj[key] = value }   // structured payloads, e.g. interaction_window
         guard var data = try? JSONSerialization.data(withJSONObject: obj, options: [.sortedKeys]) else { return }
         data.append(0x0A)
         lock.lock()

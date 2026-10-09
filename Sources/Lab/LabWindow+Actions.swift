@@ -53,6 +53,7 @@ extension LabWindowController {
         command.epoch = schedule?.epoch
         command.requestedTick = schedule?.requestedTick
         let id = bridge.sendLabCommand(command)
+        declareEventWindowIntent(command, id: id)
         noteSent(id: id, action: command.action, target: command.target ?? command.actorID,
                  schedule: schedule, bridge: bridge)
         return id

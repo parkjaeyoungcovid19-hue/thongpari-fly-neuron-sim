@@ -236,6 +236,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
             brainController = BrainWindowController(connectome: connectome, sim: sim, screen: screen)
         }
         buildUI()
+        installEventWindowRecording()
         brainController?.connect(to: coordinator) { [weak self] pick, strength, duration in
             self?.noteBrainClickStimulus(count: pick.indices.count, name: pick.name,
                                          strength: strength, durationMs: duration)
@@ -1287,6 +1288,7 @@ final class LabWindowController: NSWindowController, NSWindowDelegate {
         guard timeline.apply(ack: ack) else { return }
         let s = coordinator.sessionSnapshot()
         let request = pendingCommandSchedules.removeValue(forKey: ack.id)
+        noteEventWindow(ack: ack)
         recorder.mark(kind: "lab_command_result",
                       detail: "\(ack.action.isEmpty ? lastCommandAction : ack.action) \(ack.ok ? "OK" : "ERR") \(ack.message)",
                       commandID: ack.id,

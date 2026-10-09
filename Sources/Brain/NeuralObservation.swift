@@ -299,6 +299,9 @@ final class NeuralObserver {
 
     var isArmed: Bool { lock.lock(); defer { lock.unlock() }; return !info.neurons.isEmpty }
 
+    /// Ticks the ring retains (V7.5 asks whether a window's ticks were evicted).
+    var retainedCapacity: Int { lock.lock(); defer { lock.unlock() }; return ring.capacity }
+
     /// One batch from the kernel: `rows` holds `count` rows of `rowWidth`
     /// bytes, row s being tick `firstTick + s`.
     func record(firstTick: Int, count: Int, rows: UnsafePointer<UInt8>, rowWidth: Int) {

@@ -1,5 +1,10 @@
 # Thongpari Fly Neuron Sim 실행 파일 안내
 
+Linux는 `./setup_linux.sh` 후 `./run_linux.sh`, Windows는
+`setup_windows.cmd` 후 `run_windows.cmd`로 실행한다. 두 플랫폼은
+전체 CPU 커넥톰을 계산하는 공용 Qt 앱을 사용한다. 자세한 안내는
+[Linux](LINUX.md), [Windows](WINDOWS.md)를 참고한다. 아래는 macOS 런처 안내다.
+
 Virtual Fly Lab의 기본 진입점은 저장소 루트의 **`Virtual Fly Lab.command`**다. Finder에서 더블클릭하면 `run_flygym.sh`를 호출한다. CLI에서는 저장소 루트에서 `./run_flygym.sh`를 사용한다. `flygym-venv/bin/python`이 필요하며, 두 경로 모두 필요하면 Swift 실행 파일을 다시 빌드한 뒤 `./ThongpariFlyNeuronSim --lab`을 실행한다.
 
 기본 `--lab` 모드에서는 앱이 비공개 loopback 포트의 실제 FlyGym/MuJoCo **headless bridge**를 소유한다. MuJoCo viewer 창을 별도로 띄우지 않고 한 Lab 창에 세계를 표시하며, 앱 종료 시 자식 bridge를 정리한다. 첫 backend 준비에는 시간이 걸릴 수 있다. 사용법은 [`VIRTUAL_FLY_LAB_GUIDE.md`](VIRTUAL_FLY_LAB_GUIDE.md)를 참고한다.

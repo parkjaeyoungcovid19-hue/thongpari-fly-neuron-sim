@@ -1,0 +1,12 @@
+{
+  "type": "observation_frame",
+  "api_version": "external_io.v1",
+  "module_id": "fixture.loopback",
+  "session_id": "fixture-session",
+  "epoch": 1,
+  "seq": 3,
+  "source_tick": 600,
+  "timebase": "sim_tick",
+  "valid_until": 620,
+  "channels": [{"channel_id": "ramp", "unit": "normalized", "values": [0.25]}]
+}

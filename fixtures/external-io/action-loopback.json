@@ -1,0 +1,16 @@
+{
+  "type": "action_frame",
+  "api_version": "external_io.v1",
+  "target_endpoint": "fixture.loopback",
+  "session_id": "fixture-session",
+  "epoch": 1,
+  "seq": 4,
+  "action_id": "act-0004",
+  "neural_tick": 600,
+  "decoder_version": "fixture-0",
+  "expires_tick": 640,
+  "actions": [
+    {"channel_id": "move", "unit": "normalized", "values": [0.5, -0.25]},
+    {"channel_id": "mode_switch", "choice": "go"}
+  ]
+}

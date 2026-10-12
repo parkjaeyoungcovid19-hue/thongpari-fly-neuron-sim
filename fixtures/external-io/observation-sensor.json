@@ -1,0 +1,14 @@
+{
+  "type": "observation_frame",
+  "api_version": "external_io.v1",
+  "module_id": "fixture.sensor_loopback",
+  "session_id": "fixture-session",
+  "epoch": 1,
+  "seq": 7,
+  "source_tick": 1200,
+  "timebase": "wall_clock",
+  "valid_until": 1250,
+  "source_time_s": 1.2,
+  "channels": [{"channel_id": "intensity", "unit": "normalized", "values": [0.5]}],
+  "frame": {"channel_id": "view", "format": "gray8", "width": 16, "height": 16, "byte_length": 256, "transport_ref": "fixture-ref-0007"}
+}

@@ -1,0 +1,549 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "external-io.schema.json",
+  "title": "external_io.v1",
+  "description": "Language-neutral contract for SiliconFly external input/output modules. Mirrors Sources/Bridge/ExternalIOProtocol.swift. Beyond JSON Schema the host also enforces: values inside the channel's declared min/max and length, units equal to the declared unit, channel ids declared by the descriptor, frame dims/bytes within descriptor budgets, byte_length == width*height*bytes_per_pixel (gray8=1, rgba8=4), auxiliary modules declare no actions, lockstep modules use the sim_tick timebase, expires_tick >= neural_tick, valid_until >= source_tick, and required capabilities must be implemented by the host. receive_monotonic_time is host-stamped and ignored if a peer sends it. Unknown extra keys are tolerated; unknown offered capabilities are ignored.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/module_descriptor"
+    },
+    {
+      "$ref": "#/$defs/observation_frame"
+    },
+    {
+      "$ref": "#/$defs/action_frame"
+    }
+  ],
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "unit": {
+      "enum": [
+        "none",
+        "normalized",
+        "mm",
+        "mm/s",
+        "deg",
+        "deg/s",
+        "rad",
+        "rad/s",
+        "ms",
+        "s",
+        "hz",
+        "count"
+      ]
+    },
+    "axis": {
+      "enum": [
+        "none",
+        "x",
+        "y",
+        "z",
+        "roll",
+        "pitch",
+        "yaw",
+        "forward",
+        "lateral",
+        "vertical"
+      ]
+    },
+    "capability": {
+      "enum": [
+        "observation_frames",
+        "action_frames",
+        "image_frames",
+        "continuous_actions",
+        "discrete_actions",
+        "lockstep_clock",
+        "snapshot_restore",
+        "raw_neural_injection"
+      ]
+    },
+    "host_capability": {
+      "enum": [
+        "observation_frames",
+        "action_frames",
+        "image_frames",
+        "continuous_actions",
+        "discrete_actions"
+      ]
+    },
+    "frame_format": {
+      "enum": [
+        "gray8",
+        "rgba8"
+      ]
+    },
+    "channel_schema": {
+      "type": "object",
+      "required": [
+        "channel_id",
+        "kind",
+        "unit",
+        "axis",
+        "rate_hz"
+      ],
+      "properties": {
+        "channel_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "kind": {
+          "enum": [
+            "continuous",
+            "discrete",
+            "frame"
+          ]
+        },
+        "unit": {
+          "$ref": "#/$defs/unit"
+        },
+        "axis": {
+          "$ref": "#/$defs/axis"
+        },
+        "rate_hz": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64
+        },
+        "choices": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "formats": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/frame_format"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "continuous"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "min",
+              "max",
+              "length"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "discrete"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "choices"
+            ],
+            "properties": {
+              "unit": {
+                "const": "none"
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "min"
+                  ]
+                },
+                {
+                  "required": [
+                    "max"
+                  ]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "frame"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "formats"
+            ],
+            "properties": {
+              "unit": {
+                "const": "none"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "module_descriptor": {
+      "type": "object",
+      "required": [
+        "type",
+        "api_version",
+        "module_id",
+        "version",
+        "display_name",
+        "attach_mode",
+        "clock_mode",
+        "restore_support",
+        "capabilities",
+        "required_capabilities",
+        "observations",
+        "actions",
+        "budgets"
+      ],
+      "properties": {
+        "type": {
+          "const": "module_descriptor"
+        },
+        "api_version": {
+          "const": "external_io.v1"
+        },
+        "module_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "attach_mode": {
+          "enum": [
+            "auxiliary",
+            "external_environment"
+          ]
+        },
+        "clock_mode": {
+          "enum": [
+            "lockstep",
+            "wall_clock"
+          ]
+        },
+        "restore_support": {
+          "enum": [
+            "none",
+            "snapshot"
+          ]
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "required_capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/host_capability"
+          }
+        },
+        "observations": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/channel_schema"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/channel_schema"
+          }
+        },
+        "budgets": {
+          "type": "object",
+          "required": [
+            "max_frame_bytes",
+            "max_frame_width",
+            "max_frame_height",
+            "max_queue_depth"
+          ],
+          "properties": {
+            "max_frame_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16777216
+            },
+            "max_frame_width": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "max_frame_height": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "max_queue_depth": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 64
+            }
+          }
+        }
+      },
+      "if": {
+        "properties": {
+          "attach_mode": {
+            "const": "auxiliary"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actions": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    "channel_value": {
+      "type": "object",
+      "required": [
+        "channel_id"
+      ],
+      "properties": {
+        "channel_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "unit": {
+          "$ref": "#/$defs/unit"
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "type": "number"
+          }
+        },
+        "choice": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "unit",
+            "values"
+          ]
+        },
+        {
+          "required": [
+            "choice"
+          ]
+        }
+      ]
+    },
+    "observation_frame": {
+      "type": "object",
+      "required": [
+        "type",
+        "api_version",
+        "module_id",
+        "session_id",
+        "epoch",
+        "seq",
+        "source_tick",
+        "timebase",
+        "valid_until",
+        "channels"
+      ],
+      "properties": {
+        "type": {
+          "const": "observation_frame"
+        },
+        "api_version": {
+          "const": "external_io.v1"
+        },
+        "module_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "session_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "source_tick": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timebase": {
+          "enum": [
+            "sim_tick",
+            "wall_clock"
+          ]
+        },
+        "receive_monotonic_time": {
+          "type": "number",
+          "minimum": 0,
+          "description": "host-stamped; peer value ignored"
+        },
+        "valid_until": {
+          "type": "integer"
+        },
+        "source_time_s": {
+          "type": "number",
+          "description": "optional telemetry"
+        },
+        "channels": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/channel_value"
+          }
+        },
+        "frame": {
+          "type": "object",
+          "required": [
+            "channel_id",
+            "format",
+            "width",
+            "height",
+            "byte_length",
+            "transport_ref"
+          ],
+          "properties": {
+            "channel_id": {
+              "$ref": "#/$defs/identifier"
+            },
+            "format": {
+              "$ref": "#/$defs/frame_format"
+            },
+            "width": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "height": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "byte_length": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 16777216
+            },
+            "transport_ref": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            }
+          }
+        }
+      }
+    },
+    "action_frame": {
+      "type": "object",
+      "required": [
+        "type",
+        "api_version",
+        "target_endpoint",
+        "session_id",
+        "epoch",
+        "seq",
+        "action_id",
+        "neural_tick",
+        "decoder_version",
+        "expires_tick",
+        "actions"
+      ],
+      "properties": {
+        "type": {
+          "const": "action_frame"
+        },
+        "api_version": {
+          "const": "external_io.v1"
+        },
+        "target_endpoint": {
+          "$ref": "#/$defs/identifier"
+        },
+        "session_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "epoch": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "action_id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "neural_tick": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "decoder_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "expires_tick": {
+          "type": "integer"
+        },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/channel_value"
+          }
+        }
+      }
+    }
+  }
+}

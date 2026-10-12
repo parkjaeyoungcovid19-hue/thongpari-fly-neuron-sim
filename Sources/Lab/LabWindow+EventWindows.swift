@@ -73,13 +73,23 @@ enum EventWindowIntent {
     /// finalized window, appended to the events stream of an active recording.
     static func recordingSink(_ recorder: ExperimentRecorder) -> (InteractionWindow) -> Void {
         { window in
-            guard recorder.isRecording,
-                  let data = try? JSONEncoder().encode(window),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+            guard recorder.isRecording, let extra = lineExtra(for: window) else { return }
             recorder.mark(kind: "interaction_window", detail: "\(window.eventKind) \(window.status.rawValue)",
                           simTick: window.appliedTick, appliedTick: window.appliedTick,
-                          status: window.status.rawValue, extra: ["interaction_window": object])
+                          status: window.status.rawValue, extra: extra)
         }
+    }
+
+    /// The structured payload of one `events.jsonl` line. V7.7: the explanation rides as a
+    /// sibling key on the SAME line, so the `interaction_window` object (v2 contract) is
+    /// untouched and older readers just ignore the extra key.
+    static func lineExtra(for window: InteractionWindow) -> [String: Any]? {
+        guard let data = try? JSONEncoder().encode(window),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        var extra: [String: Any] = ["interaction_window": object]
+        if let e = try? JSONEncoder().encode(explain(window: window)),
+           let eo = try? JSONSerialization.jsonObject(with: e) { extra["interaction_explanation"] = eo }
+        return extra
     }
 
     /// Writes the windows still collecting when a recording stops, as they are
@@ -134,10 +144,12 @@ extension LabWindowController {
         let config = coordinator.sim?.eventWindows.currentConfig ?? .standard
         let title = String(format: L("Around events (%g s before / %g s after)", "사건 전후 (전 %g초 / 후 %g초)"),
                            Double(config.preMs) / 1000, Double(config.postMs) / 1000)
+        let timelinePanel = TimelinePanel(coordinator: coordinator, recordingDirectory: { [weak self] in self?.recorder.path })
+        let explanationPanel = ExplanationPanel(coordinator: coordinator, eventID: { [weak timelinePanel] in timelinePanel?.selection.eventID })
         return section(title,
                        help: L("Exact spike rates of the selected neurons just before and just after each intervention, on simulation ticks only (1 ms). The window starts at the first tick the event can affect and fills as the simulation runs — pausing stops it, wall time never completes it. An unobserved baseline stays “—”, it is never estimated.",
                                "선택한 뉴런이 각 개입 직전과 직후에 낸 정확한 발화율입니다. 시뮬레이션 tick(1 ms)만 기준으로 하며, 사건이 처음 영향을 줄 수 있는 tick부터 시뮬레이션이 돌아야 채워집니다. 일시 정지하면 멈추고, 실제 시간이 흘러도 완성되지 않습니다. 관측하지 못한 이전 구간은 추정하지 않고 “—”로 둡니다."),
-                       [label, TimelinePanel(coordinator: coordinator, recordingDirectory: { [weak self] in self?.recorder.path })])
+                       [label, timelinePanel, explanationPanel])
     }
 }
 

@@ -1236,20 +1236,19 @@ class Bridge:
 def watch_parent(pid, interval=1.0):
     """Exit the whole process once `pid` no longer exists."""
     def loop():
-        while True:
-            time.sleep(interval)
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                print(f"bridge: parent {pid} exited; stopping", flush=True)
-                os._exit(0)
-            except PermissionError:
-                pass  # alive, owned by someone else
+        from process_lifetime import wait_for_parent_exit
+        try:
+            wait_for_parent_exit(pid, interval)
+        except OSError as exc:
+            print(f"bridge: cannot watch parent {pid}: {exc}; stopping", flush=True)
+            os._exit(1)
+        print(f"bridge: parent {pid} exited; stopping", flush=True)
+        os._exit(0)
     threading.Thread(target=loop, name="parent-watchdog", daemon=True).start()
 
 def main():
     parent = os.environ.get("THONGPARI_PARENT_PID", "")
-    if parent.isdigit():
+    if parent.isdigit() and int(parent) > 0:
         watch_parent(int(parent))
     ap = argparse.ArgumentParser()
     ap.add_argument("--mock", action="store_true")

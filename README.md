@@ -1,13 +1,13 @@
 # Thongpari Fly Neuron Sim
 
 <p align="center">
-  <strong>A connectome-driven virtual fruit-fly laboratory for macOS.</strong><br>
-  The whole FlyWire brain simulated on the GPU, driving a real NeuroMechFly body in MuJoCo — and you can walk into its world.
+  <strong>A connectome-driven virtual fruit-fly laboratory for macOS, Linux and Windows.</strong><br>
+  The whole FlyWire brain drives a real NeuroMechFly body in MuJoCo — and you can walk into its world. Metal on macOS; a CPU connectome and native Qt window on Linux and Windows.
 </p>
 
 <p align="center">
-  <img alt="macOS" src="https://img.shields.io/badge/platform-macOS%20·%20Apple%20Silicon-111111?style=flat-square">
-  <img alt="Swift" src="https://img.shields.io/badge/frontend-Swift%20%2B%20Metal-F05138?style=flat-square">
+  <img alt="macOS, Linux and Windows" src="https://img.shields.io/badge/platform-macOS%20·%20Linux%20·%20Windows-111111?style=flat-square">
+  <img alt="Swift/Metal and Python/Qt" src="https://img.shields.io/badge/frontend-Swift%2FMetal%20·%20Python%2FQt-F05138?style=flat-square">
   <img alt="FlyGym" src="https://img.shields.io/badge/body-FlyGym%202.1%20%2B%20MuJoCo%203.9-5C7CFA?style=flat-square">
   <img alt="status" src="https://img.shields.io/badge/V7.5-exact%20observation%20·%20event%20windows-2E8B57?style=flat-square">
 </p>
@@ -19,7 +19,7 @@
 
 **Thongpari Fly Neuron Sim** grew out of the SiliconFly desktop fly into an interactive **virtual fly lab**:
 
-- **Brain** — the shipped FlyWire v783 connectome as a **139,255-neuron, 15,091,983-edge** leaky-integrate-and-fire network at 1 kHz in a Metal compute shader.
+- **Brain** — the shipped FlyWire v783 connectome as a **139,255-neuron, 15,091,983-edge** leaky-integrate-and-fire network with 1 ms ticks: Metal on macOS, Numba CPU kernels on Linux/Windows.
 - **Body** — a real **NeuroMechFly v2** model in **FlyGym 2.1 / MuJoCo**, not a scripted animation.
 - **Closed loop** — descending-neuron activity drives the FlyGym walking controller; measured body state, rendered-eye vision, contacts, odor, wind and temperature flow back into identified neural populations.
 - **You** — a stick-figure participant in the same MuJoCo world: walk with WASD, look with the mouse, pick up and carry objects, and fire a toy BB gun.
@@ -64,6 +64,13 @@ The point is not to fake convincing animal behavior. Every response can be trace
 ---
 
 ## Status
+
+The version history below describes the **macOS app**. Linux and Windows share
+the native Qt client in `desktop_lab/`, the full CPU brain and the current
+FlyGym/MuJoCo world backend. They support world/environment editing,
+participation, neural stimulation and experiment recording. macOS-specific
+UI and V7 exact-observation/group/event-window panels have not been ported;
+see the [desktop differences](docs/guides/LINUX.md#simulation-contract-and-limits).
 
 **V6.1–V6.7 and V7.1–V7.5 are complete; V7.6–V7.7 are not started.** V7.2 adds exact per-tick spike observation of up to 256 selected neurons, checked tick by tick against an independent CPU reference. V7.3 separates reading from stimulating: a brain click only selects, and current is injected only with the ⚡ switch on. V7.4 adds a functional group registry (`neural_group.v1`), and V7.5 adds pre/post-event windows (`interaction_window.v1`) on the 1 ms simulation tick. All headless suites pass. Each step also had a real-GUI pass. Defects found there were fixed: the V7.4–7.5 fixes were rechecked in the GUI, the V7.2–7.3 fixes only headless. A brain pick of more than 256 neurons was not GUI-tested. See [V7.2–7.3](docs/reports/V7_2_3_COMPLETION_REPORT.md), [V7.4–7.5](docs/reports/V7_4_5_COMPLETION_REPORT.md) and [V7 progress](docs/reports/V7_PROGRESS.md); V6 runtime limits are in the [V6 completion report](docs/reports/V6_COMPLETION_REPORT.md). Deferred independent V5 gates are not retroactively marked passed. Brain flashes are a lossy sample; displayed rates come from exact simulated spike counts.
 
@@ -200,7 +207,17 @@ flowchart LR
 
 ## Quick start
 
-**Requirements:** an Apple Silicon Mac, Xcode Command Line Tools (Swift), Python 3.12, and FlyGym 2.1.0 with its MuJoCo dependencies.
+| Platform | Install | Launch | Guide |
+| --- | --- | --- | --- |
+| Linux x86_64 | `./setup_linux.sh` | `./run_linux.sh` | [Linux](docs/guides/LINUX.md) |
+| Windows 10/11 x64 | `setup_windows.cmd` | `run_windows.cmd` | [Windows](docs/guides/WINDOWS.md) |
+| macOS Apple Silicon | Swift build + Python venv below | `./run_flygym.sh` | [macOS launchers](docs/guides/LAUNCHERS.md) |
+
+Linux/Windows require **64-bit Python 3.12** and OpenGL-capable graphics for
+the real body. `--mock` uses the full brain with a kinematic body. The Qt port
+uses CPU compute; it does not require Apple frameworks, CUDA or a browser.
+
+**macOS requirements:** an Apple Silicon Mac, Xcode Command Line Tools (Swift), Python 3.12, and FlyGym 2.1.0 with its MuJoCo dependencies.
 
 ```sh
 git clone https://github.com/parkjaeyoungcovid19-hue/thongpari-fly-neuron-sim.git
@@ -247,6 +264,20 @@ If macOS "Optimize Mac Storage" has offloaded `flygym-venv` to iCloud, the first
 ---
 
 ## Testing
+
+Linux/Windows tests run from the repository root using the installed venv:
+
+```sh
+# Linux: use flygym-venv/Scripts/python.exe on Windows.
+./flygym-venv/bin/python -m unittest desktop_lab.tests.test_brain desktop_lab.tests.test_session desktop_lab.tests.test_process_lifetime -v
+./flygym-venv/bin/python -m unittest desktop_lab.tests.test_desktop -v
+```
+
+[GitHub Actions](.github/workflows/desktop.yml) installs and tests the Qt client
+on Ubuntu and Windows. Windows CI covers the full CPU brain, native process
+lifetime, TCP protocol and Qt mock workflow. Real MuJoCo rendering is tested
+on Linux; Windows real-body rendering also needs validation on a desktop with
+an OpenGL driver. The guides give the real-body test command.
 
 Self-tests are built into the binary; Python tests run against the mock and the real MuJoCo body.
 
@@ -297,6 +328,9 @@ Use it for **controlled comparisons inside the same model**, not as a claim that
 .
 ├── Virtual Fly Lab.command        Finder launcher (runs run_flygym.sh)
 ├── run_flygym.sh / package_app.sh CLI launcher / app bundle builder
+├── setup_linux.sh / run_linux.sh  Linux install / Qt launcher
+├── setup_windows.cmd / run_windows.cmd  Windows install / Qt launcher
+├── desktop_lab/                   shared Qt UI, full CPU connectome, owned backend, tests
 ├── build.sh                       compiles every Sources/**/*.swift as one module
 ├── Sources/
 │   ├── App/                       main.swift (launch modes, Coordinator, AppDelegate), FlyModel, BrainView, Environment

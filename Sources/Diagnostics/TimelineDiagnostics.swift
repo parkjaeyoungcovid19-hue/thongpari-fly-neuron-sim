@@ -364,6 +364,168 @@ func runTimelineTest() {
         } else { check("UI snapshot builds", false) }
     }
 
+    // ---- V7.6 review fixes -------------------------------------------------------------------------
+    // M1 / M4 / L6: epoch and selection decide what the panel and the export may show.
+    do {
+        let f = TLFixture()
+        for t in stride(from: 10, through: 1600, by: 10) { f.timeline.recordMotor(tick: t, motor(0.5)) }
+        f.feed(to: 600)
+        f.buffer.noteEvent(id: "E", kind: "touch", source: .physical, appliedTick: 601)
+        f.feed(to: 1600)
+        let w = f.buffer.window(eventID: "E")!
+        let snap = TimelineSnapshot.make(window: w, timeline: f.timeline, observer: f.observer)
+        let ok = TimelineExport.csv(window: w, timeline: f.timeline, observer: f.observer) { "r\($0)" }
+        check("same epoch and selection: lanes shown, the real selected count (4, though no neuron spiked), export works",
+              snap?.epochMismatch == false && snap?.motor.samples.isEmpty == false && snap?.spikeState == .shown(neurons: 4)
+                && snap?.neuronCount == 4 && ok.csv != nil && ok.note == nil)
+        var cache = TimelineSnapshotCache()
+        _ = cache.snapshot(window: w, timeline: f.timeline, observer: f.observer)
+        _ = cache.snapshot(window: w, timeline: f.timeline, observer: f.observer)
+        check("L6: a finished window's snapshot is built once while selection and epoch are unchanged", cache.builds == 1)
+        f.observer.arm([1, 2, 3, 4, 5, 6], name: "other", omitted: 0, startTick: f.tick + 1)
+        let changed = cache.snapshot(window: w, timeline: f.timeline, observer: f.observer)
+        check("M4: another selection → no raster, spike lane says the selection changed, count not borrowed; cache rebuilt",
+              cache.builds == 2 && changed?.spikeState == .selectionChanged && changed?.neuronCount == 0 && changed?.spikes.isEmpty == true
+                && changed?.labels[2].contains("selection changed") == true && changed?.note != nil && changed?.motor.samples.isEmpty == false)
+        f.observer.newEpoch()
+        let stale = cache.snapshot(window: w, timeline: f.timeline, observer: f.observer)
+        let refused = TimelineExport.csv(window: w, timeline: f.timeline, observer: f.observer) { "r\($0)" }
+        check("M1: after a brain reset the old event shows no lanes (though the lanes still hold data) and a different-epoch note; cache rebuilt",
+              cache.builds == 3 && stale?.epochMismatch == true && stale?.eye.samples.isEmpty == true && stale?.sensory.samples.isEmpty == true
+                && stale?.motor.samples.isEmpty == true && stale?.body.samples.isEmpty == true && stale?.note?.contains("epoch") == true
+                && !f.timeline.motorSlice(1...1600).samples.isEmpty)
+        check("M1: export refuses after the reset, naming the epoch", refused.csv == nil && refused.note?.contains("epoch") == true)
+        let g = TLFixture()
+        g.feed(to: 700)
+        g.buffer.noteEvent(id: "C", kind: "touch", source: .physical, appliedTick: 701)
+        g.feed(to: 800)
+        var live = TimelineSnapshotCache()
+        let running = g.buffer.window(eventID: "C")!
+        _ = live.snapshot(window: running, timeline: g.timeline, observer: g.observer)
+        _ = live.snapshot(window: running, timeline: g.timeline, observer: g.observer)
+        check("L6: a window still collecting is rebuilt every time", running.status == .collecting && live.builds == 2)
+        let n = TLFixture()
+        n.observer.arm([], name: "none", omitted: 0, startTick: 1)
+        n.feed(to: 600)
+        n.buffer.noteEvent(id: "N", kind: "touch", source: .physical, appliedTick: 601)
+        n.feed(to: 1600)
+        let ns = TimelineSnapshot.make(window: n.buffer.window(eventID: "N")!, timeline: n.timeline, observer: n.observer)
+        check("M4: an event noted with no selection says so (not 'selection changed')",
+              ns?.spikeState == .noSelection && ns?.labels[2].contains("nothing was selected") == true && ns?.note == nil)
+    }
+
+    // M2: the sensory period is measured per channel.
+    do {
+        let f = TLFixture()
+        for t in [200, 400, 600, 800] {
+            f.timeline.recordSensory(tick: t, origin: .sampledAt, channel: .wind, a: 0.5, sensoryOn: true)
+            f.timeline.recordSensory(tick: t, origin: .sampledAt, channel: .touch, a: 0.4, sensoryOn: true)   // same ticks as wind
+        }
+        f.timeline.recordSensory(tick: 300, origin: .sampledAt, channel: .localLoom, a: 0.2, b: 0.1)
+        f.feed(to: 600)
+        f.buffer.noteEvent(id: "M2", kind: "wind", source: .physicalAndSensoryModel, appliedTick: 601)
+        f.feed(to: 1600)
+        let s = TimelineSnapshot.make(window: f.buffer.window(eventID: "M2")!, timeline: f.timeline, observer: f.observer)
+        let per = Dictionary(uniqueKeysWithValues: (s?.sensoryPeriods ?? []).map { ($0.channel, $0.period) })
+        check("M2: wind and touch share ticks but each is 200 ms apart (a pooled median would be 0); a one-sample channel has no period",
+              per[.wind] == 200 && per[.touch] == 200 && per[.localLoom] == .some(nil) && s?.sensory.samples.count == 9
+                && s?.labels[1].contains("wind 200") == true && s?.labels[1].contains("touch 200") == true,
+              s?.labels[1] ?? "")
+    }
+
+    // M3: ticks a lane no longer holds are marked, not drawn as silence.
+    do {
+        let small = InteractionTimeline(motorCapacity: 8)
+        let f = TLFixture(timeline: small)
+        for t in stride(from: 20, through: 1600, by: 20) { small.recordMotor(tick: t, motor(0.5)) }
+        small.recordEye(tick: 700, origin: .sampledAt, loomL: 0.5, loomR: 0.5)
+        f.feed(to: 600)
+        f.buffer.noteEvent(id: "M3", kind: "touch", source: .physical, appliedTick: 601)
+        f.feed(to: 1600)
+        let w = f.buffer.window(eventID: "M3")!
+        let s = TimelineSnapshot.make(window: w, timeline: small, observer: f.observer)
+        let ev = s?.motor.evictedThrough ?? 0
+        check("M3: the evicted motor ticks are a not-retained range from the range start, the label says so; lanes that lost nothing do not",
+              ev > 0 && s?.notRetained[3] == [101...min(ev, 1600)] && s?.labels[3].contains("not retained") == true
+                && s?.notRetained[0].isEmpty == true && s?.labels[0].contains("not retained") == false && s?.notRetained[2].isEmpty == true)
+        f.feed(to: 3000)       // the observer ring (2,048 ticks) now no longer holds the start of the window
+        let later = TimelineSnapshot.make(window: w, timeline: small, observer: f.observer)
+        let first = 3000 - ObservationCapability.retainedTicks + 1
+        check("M3: the spike lane marks the ticks the observer ring dropped (101…\(first - 1)) and its label says so",
+              later?.notRetained[2] == [101...(first - 1)] && later?.labels[2].contains("not retained") == true)
+    }
+
+    // L1: a lockstep eye tick must be a real, new brain tick.
+    do {
+        let tl = InteractionTimeline()
+        func packet(_ i: Int, est: Int?) -> FlyGymBodyFeedback {
+            var fb = FlyGymBodyFeedback(); fb.receivedAt = Date(timeIntervalSinceReferenceDate: Double(i)); fb.eyeSampleSimTick = est
+            return fb
+        }
+        tl.ingestBody(packet(1, est: 195), tickNow: 280, lockstepEndTick: 300)
+        tl.ingestBody(packet(2, est: 195), tickNow: 300, lockstepEndTick: 320)     // sticky repeat
+        tl.ingestBody(packet(3, est: 150), tickNow: 320, lockstepEndTick: 340)     // older than the last frame
+        tl.ingestBody(packet(4, est: 999), tickNow: 340, lockstepEndTick: 360)     // beyond this quantum's end
+        tl.ingestBody(packet(5, est: 0), tickNow: 360, lockstepEndTick: 380)       // no 1-based tick
+        tl.ingestBody(packet(6, est: 375), tickNow: 380, lockstepEndTick: 400)     // a real new frame
+        check("L1: only the 195 and 375 eye frames are placed; repeat/older/future/zero ticks are not (the unplaceable count as untimed)",
+              tl.eyeSlice(1...2000).samples.map(\.tick) == [195, 375] && tl.stats().untimed == 2 && tl.stats().outOfOrder == 1,
+              "\(tl.eyeSlice(1...2000).samples.map(\.tick)) untimed \(tl.stats().untimed)")
+    }
+
+    // L2: two drive frames on one tick keep the falling edge.
+    do {
+        let tl = InteractionTimeline()
+        tl.recordLocalDrives(tick: 20, loomL: 0, loomR: 0, windStrength: 0.5, windDirectionDeg: 90, touch: 0)
+        tl.recordLocalDrives(tick: 20, loomL: 0, loomR: 0, windStrength: 0, windDirectionDeg: 90, touch: 0)
+        tl.recordLocalDrives(tick: 30, loomL: 0, loomR: 0, windStrength: 0, windDirectionDeg: 90, touch: 0)
+        let wind = tl.sensorySlice(1...100, channel: .localWind).samples
+        tl.recordLocalDrives(tick: 40, loomL: 0, loomR: 0, windStrength: 0.7, windDirectionDeg: 90, touch: 0)
+        tl.recordLocalDrives(tick: 50, loomL: 0, loomR: 0, windStrength: 0, windDirectionDeg: 90, touch: 0)
+        check("L2: active then zero on the same tick leaves the zero (the later frame wins), the drive is not stuck active, and a later drive records again",
+              wind.map(\.tick) == [20] && wind[0].a == 0 && tl.sensorySlice(1...100, channel: .localWind).samples.map(\.a) == [0, 0.7, 0]
+                && tl.stats().recorded[TimelineLane.sensory.rawValue] == 3)
+    }
+
+    // L3 / L5: strict decoder cross-checks, truncated baselines.
+    do {
+        let f = TLFixture()
+        for t in stride(from: 10, through: 1600, by: 10) { f.timeline.recordMotor(tick: t, motor(0.5)) }
+        f.feed(to: 300)
+        f.buffer.noteEvent(id: "T", kind: "touch", source: .physical, appliedTick: 301)
+        f.feed(to: 1300)
+        let t = f.buffer.window(eventID: "T")!
+        let base = t.motorOutput?.baseline
+        check("L5: a baseline cut off at tick 1 (window −199…300) is partial window_truncated_at_tick_1 with its real samples, never collected",
+              base?.status == .partial && base?.reason == "window_truncated_at_tick_1" && base?.firstTick == 10 && base?.lastTick == 300
+                && base?.mean != nil && decode(jsonObject(t)) == t)
+        func rejects(_ mutate: (inout [String: Any]) -> Void) -> Bool { var o = jsonObject(t); mutate(&o); return decode(o) == nil }
+        func accepts(_ mutate: (inout [String: Any]) -> Void) -> Bool { var o = jsonObject(t); mutate(&o); return decode(o) != nil }
+        check("L3: a sensory_sample_tick before applied_tick is rejected (one at/after it is fine)",
+              rejects { $0["sensory_sample_tick"] = 200; $0["sensory_sample_unavailable_reason"] = NSNull() }
+                && accepts { $0["sensory_sample_tick"] = 301; $0["sensory_sample_unavailable_reason"] = NSNull() })
+        check("L3: force/sensory flags contradicting a source that decides them (physical = force, no sensory model) are rejected",
+              rejects { $0["force_applied"] = false } && rejects { $0["sensory_applied"] = true } && accepts { _ in })
+        let obs = f.buffer.noteEvent(id: "O", kind: "wind", source: .observed, appliedTick: 1301)
+        check("L3: a source that does not decide the flags (observed) may carry either",
+              accepts { $0["source"] = "observed"; $0["force_applied"] = NSNull(); $0["sensory_applied"] = true } && obs.forceApplied == nil)
+    }
+
+    // L4: picker rows follow the status; the shown event is always a listed one.
+    do {
+        let f = TLFixture()
+        f.feed(to: 600)
+        f.buffer.noteEvent(id: "P", kind: "touch", source: .physical, appliedTick: 601)
+        let before = TimelinePickerModel.key(f.buffer.windows())
+        f.feed(to: 1600)
+        let after = TimelinePickerModel.key(f.buffer.windows())
+        check("L4: same event ids, different status → different picker key and title", before != after
+              && f.buffer.windows().map(\.eventID) == ["P"] && TimelinePickerModel.title(f.buffer.window(eventID: "P")!).hasSuffix("complete"))
+        check("L4: a selected event that is no longer listed falls back to the first listed one (nil when none)",
+              TimelinePickerModel.resolve(current: "gone", listed: ["a", "b"]) == "a" && TimelinePickerModel.resolve(current: "b", listed: ["a", "b"]) == "b"
+                && TimelinePickerModel.resolve(current: "gone", listed: []) == nil && TimelinePickerModel.resolve(current: nil, listed: ["a"]) == "a")
+    }
+
     // ---- real path: a real MetalSim through the app's own advanceNeuralQuantum ------------------------
     guard let c = loadConnectome(), let sim = makeDiagSim(connectome: c) else { print("no sim"); exit(1) }
     let chosen = sim.gf + sim.dnaL + sim.dnaR + sim.mdn + sim.fwd + sim.groom + sim.escw

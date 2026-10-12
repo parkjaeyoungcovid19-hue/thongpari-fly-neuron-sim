@@ -397,6 +397,10 @@ struct InteractionWindow: Codable, Equatable {
         guard EventWindowConfig.validated(preMs: preMs, postMs: postMs) != nil else { throw fail("window lengths \(preMs)/\(postMs) are not servable") }
         guard (0...postMs).contains(responseTicksCollected) else { throw fail("response_ticks_collected out of range") }
         if schema == InteractionWindowCapability.schema {
+            if let t = sensorySampleTick, let a = appliedTick, t < a { throw fail("sensory_sample_tick precedes applied_tick") }
+            let implied = Self.appliedFlags(of: source)
+            if let f = implied.force, forceApplied != f { throw fail("force_applied disagrees with the event source") }
+            if let sn = implied.sensory, sensoryApplied != sn { throw fail("sensory_applied disagrees with the event source") }
             guard (sensorySampleTick == nil) == (sensorySampleUnavailableReason?.isEmpty == false) else {
                 throw fail("a null sensory_sample_tick needs a reason, a present one has none")
             }

@@ -25,6 +25,12 @@ private func setPath(_ node: Any, _ path: ArraySlice<Substring>, _ op: [String: 
     return node
 }
 
+private struct SeededUnit {
+    var state: UInt64
+    mutating func nextUnit() -> Double { state = state &* 6364136223846793005 &+ 1442695040888963407; return Double(state >> 11) / Double(1 << 53) }
+}
+private extension SystemRandomNumberGenerator { static func withSeed(_ s: UInt64) -> SeededUnit { SeededUnit(state: s) } }
+
 func runExternalIOTest() {
     let suite = Suite()
     func check(_ name: String, _ ok: Bool, _ detail: String = "") { suite.check("V8.1 " + name, ok, detail) }
@@ -272,6 +278,166 @@ func runExternalIOTest() {
         let code = src.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
         rcheck("registry source contains no code-execution APIs", banned.allSatisfy { !code.contains($0) })
     }
+
+    // ---- V8.3 output ownership ---------------------------------------------------------------------
+    func scheck(_ name: String, _ ok: Bool, _ detail: String = "") { suite.check("V8.3 " + name, ok, detail) }
+    let tmp3 = fm.temporaryDirectory.appendingPathComponent("externalio-session-\(getpid())")
+    try? fm.removeItem(at: tmp3)
+    try? fm.createDirectory(at: tmp3, withIntermediateDirectories: true)
+    defer { try? fm.removeItem(at: tmp3) }
+    if let auxJSON = fixture("descriptor-auxiliary.json") as? [String: Any], let envJSON = fixture("descriptor-external-environment.json") as? [String: Any] {
+        put(tmp3, "a-aux.json", auxJSON)
+        put(tmp3, "b-env.json", envJSON)
+        var env2 = envJSON; env2["module_id"] = "fixture.loopback2"
+        put(tmp3, "c-env2.json", env2)
+        let A = "fixture.sensor_loopback", E = "fixture.loopback", E2 = "fixture.loopback2"
+        func fresh() -> ExternalIOSession { ExternalIOSession(registry: ExternalIOModuleRegistry(directories: [tmp3])) }
+        func code(_ op: () throws -> Void) -> String? {
+            do { try op(); return nil } catch let e as ExternalIOSessionError { return e.code.rawValue } catch { return "other" }
+        }
+        let s0 = fresh()
+        scheck("initial: default world owns output, all modules validated",
+               s0.owner == .defaultWorld && s0.defaultWorldWritesOutput && s0.failure == nil && [A, E, E2].allSatisfy { s0.lifecycle($0) == .validated })
+
+        // illegal transitions are rejected and leave state unchanged
+        let before = [A, E, E2].map { s0.lifecycle($0) }
+        scheck("illegal transitions rejected, state unchanged",
+               code({ try s0.transition(E, to: .running) }) == "illegal_transition" && code({ try s0.transition(E, to: .ready) }) == "illegal_transition"
+               && code({ try s0.acquireOutput(E) }) == "not_attached" && code({ try s0.attach("nope") }) == "unknown_module"
+               && [A, E, E2].map({ s0.lifecycle($0) }) == before && s0.owner == .defaultWorld)
+        scheck("attach twice is illegal", { let s = fresh(); try? s.attach(E); return code({ try s.attach(E) }) == "illegal_transition" && s.lifecycle(E) == .attached }())
+
+        // auxiliary can never own output, in any ordering
+        let s1 = fresh()
+        scheck("auxiliary attach ok but taking output is refused (mode_violation), owner unchanged",
+               code({ try s1.attach(A) }) == nil && code({ try s1.acquireOutput(A) }) == "mode_violation"
+               && code({ try s1.switchOutput(from: E, to: A) }) == "mode_violation" && s1.owner == .defaultWorld && s1.defaultWorldWritesOutput)
+        scheck("auxiliary cannot be released/owned later either", { try? s1.attach(E); try? s1.acquireOutput(E)
+            return code({ try s1.acquireOutput(A) }) == "mode_violation" && s1.owner == .module(E) }())
+
+        // second controller refused
+        let s2 = fresh()
+        try? s2.attach(E); try? s2.attach(E2); try? s2.attach(A)
+        scheck("first external_environment takes output; default world stops writing", code({ try s2.acquireOutput(E) }) == nil && s2.owner == .module(E) && !s2.defaultWorldWritesOutput)
+        scheck("second controller refused with a reason, owner unchanged", code({ try s2.acquireOutput(E2) }) == "output_owned" && code({ try s2.acquireOutput(E) }) == "output_owned" && s2.owner == .module(E))
+        scheck("non-owner cannot release", code({ try s2.releaseOutput(E2) }) == "not_owner" && s2.owner == .module(E))
+        scheck("owner cannot be detached/failed through plain transition", code({ try s2.transition(E, to: .detached) }) == "not_owner" && code({ try s2.transition(E, to: .failed) }) == "not_owner")
+
+        // explicit switch = release old then acquire new
+        var released: [String] = []
+        s2.releaseHandler = { released.append($0); return true }
+        scheck("explicit switch: release old -> acquire new", code({ try s2.switchOutput(from: E, to: E2) }) == nil && s2.owner == .module(E2) && released == [E])
+        scheck("switch from a non-owner is refused, nothing released", { released = []
+            return code({ try s2.switchOutput(from: E, to: E2) }) == "not_owner" && released.isEmpty && s2.owner == .module(E2) }())
+
+        // failed release: session failed, owner NOT reassigned
+        let s3 = fresh()
+        try? s3.attach(E); try? s3.attach(E2); try? s3.acquireOutput(E)
+        s3.releaseHandler = { _ in false }
+        scheck("failed release in switch: module+session failed, owner not reassigned",
+               code({ try s3.switchOutput(from: E, to: E2) }) == "release_failed" && s3.owner == .module(E) && s3.lifecycle(E) == .failed
+               && s3.failure != nil && !s3.defaultWorldWritesOutput && s3.lifecycle(E2) == .attached)
+        scheck("while failed no one can take output", code({ try s3.acquireOutput(E2) }) == "session_failed" && s3.owner == .module(E))
+        scheck("failed state is not silently left: only explicit acknowledge returns the body",
+               code({ try s3.detach(E) }) == "illegal_transition" && s3.owner == .module(E) && code({ try s3.acknowledgeFailure(E) }) == nil
+               && s3.owner == .defaultWorld && s3.failure == nil && s3.lifecycle(E) == .detached)
+        let s4 = fresh()
+        try? s4.attach(E); try? s4.acquireOutput(E); s4.releaseHandler = { _ in false }
+        scheck("failed release in detach: failed, owner kept, not detached",
+               code({ try s4.detach(E) }) == "release_failed" && s4.lifecycle(E) == .failed && s4.owner == .module(E) && s4.failure != nil)
+        let s5 = fresh()
+        try? s5.attach(E); try? s5.transition(E, to: .ready); try? s5.acquireOutput(E)
+        scheck("clean detach returns body to the default world", code({ try s5.detach(E) }) == nil && s5.owner == .defaultWorld && s5.lifecycle(E) == .detached && s5.defaultWorldWritesOutput)
+        scheck("detached is terminal", code({ try s5.attach(E) }) == "illegal_transition" && code({ try s5.acquireOutput(E) }) == "not_attached")
+
+        // every ordering of three controllers: never two owners
+        var ok = true, orderings = 0
+        let ids = [A, E, E2]
+        func perms(_ a: [String]) -> [[String]] { a.count <= 1 ? [a] : a.indices.flatMap { i in perms(Array(a[..<i] + a[(i + 1)...])).map { [a[i]] + $0 } } }
+        for order in perms(ids) {
+            for preAttach in [true, false] {
+                let s = fresh()
+                if preAttach { for id in ids { try? s.attach(id) } }
+                var winners: [String] = []
+                for id in order {
+                    if !preAttach { try? s.attach(id) }
+                    if (try? s.acquireOutput(id)) != nil { winners.append(id) }
+                }
+                orderings += 1
+                if winners.count != 1 || winners[0] == A || s.owner != .module(winners[0]) { ok = false }
+            }
+        }
+        scheck("every ordering (\(orderings)): exactly one winner, never the auxiliary", ok && orderings == 12)
+
+        // concurrent requests from two threads
+        var concurrentOK = true
+        for _ in 0..<200 {
+            let s = fresh(); try? s.attach(E); try? s.attach(E2)
+            var results = [Bool](repeating: false, count: 2)
+            let g = DispatchGroup(); let rl = NSLock()
+            for (i, id) in [E, E2].enumerated() {
+                g.enter()
+                DispatchQueue.global().async { let r = (try? s.acquireOutput(id)) != nil; rl.lock(); results[i] = r; rl.unlock(); g.leave() }
+            }
+            g.wait()
+            if results.filter({ $0 }).count != 1 || s.owner != .module(results[0] ? E : E2) { concurrentOK = false; break }
+        }
+        scheck("two threads racing for output: exactly one wins (200 rounds)", concurrentOK)
+
+        // auxiliary declared channels only
+        let s6 = fresh(); try? s6.attach(A); try? s6.attach(E)
+        let auxObs = s6.registry.module(A)?.descriptor.observations.map { $0.channelID } ?? []
+        let allowedA = s6.allowedChannels(A)
+        scheck("auxiliary: only its declared observation channels, never actions",
+               !auxObs.isEmpty && allowedA.observations == auxObs && allowedA.actions.isEmpty
+               && s6.permits(A, channel: auxObs[0], output: false) && !s6.permits(A, channel: auxObs[0], output: true)
+               && !s6.permits(A, channel: "move", output: false) && !s6.permits(A, channel: "move", output: true))
+        let moveAllowedBefore = s6.permits(E, channel: "move", output: true)
+        try? s6.acquireOutput(E)
+        scheck("external_environment: actions only once it owns output; undeclared channels never",
+               !moveAllowedBefore && s6.permits(E, channel: "move", output: true) && !s6.permits(E, channel: "fire", output: true)
+               && !s6.permits(E2, channel: "move", output: true) && s0.allowedChannels(E).actions.isEmpty && s0.allowedChannels(E).observations.isEmpty)
+
+        // rescan refused while active
+        scheck("rescan refused while a module is attached, allowed when idle", code({ try s6.rescan() }) == "modules_active" && code({ try s0.rescan() }) == nil)
+
+        // view model
+        let vm = ExternalIOModuleListModel(s6.registry, session: s6)
+        scheck("view model shows owner, lifecycle and allowed channels",
+               vm.outputOwner == E && vm.modules.first { $0.moduleID == E }?.ownsOutput == true
+               && vm.modules.first { $0.moduleID == A }?.allowedActions.isEmpty == true && vm.modules.first { $0.moduleID == A }?.lifecycle == "attached"
+               && ExternalModulesText.lines(vm).contains("output owner"))
+
+        // no module attached: identical output vs a run without the session
+        func packets(_ gate: ExternalIOSession?) -> [Data] {
+            var rng = SystemRandomNumberGenerator.withSeed(7)
+            var out: [Data] = []
+            for i in 0..<500 {
+                var sig = BrainSignals()
+                sig.walkDrive = CGFloat(rng.nextUnit()) * 1.3; sig.turnBias = CGFloat(rng.nextUnit() * 2 - 1)
+                sig.escape = i % 97 == 0; sig.backward = i % 13 == 0; sig.groomDrive = CGFloat(rng.nextUnit())
+                if let g = gate, !g.defaultWorldWritesOutput { continue }       // the hook, as in Coordinator
+                if let d = try? JSONEncoder().encode(FlyGymBrainPacket(signals: sig, simMs: i)) { out.append(d) }
+            }
+            return out
+        }
+        let baseline = packets(nil), idle = fresh()
+        scheck("no module attached: default-world output byte-identical to a run without the session", baseline.count == 500 && packets(idle) == baseline)
+        try? idle.attach(A)
+        scheck("auxiliary attached: default-world output still byte-identical", packets(idle) == baseline)
+        try? idle.attach(E); try? idle.acquireOutput(E)
+        scheck("external owner: default world writes nothing", packets(idle).isEmpty)
+        try? idle.releaseOutput(E)
+        scheck("after release: default-world output identical again", packets(idle) == baseline)
+        if let src = try? String(contentsOf: binDir.appendingPathComponent("Sources/App/Coordinator.swift"), encoding: .utf8) {
+            scheck("Coordinator gates both the FlyGym send and the local drive on the session", src.components(separatedBy: "externalIO.defaultWorldWritesOutput").count == 3)
+        }
+        if let src = try? String(contentsOf: binDir.appendingPathComponent("Sources/Bridge/ExternalIOSession.swift"), encoding: .utf8) {
+            let banned = ["dlopen", "Process(", "NSTask", "socket(", "URLSession", "NWConnection", "posix_spawn", "system("]
+            let codeOnly = src.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+            scheck("session source opens no sockets and runs no code", banned.allSatisfy { !codeOnly.contains($0) })
+        }
+    } else { scheck("fixtures available for session tests", false) }
 
     print(suite.failures == 0 ? "ALL EXTERNAL IO TESTS PASS" : "\(suite.failures) EXTERNAL IO TEST FAILURES")
     suite.finish()

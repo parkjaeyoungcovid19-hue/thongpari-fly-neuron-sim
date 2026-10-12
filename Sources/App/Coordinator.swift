@@ -36,6 +36,8 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
 
     let sim: MetalSim?
     var flyGym: FlyGymBridge?
+    /// V8.3 output-ownership boundary (shared module registry). Default owner = default world.
+    let externalIO = ExternalIOSession(registry: ExternalIOModuleRegistry())
     private let fpsLog = ProcessInfo.processInfo.environment["DESKTOPFLY_FPS"] != nil
     private var fpsFrames = 0
     private var fpsWindowStart: TimeInterval = 0
@@ -195,15 +197,16 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
                                            ambientSleepy: sleepy,
                                            ambientTempo: tempo,
                                            ambientActivity: activity)
-            if let s = signals, let fg = flyGym, let sim {
+            if let s = signals, let fg = flyGym, let sim, externalIO.defaultWorldWritesOutput {
                 fg.sendBrain(s, simMs: sim.simMs)
             }
             simulationLock.unlock()
         }
 
+        let ownsBody = externalIO.defaultWorldWritesOutput   // false only while an external_environment module owns output
         for (i, fly) in flies.enumerated() {
             fly.terrain = terrain
-            fly.update(dt: dt, bounds: bounds, mouse: mouse, signals: i == 0 ? signals : nil)
+            fly.update(dt: dt, bounds: bounds, mouse: mouse, signals: i == 0 && ownsBody ? signals : nil)
         }
         if let first = flies.first {
             lock.lock(); lastFlyPos = first.pos; lock.unlock()

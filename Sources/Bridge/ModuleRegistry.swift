@@ -13,8 +13,8 @@
 // loads, links or launches anything (no plugins, scripts, dlopen, Process) —
 // the same boundary as declarative scene import (`SceneFile`: bounded JSON,
 // strict decode). Unknown keys in a descriptor (including script-like ones) are
-// ignored by the decoder and never interpreted. Nothing is attached or sent in
-// 8.2; every registered module stays at lifecycle `validated`.
+// ignored by the decoder and never interpreted. Registered modules start at
+// lifecycle `validated`; attach/ownership is `ExternalIOSession` (8.3).
 import Foundation
 
 struct ExternalIORegisteredModule: Equatable {
@@ -117,13 +117,18 @@ struct ExternalIOModuleRow: Equatable {
     let clockMode: String
     let lifecycle: String
     let channels: [ExternalIOChannelRow]
+    var ownsOutput = false
+    var allowedObservations: [String] = []   // channel ids usable now (empty until attached)
+    var allowedActions: [String] = []        // body-output channel ids; only the output owner has any
 }
 
 struct ExternalIOModuleListModel: Equatable {
     let modules: [ExternalIOModuleRow]
     let rejected: [ExternalIORejectedModule]
+    var outputOwner = "default_world"
+    var failure: String?
 
-    init(_ registry: ExternalIOModuleRegistry) {
+    init(_ registry: ExternalIOModuleRegistry, session: ExternalIOSession? = nil) {
         func rows(_ list: [ExternalIOChannelSchema], _ dir: String) -> [ExternalIOChannelRow] {
             list.map { c in
                 let range: String
@@ -138,11 +143,18 @@ struct ExternalIOModuleListModel: Equatable {
         }
         modules = registry.modules.map { m in
             let d = m.descriptor
-            return ExternalIOModuleRow(moduleID: d.moduleID, title: d.displayName, version: d.version, attachMode: d.attachMode.rawValue,
-                                       clockMode: d.clockMode.rawValue, lifecycle: m.lifecycle.rawValue,
-                                       channels: rows(d.observations, "in") + rows(d.actions, "out"))
+            var row = ExternalIOModuleRow(moduleID: d.moduleID, title: d.displayName, version: d.version, attachMode: d.attachMode.rawValue,
+                                          clockMode: d.clockMode.rawValue, lifecycle: (session?.lifecycle(d.moduleID) ?? m.lifecycle).rawValue,
+                                          channels: rows(d.observations, "in") + rows(d.actions, "out"))
+            if let session {
+                let a = session.allowedChannels(d.moduleID)
+                row.allowedObservations = a.observations; row.allowedActions = a.actions
+                row.ownsOutput = session.owner == .module(d.moduleID)
+            }
+            return row
         }
         rejected = registry.rejected
+        if let session { outputOwner = session.owner.label; failure = session.failure }
     }
 
     private static func num(_ x: Double) -> String { x == x.rounded() && abs(x) < 1e9 ? String(Int(x)) : String(format: "%g", x) }

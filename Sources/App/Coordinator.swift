@@ -207,6 +207,7 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         }
         if let first = flies.first {
             lock.lock(); lastFlyPos = first.pos; lock.unlock()
+            if !deterministic, !neuralPaused, flyGym == nil, let sim { recordLocalBodyTimeline(sim, fly: first) }
         }
         if !deterministic {
             publishLabTelemetry(first: flies.first, bodyFeedback: frameBodyFeedback, signals: signals)

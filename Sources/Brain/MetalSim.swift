@@ -397,6 +397,8 @@ final class MetalSim {
     let observer: NeuralObserver
     /// V7.5 pre/post-event windows over `observer`; `step()` advances them on this thread.
     let eventWindows: EventWindowBuffer
+    /// V7.6 sensory/motor/body samples on the same tick clock; reset with the brain.
+    let timeline = InteractionTimeline()
 
     // V7.4: built-in functional group registry, derived from the arrays above on
     // first use (any thread) and then immutable.
@@ -505,7 +507,7 @@ final class MetalSim {
         self.seed = seed
         self.loadMs = c.loadMs
         observer = NeuralObserver(rootIds: c.rootId)
-        eventWindows = EventWindowBuffer(observer: observer)
+        eventWindows = EventWindowBuffer(observer: observer, timeline: timeline)
         self.ringSlots = params.inhDelayMs + 1
         n = c.n
         roles = c.roleName
@@ -1022,6 +1024,7 @@ final class MetalSim {
         stimLock.unlock()
         // The selection survives a reset; its ticks restart in a new epoch.
         observer.newEpoch()
+        timeline.reset()
         eventWindows.advance()   // windows collecting in the old epoch become invalid(brain_reset)
 
         loomL = 0; loomR = 0; gaitDrive = 0; gaitPhase = 0; airPuff = 0

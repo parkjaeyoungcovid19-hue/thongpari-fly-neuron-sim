@@ -137,7 +137,7 @@ extension LabWindowController {
         return section(title,
                        help: L("Exact spike rates of the selected neurons just before and just after each intervention, on simulation ticks only (1 ms). The window starts at the first tick the event can affect and fills as the simulation runs — pausing stops it, wall time never completes it. An unobserved baseline stays “—”, it is never estimated.",
                                "선택한 뉴런이 각 개입 직전과 직후에 낸 정확한 발화율입니다. 시뮬레이션 tick(1 ms)만 기준으로 하며, 사건이 처음 영향을 줄 수 있는 tick부터 시뮬레이션이 돌아야 채워집니다. 일시 정지하면 멈추고, 실제 시간이 흘러도 완성되지 않습니다. 관측하지 못한 이전 구간은 추정하지 않고 “—”로 둡니다."),
-                       [label])
+                       [label, TimelinePanel(coordinator: coordinator, recordingDirectory: { [weak self] in self?.recorder.path })])
     }
 }
 

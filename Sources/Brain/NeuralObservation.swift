@@ -354,6 +354,18 @@ final class NeuralObserver {
         return a.perNeuron
     }
 
+    /// Exact raster: every selected-neuron spike in `start...end` still retained,
+    /// as (tick, neuron index). Ticks that left the ring are simply absent.
+    func spikeEvents(start: Int, end: Int) -> [(tick: Int, neuron: Int)] {
+        lock.lock(); defer { lock.unlock() }
+        guard start <= end else { return [] }
+        var out: [(tick: Int, neuron: Int)] = []
+        for t in max(start, 1)...max(end, 1) where ring.has(t) {
+            for (slot, neuron) in ring.selection.enumerated() where ring.spiked(slot: slot, at: t) { out.append((t, neuron)) }
+        }
+        return out
+    }
+
     /// Selected neurons that spiked at `tick` (test hook / future raster).
     func spikes(at tick: Int) -> [Int]? {
         lock.lock(); defer { lock.unlock() }

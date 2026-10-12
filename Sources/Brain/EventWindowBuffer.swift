@@ -20,6 +20,11 @@
 //   (counted), and an ACK without an intent for a flag-dependent action is
 //   counted as `unclassifiedAcks` rather than guessed.
 //
+// V7.6: when a window finalizes the buffer reads its motor/body summaries, its
+// sensory sample tick and the sensory flag of the backend packet from the
+// attached `InteractionTimeline` (nil: those fields say "unavailable", never zero).
+// Lock order: buffer lock, then the timeline's own lock.
+//
 // Groups: the buffer asks `groupProvider` for `[(id, members)]` when an event is
 // noted. The default is one group "selection" = the whole current exact
 // selection. A later step (V7.4 registry) replaces the closure; nothing else
@@ -58,11 +63,13 @@ final class EventWindowBuffer {
     private var intents: [Int: (kind: String, source: InteractionEventSource)] = [:]
     private var counters = EventWindowStats()
     private var sink: ((InteractionWindow) -> Void)?
+    private let timeline: InteractionTimeline?
 
     static let maxIntents = 256
 
-    init(observer: NeuralObserver, config: EventWindowConfig = .standard) {
+    init(observer: NeuralObserver, config: EventWindowConfig = .standard, timeline: InteractionTimeline? = nil) {
         self.observer = observer
+        self.timeline = timeline
         self.config = config
         provider = { [unowned observer] in
             let info = observer.selection()
@@ -172,10 +179,14 @@ final class EventWindowBuffer {
         guard tick >= 1 else { return false }
         lock.lock(); defer { lock.unlock() }
         if let i = collecting.firstIndex(where: { $0.window.eventID == eventID }) {
-            collecting[i].window.sensorySampleTick = tick; return true
+            collecting[i].window.sensorySampleTick = tick
+            collecting[i].window.sensorySampleUnavailableReason = nil
+            return true
         }
         if let i = history.firstIndex(where: { $0.window.eventID == eventID }) {
-            history[i].window.sensorySampleTick = tick; return true
+            history[i].window.sensorySampleTick = tick
+            history[i].window.sensorySampleUnavailableReason = nil
+            return true
         }
         return false
     }
@@ -287,6 +298,9 @@ final class EventWindowBuffer {
     private func finishInvalid(_ w: inout InteractionWindow, seq: Int) -> InteractionWindow {
         w.status = .invalid
         w.validity.sufficient = false
+        w.motorOutput = .unavailable("window_invalid")
+        w.observedBodyAction = .unavailable("window_invalid")
+        if w.sensorySampleTick == nil { w.sensorySampleUnavailableReason = "window_invalid" }
         remember(w, seq: seq)
         return w
     }
@@ -346,7 +360,35 @@ final class EventWindowBuffer {
         w.responseTicksCollected = w.postMs
         w.status = responseObserved ? .complete : .invalid
         w.validity.sufficient = w.impliedSufficient
+        attachTimeline(&w)
         remember(w, seq: p.seq)
         return w
+    }
+
+    /// Reads the integrated timeline for a finalized window: motor/body summaries
+    /// per window, the first `sampled_at` sample of the event's channel and the
+    /// backend's sensory flag. Samples recorded later are not back-filled.
+    private func attachTimeline(_ w: inout InteractionWindow) {
+        guard let bw = w.baselineWindow, let rw = w.responseWindow, let timeline else {
+            w.motorOutput = .unavailable("no_timeline"); w.observedBodyAction = .unavailable("no_timeline")
+            if w.sensorySampleTick == nil { w.sensorySampleUnavailableReason = "no_timeline" }
+            return
+        }
+        w.motorOutput = MotorOutput(baseline: timeline.motorSummary(bw), response: timeline.motorSummary(rw))
+        w.observedBodyAction = ObservedBodyAction(baseline: timeline.bodySummary(bw), response: timeline.bodySummary(rw))
+        let range = max(rw.start, 1)...max(rw.end, 1)
+        if w.sensorySampleTick == nil {
+            if let ref = SensoryLaneRef.forEventKind(w.eventKind) {
+                let found = timeline.firstSampledTick(ref, in: range)
+                w.sensorySampleTick = found.tick
+                w.sensorySampleUnavailableReason = found.tick != nil ? nil
+                    : (found.receivedOnly ? "only_received_at_samples" : "no_sampled_at_sample_in_response_window")
+            } else {
+                w.sensorySampleUnavailableReason = "no_measured_sensory_channel"
+            }
+        }
+        if w.sensoryApplied == nil, case .channel(let c)? = SensoryLaneRef.forEventKind(w.eventKind) {
+            w.sensoryApplied = timeline.packetSensoryFlag(c, in: range)
+        }
     }
 }

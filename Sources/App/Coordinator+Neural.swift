@@ -183,6 +183,8 @@ extension Coordinator {
         sim.activityScale = (1 - (1 - ambientActivity) * 0.35) * (ambientSleepy ? 0.75 : 1)
         loomOverride = max(0, loomOverride - dt * 1.2)
 
+        recordTimelineInputs(sim, body: bodyFeedback, exactSteps: exactSteps,
+                             localLoom: (max(sensory.l, windowLoomL), max(sensory.r, windowLoomR)))
         if let exactSteps {
             sim.step(exactSteps)
         } else {
@@ -193,6 +195,7 @@ extension Coordinator {
         }
 
         var s = signalBuilder.make(sim, dt: dt)
+        sim.timeline.recordMotor(tick: sim.simMs, s)
         s.tempo = labTempoOverride ?? ambientTempo
         s.sleep = ambientSleepy
         return s

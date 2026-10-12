@@ -91,8 +91,11 @@ func runEventWindowTest() {
               g?.deltaHzPerNeuron == 2.5 && g?.deltaUnavailableReason == nil && w?.validity.sufficient == true
                 && w?.validity.droppedSamples == 0 && w?.validity.baselineInsufficient == false
                 && w?.validity.overlappingEvents == [] && w?.validity.hasInvalidatingFlag == false)
-        check("motor output and observed body action are explicitly not collected (V7.6)",
-              w?.motorOutput.status == "not_collected" && w?.observedBodyAction.status == "not_collected")
+        // Without an attached timeline (this fixture) the V7.6 fields say so — never zeros.
+        check("motor output and observed body action are unavailable without a timeline, not zeros (V7.6)",
+              w?.motorOutput?.baseline.status == .unavailable && w?.motorOutput?.response.reason == "no_timeline"
+                && w?.motorOutput?.response.mean == nil && w?.observedBodyAction?.baseline.status == .unavailable
+                && w?.schema == "interaction_window.v2")
         check("finished window is in history, nothing left collecting",
               f.buffer.stats().collecting == 0 && f.buffer.stats().history == 1)
     }
@@ -401,7 +404,9 @@ func runEventWindowTest() {
               rejects(complete) { mutateWindow(&$0, "validity") { $0["baseline_insufficient"] = true } })
         check("bad: sufficient=true on a window with a missing baseline",
               rejects(insufficient) { mutateWindow(&$0, "validity") { $0["sufficient"] = true } })
-        check("bad: motor_output claimed collected", rejects(complete) { mutateWindow(&$0, "motor_output") { $0["status"] = "collected" } })
+        check("bad: motor_output claimed collected without samples",
+              rejects(complete) { mutateWindow(&$0, "motor_output") { m in
+                  var b = m["baseline"] as? [String: Any] ?? [:]; b["status"] = "collected"; b["reason"] = NSNull(); m["baseline"] = b } })
         check("bad: unknown applied tick but windows present", rejects(unknown) { $0["baseline_window"] = ["start": 1, "end": 500] })
         check("bad: invalid status without any reason", rejects(unknown) { $0["status"] = "invalid"; mutateWindow(&$0, "validity") { $0["applied_tick_unknown"] = false } })
         check("bad: complete window carrying an invalidating flag", rejects(complete) { mutateWindow(&$0, "validity") { $0["brain_reset"] = true } })

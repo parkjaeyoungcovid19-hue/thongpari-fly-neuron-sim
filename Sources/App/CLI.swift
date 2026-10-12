@@ -27,6 +27,7 @@ func dispatchCLI() {
         ("--observetest", { _ in runObservationTest() }),
         ("--registrytest", { _ in runRegistryTest() }),
         ("--eventwindowtest", { _ in runEventWindowTest() }),
+        ("--timelinetest", { _ in runTimelineTest() }),
         ("--gpucheck", { _ in runGPUCheck() }),
         ("--bridgetest", { _ in runBridgeTest() }),
         ("--worldeditortest", { _ in runWorldEditorTest() }),

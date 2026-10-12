@@ -22,13 +22,23 @@
 //   window was observed (`NeuralObservation.validity == complete`). A partial
 //   one is reported as null plus its missing tick count. `delta_hz_per_neuron`
 //   (response − baseline, Hz per neuron) exists only when both are present.
-// - Motor output and the observed body action are V7.6 scope: they are marked
-//   "not_collected", not given placeholder zeros.
+// - V7.6 (`interaction_window.v2`): `sensory_sample_tick` is filled when the
+//   window finalizes from the integrated timeline (InteractionTimeline.swift):
+//   the first `sampled_at` sample of the event's sensory channel in the response
+//   window; null plus `sensory_sample_unavailable_reason` otherwise (a
+//   `received_at` sample never counts). `motor_output` / `observed_body_action`
+//   summarize the motor and body lanes per window (baseline/response) with a
+//   status collected | partial | unavailable(+reason) — missing data is never a
+//   zero. `force_applied` / `sensory_applied` say whether the event is a direct
+//   physical force and/or a modeled sensory input (null when unknown). Samples
+//   recorded after the window finalized are not back-filled. A v1 record
+//   (motor/body `not_collected`) still decodes.
 
 import Foundation
 
 enum InteractionWindowCapability {
-    static let schema = "interaction_window.v1"
+    static let schema = "interaction_window.v2"
+    static let schemaV1 = "interaction_window.v1"
     static let defaultPreMs = 500
     static let defaultPostMs = 1000
     /// Windows still waiting for their response ticks (overflow displaces the oldest).
@@ -239,7 +249,7 @@ struct GroupWindowResult: Codable, Equatable {
     }
 }
 
-/// A field this step does not collect — explicit, never a zero.
+/// A v1 record's motor/body field — explicit, never a zero.
 struct NotCollected: Codable, Equatable {
     var status = "not_collected"
     var reason = "V7.6 integrated timeline"
@@ -271,8 +281,14 @@ struct InteractionWindow: Codable, Equatable {
     var responseTicksCollected: Int
     var validity: InteractionValidity
     var groups: [GroupWindowResult]
-    var motorOutput = NotCollected()
-    var observedBodyAction = NotCollected()
+    /// Why `sensorySampleTick` is null (nil exactly when it exists). v2 only.
+    var sensorySampleUnavailableReason: String?
+    /// The event is a direct physical force / a modeled sensory input; nil when unknown. v2 only.
+    var forceApplied: Bool?
+    var sensoryApplied: Bool?
+    /// nil only on a decoded v1 record (`not_collected`).
+    var motorOutput: MotorOutput? = .unavailable("collecting")
+    var observedBodyAction: ObservedBodyAction? = .unavailable("collecting")
 
     enum CodingKeys: String, CodingKey {
         case schema, source, status, validity, groups
@@ -283,6 +299,19 @@ struct InteractionWindow: Codable, Equatable {
         case preMs = "pre_ms", postMs = "post_ms", baselineWindow = "baseline_window"
         case responseWindow = "response_window", responseTicksCollected = "response_ticks_collected"
         case motorOutput = "motor_output", observedBodyAction = "observed_body_action"
+        case sensorySampleUnavailableReason = "sensory_sample_unavailable_reason"
+        case forceApplied = "force_applied", sensoryApplied = "sensory_applied"
+    }
+
+    /// What the event itself says about force and sensory input (nil: unknown).
+    static func appliedFlags(of source: InteractionEventSource) -> (force: Bool?, sensory: Bool?) {
+        switch source {
+        case .physical: return (true, false)
+        case .sensoryModel: return (false, true)
+        case .physicalAndSensoryModel: return (true, true)
+        case .directNeural: return (false, false)
+        case .controllerModel, .observed, .stateEstimate: return (nil, nil)
+        }
     }
 
     init(eventID: String, eventIDOrigin: InteractionEventIDOrigin, eventKind: String,
@@ -302,6 +331,8 @@ struct InteractionWindow: Codable, Equatable {
         responseTicksCollected = 0
         validity = InteractionValidity()
         groups = []
+        (forceApplied, sensoryApplied) = Self.appliedFlags(of: source)
+        if sensorySampleTick == nil { sensorySampleUnavailableReason = "not_yet_sampled" }
     }
 
     /// The sufficiency this window's contents imply. Decode requires the stored
@@ -343,16 +374,44 @@ struct InteractionWindow: Codable, Equatable {
         responseTicksCollected = try c.decode(Int.self, forKey: .responseTicksCollected)
         validity = try c.decode(InteractionValidity.self, forKey: .validity)
         groups = try c.decode([GroupWindowResult].self, forKey: .groups)
-        motorOutput = try c.decode(NotCollected.self, forKey: .motorOutput)
-        observedBodyAction = try c.decode(NotCollected.self, forKey: .observedBodyAction)
-
-        guard schema == InteractionWindowCapability.schema else { throw fail("schema \(schema)") }
+        guard schema == InteractionWindowCapability.schema || schema == InteractionWindowCapability.schemaV1 else {
+            throw fail("schema \(schema)")
+        }
+        if schema == InteractionWindowCapability.schemaV1 {
+            guard try c.decode(NotCollected.self, forKey: .motorOutput) == NotCollected(),
+                  try c.decode(NotCollected.self, forKey: .observedBodyAction) == NotCollected() else {
+                throw fail("v1 motor_output/observed_body_action must be marked not_collected")
+            }
+            motorOutput = nil; observedBodyAction = nil
+            sensorySampleUnavailableReason = nil; forceApplied = nil; sensoryApplied = nil
+        } else {
+            motorOutput = try c.decode(MotorOutput.self, forKey: .motorOutput)
+            observedBodyAction = try c.decode(ObservedBodyAction.self, forKey: .observedBodyAction)
+            try present(.sensorySampleUnavailableReason)
+            sensorySampleUnavailableReason = try c.decodeIfPresent(String.self, forKey: .sensorySampleUnavailableReason)
+            try present(.forceApplied); forceApplied = try c.decodeIfPresent(Bool.self, forKey: .forceApplied)
+            try present(.sensoryApplied); sensoryApplied = try c.decodeIfPresent(Bool.self, forKey: .sensoryApplied)
+        }
         guard !eventID.isEmpty, brainEpoch >= 0, (sensorySampleTick ?? 1) >= 1 else { throw fail("identity fields out of range") }
         guard selectionOmitted >= 0, selectionID != nil || selectionOmitted == 0 else { throw fail("selection_omitted needs a selection and cannot be negative") }
         guard EventWindowConfig.validated(preMs: preMs, postMs: postMs) != nil else { throw fail("window lengths \(preMs)/\(postMs) are not servable") }
         guard (0...postMs).contains(responseTicksCollected) else { throw fail("response_ticks_collected out of range") }
-        guard motorOutput == NotCollected(), observedBodyAction == NotCollected() else {
-            throw fail("motor_output/observed_body_action are V7.6 scope and must be marked not_collected")
+        if schema == InteractionWindowCapability.schema {
+            guard (sensorySampleTick == nil) == (sensorySampleUnavailableReason?.isEmpty == false) else {
+                throw fail("a null sensory_sample_tick needs a reason, a present one has none")
+            }
+            for (summary, win, name) in [(motorOutput?.baseline, baselineWindow, "motor baseline"), (motorOutput?.response, responseWindow, "motor response")] {
+                if let why = summary?.validate(window: win) { throw fail("\(name): \(why)") }
+                if win == nil, summary?.status != .unavailable { throw fail("\(name): no window to summarize") }
+            }
+            for (summary, win, name) in [(observedBodyAction?.baseline, baselineWindow, "body baseline"), (observedBodyAction?.response, responseWindow, "body response")] {
+                if let why = summary?.validate(window: win) { throw fail("\(name): \(why)") }
+                if win == nil, summary?.status != .unavailable { throw fail("\(name): no window to summarize") }
+            }
+            if status == .collecting, [motorOutput?.baseline.status, motorOutput?.response.status,
+                                       observedBodyAction?.baseline.status, observedBodyAction?.response.status].contains(where: { $0 != .unavailable }) {
+                throw fail("a collecting window has no motor/body summary yet")
+            }
         }
         if let a = appliedTick {
             guard a >= 1 else { throw fail("applied_tick must be a 1-based tick") }
@@ -421,7 +480,15 @@ struct InteractionWindow: Codable, Equatable {
         try c.encode(responseTicksCollected, forKey: .responseTicksCollected)
         try c.encode(validity, forKey: .validity)
         try c.encode(groups, forKey: .groups)
-        try c.encode(motorOutput, forKey: .motorOutput)
-        try c.encode(observedBodyAction, forKey: .observedBodyAction)
+        if schema == InteractionWindowCapability.schemaV1 {
+            try c.encode(NotCollected(), forKey: .motorOutput)
+            try c.encode(NotCollected(), forKey: .observedBodyAction)
+        } else {
+            try c.encode(motorOutput, forKey: .motorOutput)
+            try c.encode(observedBodyAction, forKey: .observedBodyAction)
+            try c.encode(sensorySampleUnavailableReason, forKey: .sensorySampleUnavailableReason)
+            try c.encode(forceApplied, forKey: .forceApplied)
+            try c.encode(sensoryApplied, forKey: .sensoryApplied)
+        }
     }
 }

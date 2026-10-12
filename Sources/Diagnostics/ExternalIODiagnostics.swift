@@ -185,6 +185,94 @@ func runExternalIOTest() {
     check("no fixture/schema/contract source names a real game", hits.isEmpty && scanned >= 7, "scanned \(scanned) \(hits)")
     check("only fixture.* descriptors are shipped", ((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).filter { $0.hasPrefix("descriptor-") }.count == 2)
 
+    // ---- V8.2 host registry --------------------------------------------------------------------------
+    func rcheck(_ name: String, _ ok: Bool, _ detail: String = "") { suite.check("V8.2 " + name, ok, detail) }
+    let fm = FileManager.default
+    let tmp = fm.temporaryDirectory.appendingPathComponent("externalio-registry-\(getpid())", isDirectory: true)
+    let tmp2 = fm.temporaryDirectory.appendingPathComponent("externalio-registry2-\(getpid())", isDirectory: true)
+    defer { try? fm.removeItem(at: tmp); try? fm.removeItem(at: tmp2) }
+    try? fm.removeItem(at: tmp); try? fm.removeItem(at: tmp2)
+    try? fm.createDirectory(at: tmp, withIntermediateDirectories: true)
+    try? fm.createDirectory(at: tmp2, withIntermediateDirectories: true)
+    func put(_ dir: URL, _ name: String, _ obj: Any) { try? JSONSerialization.data(withJSONObject: obj).write(to: dir.appendingPathComponent(name)) }
+    func putText(_ dir: URL, _ name: String, _ text: String) { try? text.data(using: .utf8)?.write(to: dir.appendingPathComponent(name)) }
+    if let auxJSON = fixture("descriptor-auxiliary.json") as? [String: Any], let envJSON = fixture("descriptor-external-environment.json") as? [String: Any] {
+        put(tmp, "a-aux.json", auxJSON)
+        put(tmp, "b-env.json", envJSON)
+        var dup = envJSON; dup["display_name"] = "Second copy"
+        put(tmp, "c-dup.json", dup)                       // same module_id as b-env -> later rejected
+        var bad = auxJSON; bad["module_id"] = "fixture.badunit"
+        if var obs = bad["observations"] as? [[String: Any]], !obs.isEmpty { obs[0]["unit"] = "furlongs"; bad["observations"] = obs }
+        put(tmp, "d-badunit.json", bad)
+        var ver = auxJSON; ver["module_id"] = "fixture.newer"; ver["api_version"] = "external_io.v9"
+        put(tmp, "e-version.json", ver)
+        putText(tmp, "f-garbage.json", "{ not json")
+        putText(tmp, "notes.txt", "ignored: not a descriptor file")
+        // Script-like keys: data only, never interpreted.
+        var scripty = auxJSON; scripty["module_id"] = "fixture.scripty"
+        scripty["command"] = "/bin/sh -c 'touch \(tmp.path)/PWNED'"; scripty["script"] = "touch PWNED"
+        scripty["plugin_path"] = "/nonexistent/lib.dylib"; scripty["on_attach"] = ["exec": "touch PWNED"]
+        put(tmp, "g-scripty.json", scripty)
+        put(tmp2, "a-override.json", envJSON)             // duplicate across directories -> later directory rejected
+
+        let reg = ExternalIOModuleRegistry(directories: [tmp, tmp2])
+        let regAgain = ExternalIOModuleRegistry(directories: [tmp, tmp2])
+        rcheck("registers exactly the valid descriptors", Set(reg.modules.map { $0.descriptor.moduleID }) == ["fixture.sensor_loopback", "fixture.loopback", "fixture.scripty"],
+               "\(reg.modules.map { $0.descriptor.moduleID })")
+        rcheck("registered modules start at lifecycle validated", reg.modules.allSatisfy { $0.lifecycle == .validated })
+        let rej = Dictionary(uniqueKeysWithValues: reg.rejected.map { ($0.file, $0) })
+        rcheck("every invalid descriptor is listed as rejected with its reason",
+               rej["d-badunit.json"]?.code == "unknown_unit" && rej["e-version.json"]?.code == "unsupported_api_version"
+               && rej["f-garbage.json"]?.code == "wrong_type" && reg.rejected.allSatisfy { !$0.reason.isEmpty },
+               "\(reg.rejected.map { "\($0.file):\($0.code)" })")
+        rcheck("duplicate module_id: the later one is rejected, the first kept",
+               rej["c-dup.json"]?.code == "duplicate_id" && rej["a-override.json"]?.code == "duplicate_id"
+               && reg.module("fixture.loopback")?.file == "b-env.json" && reg.module("fixture.loopback")?.descriptor.displayName != "Second copy")
+        rcheck("rejected entries carry the module_id when readable", rej["c-dup.json"]?.moduleID == "fixture.loopback" && rej["d-badunit.json"]?.moduleID == "fixture.badunit")
+        rcheck("non-.json files are not descriptors and are ignored", rej["notes.txt"] == nil && reg.modules.count + reg.rejected.count == 8,
+               "\(reg.modules.count) + \(reg.rejected.count)")
+        rcheck("lookup by module_id", reg.module("fixture.sensor_loopback")?.file == "a-aux.json" && reg.module("nope") == nil)
+        rcheck("script-like fields are data only: module registered, nothing executed, fields not carried",
+               reg.module("fixture.scripty") != nil && !fm.fileExists(atPath: tmp.appendingPathComponent("PWNED").path)
+               && reg.module("fixture.scripty").map { m in ["command", "script", "plugin_path", "on_attach"].allSatisfy { m.descriptor.jsonObject[$0] == nil } } == true)
+        reg.reload()
+        rcheck("reload is idempotent", reg.modules.count == 3 && reg.rejected.count == 5)
+
+        // Oversize and symlink files are refused, not read.
+        putText(tmp2, "z-big.json", String(repeating: " ", count: ExternalIOModuleRegistry.maximumDescriptorBytes + 1))
+        try? fm.createSymbolicLink(at: tmp2.appendingPathComponent("y-link.json"), withDestinationURL: tmp.appendingPathComponent("a-aux.json"))
+        let reg2 = ExternalIOModuleRegistry(directories: [tmp2])
+        let rej2 = Dictionary(uniqueKeysWithValues: reg2.rejected.map { ($0.file, $0.code) })
+        rcheck("oversize and symlinked descriptors are rejected unread", rej2["z-big.json"] == "file_too_large" && rej2["y-link.json"] == "not_a_regular_file", "\(rej2)")
+
+        // Pure view model generated from the descriptor.
+        let model = ExternalIOModuleListModel(reg)
+        if let env = model.modules.first(where: { $0.moduleID == "fixture.loopback" }) {
+            let move = env.channels.first { $0.name == "move" }, heading = env.channels.first { $0.name == "heading?" }
+            rcheck("view model: module row from descriptor", env.lifecycle == "validated" && env.attachMode == "external_environment" && env.clockMode == "lockstep" && env.version == "1.0.0")
+            rcheck("view model: per-channel rows with direction, unit, axis, range, rate",
+                   env.channels.count == 4 && move == ExternalIOChannelRow(name: "move", direction: "out", kind: "continuous", unit: "normalized", axis: "forward", range: "-1...1 x2", rate: "30 Hz")
+                   && heading?.direction == "in" && heading?.unit == "deg" && heading?.axis == "yaw" && heading?.range == "-180...180"
+                   && env.channels.first { $0.name == "mode_switch" }?.range == "idle|go|stop")
+        } else { rcheck("view model contains fixture.loopback", false) }
+        rcheck("view model: rejected descriptors with reasons", model.rejected == reg.rejected && model.modules.count == 3)
+        let text = ExternalModulesText.lines(model)
+        rcheck("panel text lists modules, channels and rejections", text.contains("fixture.loopback") && text.contains("mode_switch") && text.contains("d-badunit.json") && text.contains("unknown_unit"))
+        rcheck("registry output is deterministic", ExternalIOModuleListModel(regAgain) == model)
+    } else { rcheck("fixtures available for registry tests", false) }
+    let missing = fm.temporaryDirectory.appendingPathComponent("externalio-missing-\(getpid())")
+    let none = ExternalIOModuleRegistry(directories: [missing])
+    rcheck("no module directory: empty registry, no rejections, directory not created",
+           none.modules.isEmpty && none.rejected.isEmpty && !fm.fileExists(atPath: missing.path)
+           && ExternalModulesText.lines(ExternalIOModuleListModel(none)).isEmpty == false)
+    rcheck("default directory is under Application Support and the registry never writes", ExternalIOModuleRegistry.defaultDirectory.path.hasSuffix("Library/Application Support/ThongpariFlyNeuronSim/modules"))
+    if let src = try? String(contentsOf: binDir.appendingPathComponent("Sources/Bridge/ModuleRegistry.swift"), encoding: .utf8) {
+        let banned = ["dlopen", "Process(", "NSTask", "Bundle(", "NSAppleScript", "JavaScriptCore", "system(", "posix_spawn"]
+        // Comments describe the boundary; scan code lines only.
+        let code = src.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")
+        rcheck("registry source contains no code-execution APIs", banned.allSatisfy { !code.contains($0) })
+    }
+
     print(suite.failures == 0 ? "ALL EXTERNAL IO TESTS PASS" : "\(suite.failures) EXTERNAL IO TEST FAILURES")
     suite.finish()
 }

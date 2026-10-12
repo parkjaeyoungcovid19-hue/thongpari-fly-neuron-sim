@@ -104,6 +104,7 @@ extension LabWindowController {
                                    (L("Release", "해제"), LabForm.note(L("Esc (fixed)", "Esc (고정)"))),
                                    (L("Look sensitivity", "시점 감도"), lookSensitivitySlider)]),
                      playerInputStatusLabel, interactionStatusLabel, gunStatusLabel]),
+            externalModulesSection(),
             section(L("Reset", "초기화"), help: L("Use the smallest reset you need. Everything clears world, body, brain state, modeled stimuli, eye covers and graphs.", "필요한 부분만 초기화하세요. ‘전부’는 세계, 몸, 뇌 상태, 자극, 눈 가리개, 그래프를 모두 처음으로 되돌립니다."),
                     [LabForm.buttons([button(L("World", "세계"), #selector(resetWorld)),
                                       button(L("Body", "몸"), #selector(resetBody)),

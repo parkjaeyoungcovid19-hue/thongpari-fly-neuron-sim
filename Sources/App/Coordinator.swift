@@ -206,7 +206,8 @@ final class Coordinator: NSObject, SCNSceneRendererDelegate {
         let ownsBody = externalIO.defaultWorldWritesOutput   // false only while an external_environment module owns output
         for (i, fly) in flies.enumerated() {
             fly.terrain = terrain
-            fly.update(dt: dt, bounds: bounds, mouse: mouse, signals: i == 0 && ownsBody ? signals : nil)
+            if i == 0 && !ownsBody { fly.hold(dt: dt); continue }   // nil signals would hand it to the legacy autopilot
+            fly.update(dt: dt, bounds: bounds, mouse: mouse, signals: i == 0 ? signals : nil)
         }
         if let first = flies.first {
             lock.lock(); lastFlyPos = first.pos; lock.unlock()

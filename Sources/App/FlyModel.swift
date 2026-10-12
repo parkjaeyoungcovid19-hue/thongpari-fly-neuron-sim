@@ -435,6 +435,18 @@ final class Fly {
         syncNode()
     }
 
+    /// V8.3: an external module owns this body's output, so neither the brain nor
+    /// the legacy distance-based fallback may drive it. It settles to idle and only
+    /// animates in place; a flight already under way finishes without new decisions.
+    func hold(dt: CGFloat) {
+        time += dt
+        brainLive = false; liveArousal = 0; liveWing = 0
+        if state == .flying { updateFlight(dt: dt) } else { setState(.idle); speed = 0 }
+        updateLegs(dt: dt)
+        updateWings(dt: dt)
+        syncNode()
+    }
+
     private func setState(_ s: State) {
         guard s != state else { return }
         state = s

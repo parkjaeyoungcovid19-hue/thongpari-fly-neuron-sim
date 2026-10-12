@@ -219,15 +219,16 @@ func runExplanationTest() {
     func drain() { for action in coord.drainSimulationActions() { action(coord) } }
     coord.observeBrainPick(BrainPick(indices: chosen, anchor: .zero, name: "explaintest"))
     drain()
-    sim.step(600)
-    let applied = sim.simMs + 1
-    sim.eventWindows.noteEvent(id: "flash", kind: "flash_eye", source: .sensoryModel, appliedTick: applied)
     func quantum(_ i: Int) {
         var fb = FlyGymBodyFeedback()
         fb.receivedAt = Date(timeIntervalSinceReferenceDate: Double(i + 1))
         fb.positionXmm = Double(i); fb.vx = 0.01; fb.yawRate = 0.1
         _ = coord.advanceV4TimingQuantumForTesting(fb)
     }
+    // The baseline runs through the same funnel as the app, so its lanes are filled.
+    for i in -30..<0 { quantum(i + 100_000) }
+    let applied = sim.simMs + 1
+    sim.eventWindows.noteEvent(id: "flash", kind: "flash_eye", source: .sensoryModel, appliedTick: applied)
     for i in 0..<10 { quantum(i) }
     let early = sim.eventWindows.window(eventID: "flash").map { explain(window: $0) }
     check("real path: 200 ticks in, the verdict is observing and says how many ticks were collected",
@@ -238,8 +239,9 @@ func runExplanationTest() {
     let late = done.map { explain(window: $0) }
     check("real path: after 1,000 ticks the window is complete and the verdict is not observing (\(late?.verdict.rawValue ?? "nil"))",
           done?.status == .complete && late != nil && late?.verdict != .observing && late?.sentences.en.isEmpty == false)
-    check("real path: no baseline was ever observed by a producer, so it says insufficient with the lane reason, not a guess",
-          late?.verdict == .insufficient && late?.reasons.contains { $0.hasPrefix("motor_baseline_unavailable") } == true, "\(late?.reasons ?? [])")
+    check("real path: the funnel filled both motor windows, so the verdict rests on data, not on a missing baseline (\(late?.reasons ?? []))",
+          done?.motorOutput?.baseline.status == .collected && done?.motorOutput?.response.status == .collected
+          && late?.reasons.contains { $0.hasPrefix("motor_baseline_unavailable") } == false)
     let simAfterStep = sim.simMs, extBefore = sim.debugExternalInput(chosen)
     _ = explain(window: done!); _ = explain(window: done!)
     check("read-only: explaining twice moves no tick (simMs \(simAfterStep)) and the brain input equals what the window run left (sim advanced only by the quanta)",

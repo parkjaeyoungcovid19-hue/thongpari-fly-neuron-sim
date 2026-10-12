@@ -412,12 +412,13 @@ func runExternalIOTest() {
         func packets(_ gate: ExternalIOSession?) -> [Data] {
             var rng = SystemRandomNumberGenerator.withSeed(7)
             var out: [Data] = []
+            let enc = JSONEncoder(); enc.outputFormatting = .sortedKeys   // unsorted key order is not byte-stable
             for i in 0..<500 {
                 var sig = BrainSignals()
                 sig.walkDrive = CGFloat(rng.nextUnit()) * 1.3; sig.turnBias = CGFloat(rng.nextUnit() * 2 - 1)
                 sig.escape = i % 97 == 0; sig.backward = i % 13 == 0; sig.groomDrive = CGFloat(rng.nextUnit())
                 if let g = gate, !g.defaultWorldWritesOutput { continue }       // the hook, as in Coordinator
-                if let d = try? JSONEncoder().encode(FlyGymBrainPacket(signals: sig, simMs: i)) { out.append(d) }
+                if let d = try? enc.encode(FlyGymBrainPacket(signals: sig, simMs: i)) { out.append(d) }
             }
             return out
         }
@@ -432,6 +433,16 @@ func runExternalIOTest() {
         if let src = try? String(contentsOf: binDir.appendingPathComponent("Sources/App/Coordinator.swift"), encoding: .utf8) {
             scheck("Coordinator gates both the FlyGym send and the local drive on the session", src.components(separatedBy: "externalIO.defaultWorldWritesOutput").count == 3)
         }
+        // The local body under an external owner: no brain and no legacy autopilot may move it.
+        // Control: the same fly given nil signals (the legacy path) flees a mouse at its feet.
+        let held = Fly(at: CGPoint(x: 400, y: 300)), free = Fly(at: CGPoint(x: 400, y: 300))
+        let mouse = CGPoint(x: 402, y: 300), area = CGSize(width: 800, height: 600)
+        for _ in 0..<300 {
+            held.hold(dt: 1.0 / 60)
+            free.update(dt: 1.0 / 60, bounds: area, mouse: mouse, signals: nil)
+        }
+        scheck("external owner: the held local fly stays put and idle while the legacy path would have moved it",
+               held.pos == CGPoint(x: 400, y: 300) && held.state == .idle && free.pos != CGPoint(x: 400, y: 300))
         if let src = try? String(contentsOf: binDir.appendingPathComponent("Sources/Bridge/ExternalIOSession.swift"), encoding: .utf8) {
             let banned = ["dlopen", "Process(", "NSTask", "socket(", "URLSession", "NWConnection", "posix_spawn", "system("]
             let codeOnly = src.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }.joined(separator: "\n")

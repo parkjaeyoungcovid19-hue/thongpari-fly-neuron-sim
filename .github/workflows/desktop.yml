@@ -48,7 +48,8 @@ jobs:
           import os, pathlib, subprocess, sys
           python = pathlib.Path('flygym-venv') / ('Scripts/python.exe' if sys.platform == 'win32' else 'bin/python')
           subprocess.run([str(python), '-m', 'unittest', 'desktop_lab.tests.test_brain', 'desktop_lab.tests.test_session', 'desktop_lab.tests.test_process_lifetime', 'desktop_lab.tests.test_platform_support', 'desktop_lab.tests.test_desktop.DesktopTests.test_mock_desktop_full_brain_pause_and_shutdown', '-v'], check=True)
-          subprocess.run([str(python.resolve()), '-m', 'unittest', 'discover', '-s', 'tests/unit'], cwd='flygym_bridge', check=True)
+          # Keep the venv path: resolve() follows its interpreter symlink on Linux.
+          subprocess.run([str(python.absolute()), '-m', 'unittest', 'discover', '-s', 'tests/unit'], cwd='flygym_bridge', check=True)
       - name: Real MuJoCo desktop workflow (Linux software rendering)
         if: runner.os == 'Linux'
         env:

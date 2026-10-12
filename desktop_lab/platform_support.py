@@ -10,7 +10,7 @@ def cache_directory():
     if sys.platform == "win32":
         base = Path(os.environ.get("LOCALAPPDATA", tempfile.gettempdir()))
     else:
-        base = Path(os.environ.get("XDG_CACHE_HOME", str(Path.home() / ".cache")))
+        base = Path(os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache"))
     return base / "ThongpariFlyNeuronSim"
 
 

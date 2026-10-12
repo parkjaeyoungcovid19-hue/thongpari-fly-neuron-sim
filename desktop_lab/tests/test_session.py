@@ -1,4 +1,5 @@
 import socket
+import time
 import unittest
 from pathlib import Path
 
@@ -76,8 +77,19 @@ class SessionTests(unittest.TestCase):
         s.close()
         self.assertIsNotNone(s.process.poll())
         self.assertGreater(pid, 0)
-        with self.assertRaises(OSError):
-            socket.create_connection(("127.0.0.1", port), timeout=0.2)
+        # Windows may finish socket teardown just after the process handle is
+        # signaled. Require the port to close within a bounded interval, and
+        # close every successful probe rather than leaking sockets on failure.
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                    pass
+            except OSError:
+                break
+            time.sleep(0.05)
+        else:
+            self.fail("owned backend port remained open after process exit")
 
 
 if __name__ == "__main__":

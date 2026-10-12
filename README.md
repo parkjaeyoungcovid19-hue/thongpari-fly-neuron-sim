@@ -9,7 +9,7 @@
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS%20·%20Apple%20Silicon-111111?style=flat-square">
   <img alt="Swift" src="https://img.shields.io/badge/frontend-Swift%20%2B%20Metal-F05138?style=flat-square">
   <img alt="FlyGym" src="https://img.shields.io/badge/body-FlyGym%202.1%20%2B%20MuJoCo%203.9-5C7CFA?style=flat-square">
-  <img alt="status" src="https://img.shields.io/badge/V7.1-scenes%20·%20observation%20audit-2E8B57?style=flat-square">
+  <img alt="status" src="https://img.shields.io/badge/V7.5-exact%20observation%20·%20event%20windows-2E8B57?style=flat-square">
 </p>
 
 <p align="center">
@@ -26,6 +26,7 @@
 - **Sandbox** — a grass lawn, six food models the fly can actually eat (proboscis contact → sugar-taste neurons), a toy car and a cage trap.
 - **Editor** — select any object in the 3D view, then move, rotate, resize or duplicate it with typed values or drag handles; add tilted ramps the fly climbs with its own legs.
 - **Environment panel** — temperature, continuous wind with a direction dial, per-eye covers and food placement, each showing the value the simulator actually applied and what reaches the fly right now.
+- **Exact neural observation** — click the brain to *read* up to 256 neurons tick by tick (no current injected), look up functional groups with their sources, and see each intervention's neural response 0.5 s before / 1 s after it on the simulation clock.
 
 The point is not to fake convincing animal behavior. Every response can be traced along **source → modeled sensor → receptor activity → brain output → controller → measured motion**, and every control says whether it is physical, a sensory model, or direct neural stimulation.
 
@@ -48,7 +49,7 @@ The point is not to fake convincing animal behavior. Every response can be trace
   </tr>
   <tr>
     <td><b>Participate</b> — a free-joint body that collides with the fly and objects. Walk, look, grab and place from first- or third-person cameras. <i>(Screenshot from V5.6.1; the participant is now a stick figure.)</i></td>
-    <td><b>Brain</b> — the whole-brain point cloud with live spike flashes, what each colour means, and direct stimulation of named populations.</td>
+    <td><b>Brain</b> (V7.2–V7.3) — clicking the point cloud now <i>selects</i>: up to 256 neurons are observed exactly, tick by tick, with no current injected. Stimulation needs the ⚡ switch, and every injection is shown. <i>(Screenshot from V6; the switch and the observation panel are not shown.)</i></td>
   </tr>
   <tr>
     <td><img src="docs/images/ui-data.png" alt="Data page: read-only activity cards (model indices, measured simulated spike rates, sugar-taste GRN, MN9, unsupported hunger) next to the live 3D view"></td>
@@ -64,7 +65,7 @@ The point is not to fake convincing animal behavior. Every response can be trace
 
 ## Status
 
-**V6.1–V6.7 and the requested V7.1 observation audit are complete.** V6 adds settings-only scene save/load and paused Undo/Redo; the four defects found in the 2026-10-06 GUI audit were rechecked in the real GUI. GUI-authored settings were saved, loaded in a new process, and saved again with identical content/hash; corrupt loads preserved the current scene. AC validation measured real TCP body feedback at 36.5 Hz and the authored-scene GUI at 31.6–33.6 Hz. See [V6 completion and runtime limits](docs/reports/V6_COMPLETION_REPORT.md), [V7.1 audit](docs/reports/V7_OBSERVATION_AUDIT.md) and [current evidence](notes/validation/v7-1-2026-10-08/README.md). V7.2–V7.7 are not implemented, and deferred independent V5 gates are not retroactively marked passed. Brain flashes are a lossy sample; displayed rates come from exact simulated spike counts per neuron with an approximately 120 ms simulation-time EMA (taste uses alternate coverage windows).
+**V6.1–V6.7 and V7.1–V7.5 are complete; V7.6–V7.7 are not started.** V7.2 adds exact per-tick spike observation of up to 256 selected neurons, checked tick by tick against an independent CPU reference. V7.3 separates reading from stimulating: a brain click only selects, and current is injected only with the ⚡ switch on. V7.4 adds a functional group registry (`neural_group.v1`), and V7.5 adds pre/post-event windows (`interaction_window.v1`) on the 1 ms simulation tick. All headless suites pass. Each step also had a real-GUI pass. Defects found there were fixed: the V7.4–7.5 fixes were rechecked in the GUI, the V7.2–7.3 fixes only headless. A brain pick of more than 256 neurons was not GUI-tested. See [V7.2–7.3](docs/reports/V7_2_3_COMPLETION_REPORT.md), [V7.4–7.5](docs/reports/V7_4_5_COMPLETION_REPORT.md) and [V7 progress](docs/reports/V7_PROGRESS.md); V6 runtime limits are in the [V6 completion report](docs/reports/V6_COMPLETION_REPORT.md). Deferred independent V5 gates are not retroactively marked passed. Brain flashes are a lossy sample; displayed rates come from exact simulated spike counts.
 
 | Version | What it added |
 |---|---|
@@ -85,6 +86,10 @@ The point is not to fake convincing animal behavior. Every response can be trace
 | V6.6 | Paused owner transactions and setting Undo/Redo; no simulation rewind |
 | V6.7 | `.flyworld` schema1 settings save/load, strict validation, atomic file replace and failed-load rollback |
 | V7.1 | Existing observation audit: sampled flashes vs exact count-derived Hz/neuron, documented denominators/EMA/motor indices |
+| **V7.2** | Exact observation: per-tick spikes of ≤256 selected neurons straight from the kernel, `neural_observation.v1` JSON |
+| **V7.3** | Read vs stimulate: a brain click selects (read-only); the ⚡ switch stimulates; live injection line |
+| **V7.4** | Functional group registry: 22 groups with sources, dataset-hash binding, no subset for groups over 256 |
+| **V7.5** | Pre/post-event windows: 0.5 s / 1 s on simulation ticks, validity flags, `interaction_window` lines in recordings |
 
 Per-version evidence lives in [`docs/reports/V5_PROGRESS.md`](docs/reports/V5_PROGRESS.md), [`docs/reports/V6_PROGRESS.md`](docs/reports/V6_PROGRESS.md) and [`notes/validation/`](notes/validation/v5-6-1-2026-09-27/README.md).
 
@@ -98,7 +103,7 @@ The Lab is a single standard macOS window: a toolbar (**Observe / Participate / 
 |---|---|
 | **World** | Place boxes, spheres, walls, ramps, food, toy cars and cage traps (fields or click-on-map); the selected-object editor in Edit mode; drive a car or re-arm a trap; make an object approach the fly; participant key bindings and look sensitivity; resets |
 | **Stimuli** | The environment panel: live values at the fly, temperature and its mode, wind (physical force and/or modeled antennal drive, continuous or one puff), per-eye covers and flashes, food in front of the fly, touch thorax/head/abdomen/legs |
-| **Brain** | Whole-brain point cloud, neuron selection, direct stimulation of GF, DNa, MDN, DNp09, DNg11, LC4/LPLC2 and the exposed receptor groups |
+| **Brain** | Whole-brain point cloud; click = read-only selection with exact observation (⚡ switch = stimulate); functional groups; windows around each event; direct stimulation of GF, DNa, MDN, DNp09, DNg11, LC4/LPLC2 and the exposed receptor groups |
 | **Data** | Activity cards; source state, receptor drive and spike rates, decoded `BrainSignals`, controller output, packet age, sim/wall timing, measured motion |
 | **Experiment** | Deterministic session, markers, looming/wind/touch/direct-neural presets, replay, recording |
 
@@ -152,6 +157,12 @@ The default fixed-topology object pools support **64 boxes, 64 spheres, 64 walls
 ### Activity cards
 
 The Data page opens with 17 read-only cards. **MEASURED** cards are spike rates or events of the simulated connectome (not a real fly); **MODEL INDEX** cards are the readouts that drive the body model; **Hunger** is shown as **UNSUPPORTED** because it is not modelled. Clicking a card only shows where its value comes from; it never stimulates or commands anything.
+
+### Brain: exact observation, groups, event windows
+
+- **Select, don't stimulate.** A click on the point cloud selects the nearest neurons, up to 400 picked and 256 observed. The kernel writes one byte per selected neuron per tick, so counts are exact rather than sampled flashes. The panel shows spikes, Hz per neuron, the tick range and any missing ticks. Turn on **⚡ Click stimulates** to inject current instead (0.25 for 400 ms); a yellow line in the brain view shows every live injection.
+- **Functional groups.** Each group lists its FlyWire root IDs, category, evidence tier (annotated cell type, model-selected, or residual), source and membership rule. It is disabled with a reason, never shown as 0 Hz, when the dataset hash or a root ID does not match the loaded data. **Observe exactly** arms a group of 256 or fewer as the selection.
+- **Around events.** ⚡ clicks, population buttons, presets, flashes, wind and touch each open a window. The baseline is ticks `applied − 500 … applied − 1`; the response is `applied … applied + 999`. Each window reports both rates and Δ for the selection and every registry group the selection fully covers. A backend command is anchored only on a deterministic-session ACK; otherwise its tick is marked unknown.
 
 ---
 
@@ -231,7 +242,7 @@ If macOS "Optimize Mac Storage" has offloaded `flygym-venv` to iCloud, the first
 └── telemetry.csv
 ```
 
-Telemetry includes neural rates, modeled sensory drive, receptor spike rates, decoded brain state, controller output, body velocity and contacts, vision values, packet age and simulation timing. `Baseline`, `Stimulus ON/OFF` and `Observation` markers make repeated trials comparable.
+`events.jsonl` also gets one `interaction_window` line per finished event window. Root IDs are strings, and windows still collecting at Stop are written as `collecting`. Telemetry includes neural rates, modeled sensory drive, receptor spike rates, decoded brain state, controller output, body velocity and contacts, vision values, packet age and simulation timing. `Baseline`, `Stimulus ON/OFF` and `Observation` markers make repeated trials comparable.
 
 ---
 
@@ -250,6 +261,9 @@ Self-tests are built into the binary; Python tests run against the mock and the 
 ./ThongpariFlyNeuronSim --behaviortest   # sim -> body end to end
 ./ThongpariFlyNeuronSim --gpucheck       # GPU vs an independent CPU reference
 ./ThongpariFlyNeuronSim --observationaudittest # display reads/loss vs exact counts, no dynamics change
+./ThongpariFlyNeuronSim --observetest    # exact observation vs CPU reference; click selects, never stimulates
+./ThongpariFlyNeuronSim --registrytest   # functional groups: dataset binding, nesting, no subset over 256
+./ThongpariFlyNeuronSim --eventwindowtest # pre/post-event windows: hand-counted fixtures, validity, real sim path
 
 ./flygym-venv/bin/python flygym_bridge/tests/unit/test_feeding.py # food capacity / lifecycle, no MuJoCo
 ./flygym-venv/bin/python flygym_bridge/tests/real/test_interaction_real.py   # grab / carry in real MuJoCo
@@ -286,7 +300,8 @@ Use it for **controlled comparisons inside the same model**, not as a claim that
 ├── build.sh                       compiles every Sources/**/*.swift as one module
 ├── Sources/
 │   ├── App/                       main.swift (launch modes, Coordinator, AppDelegate), FlyModel, BrainView, Environment
-│   ├── Brain/                     Sim, MetalSim + LIF.metal (GPU FlyWire spiking sim), SensoryModel, MotorReadout, FlyMood
+│   ├── Brain/                     Sim, MetalSim + LIF.metal (GPU FlyWire spiking sim), SensoryModel, MotorReadout, FlyMood,
+│   │                              NeuralObservation, NeuralGroupRegistry, InteractionWindow + EventWindowBuffer
 │   ├── Bridge/                    FlyGymService (app-owned backend), FlyGymBridge (TCP transport),
 │   │                              FlyGymPackets / LabProtocol (wire types), LabSession
 │   ├── Lab/                       LabWindow / LabChrome (window, sidebar, inspector), WorldViewer / MuJoCoCanvas (3D canvas),
@@ -309,7 +324,7 @@ Use it for **controlled comparisons inside the same model**, not as a claim that
 └── docs/                          guides, plans + roadmap, reports, reference
 ```
 
-Controls and preset values: **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. Bridge internals and protocol: **[flygym_bridge/README.md](flygym_bridge/README.md)**. The **[V4–V14 roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** normally proceeds in order; the documented user exception starts V6.1 while deferring V5 GUI/live acceptance. V6.1–V6.5 are implemented with GUI checks pending; V6.6–V14 remain planned. Sandbox contract: **[V5.6.2 spec](docs/plans/VIRTUAL_FLY_LAB_V5_6_2_SANDBOX_SPEC.md)**.
+Controls and preset values: **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. Bridge internals and protocol: **[flygym_bridge/README.md](flygym_bridge/README.md)**. The **[V4–V14 roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** normally proceeds in order; the documented user exception starts V6.1 while deferring V5 GUI/live acceptance. V6 and V7.1–V7.5 are implemented; V7.6–V14 remain planned. Sandbox contract: **[V5.6.2 spec](docs/plans/VIRTUAL_FLY_LAB_V5_6_2_SANDBOX_SPEC.md)**.
 
 ---
 

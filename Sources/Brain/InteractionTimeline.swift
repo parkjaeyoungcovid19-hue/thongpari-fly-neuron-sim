@@ -708,28 +708,35 @@ enum TimelineCSV {
     /// applicable). `spikes`: selected-neuron spikes from the exact observer ring
     /// as (tick, root id); they are exact per-tick facts, written as lane `spike`.
     static func make(_ timeline: InteractionTimeline, range: ClosedRange<Int>, spikes: [(tick: Int, rootID: String)] = []) -> String {
+        make(eye: timeline.eyeSlice(range).samples, sensory: timeline.sensorySlice(range).samples,
+             motor: timeline.motorSlice(range).samples, body: timeline.bodySlice(range).samples, range: range, spikes: spikes)
+    }
+
+    /// The same rows from samples already read (the panel exports exactly what it drew).
+    static func make(eye: [EyeSample], sensory: [SensorySample], motor: [MotorSample], body: [BodySample],
+                     range: ClosedRange<Int>, spikes: [(tick: Int, rootID: String)]) -> String {
         func g(_ v: Double?) -> String { v.map { String(format: "%.6g", $0) } ?? "" }
         func row(_ lane: String, _ tick: Int, _ origin: TickOrigin, _ cells: [String: String]) -> String {
             let cols = header.dropLast().split(separator: ",").dropFirst(3).map(String.init)
             return ([lane, "\(tick)", origin.rawValue] + cols.map { cells[$0] ?? "" }).joined(separator: ",") + "\n"
         }
         var out = header
-        for s in timeline.eyeSlice(range).samples {
+        for s in eye {
             out += row("eye", s.tick, s.origin, ["loom_l": g(Double(s.loomL)), "loom_r": g(Double(s.loomR))])
         }
-        for s in timeline.sensorySlice(range).samples {
+        for s in sensory {
             var c: [String: String] = ["channel": s.channel.rawValue, "sensory_on": s.sensoryOn.map { $0 ? "1" : "0" } ?? ""]
             if s.channel == .localLoom { c["loom_l"] = g(s.a); c["loom_r"] = g(s.b) }
             else { c["strength"] = g(s.a); if s.channel == .wind || s.channel == .localWind { c["direction_deg"] = g(s.b) } }
             out += row("sensory", s.tick, s.origin, c)
         }
-        for s in timeline.motorSlice(range).samples {
+        for s in motor {
             out += row("motor", s.tick, s.origin, [
                 "walk_drive": g(s.walkDrive), "turn_bias": g(s.turnBias), "groom_drive": g(s.groomDrive),
                 "wing_drive": g(s.wingDrive), "backward": s.backward ? "1" : "0", "escape": s.escape ? "1" : "0",
                 "nervous": g(s.nervous), "arousal": g(s.arousal)])
         }
-        for s in timeline.bodySlice(range).samples {
+        for s in body {
             out += row("body", s.tick, s.origin, [
                 "channel": s.source.rawValue, "vx": g(s.vx), "yaw_rate": g(s.yawRate), "x": g(s.x), "y": g(s.y),
                 "heading": g(s.heading), "contact_mean": g(s.contactMean),

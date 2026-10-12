@@ -30,7 +30,8 @@ struct TimelineSnapshot {
     var sensory: LaneSlice<SensorySample>
     var motor: LaneSlice<MotorSample>
     var body: LaneSlice<BodySample>
-    var spikes: [(tick: Int, row: Int)]  // selected-neuron spikes; row = index in the selection
+    var spikes: [(tick: Int, row: Int)]  // selected-neuron spikes; row = index in `spikeNeurons`
+    var spikeNeurons: [Int] = []         // the selection the raster rows index into
     var neuronCount: Int                 // the real selected count (0 unless the spike lane is shown)
     var spikeState: SpikeState = .noSelection
     /// Sensory period per channel (channels that share a tick must not halve one median).
@@ -39,7 +40,7 @@ struct TimelineSnapshot {
     var notRetained: [[ClosedRange<Int>]] = Array(repeating: [], count: 5)
     var note: String?
 
-    static let epochNote = L("different brain epoch (reset since the event)", "다른 뇌 세션 (사건 이후 리셋됨)")
+    static var epochNote: String { L("different brain epoch (reset since the event)", "다른 뇌 세션 (사건 이후 리셋됨)") }
 
     private static func emptySlice<S: TimelineSample>() -> LaneSlice<S> { LaneSlice(samples: [], periodTicks: nil, evictedThrough: 0) }
 
@@ -66,6 +67,7 @@ struct TimelineSnapshot {
             var row: [Int: Int] = [:]
             for (i, n) in sel.neurons.enumerated() { row[n] = i }
             snap.spikes = observer.spikeEvents(start: q.lowerBound, end: q.upperBound).compactMap { e in row[e.neuron].map { (e.tick, $0) } }
+            snap.spikeNeurons = sel.neurons
             snap.neuronCount = sel.neurons.count
             snap.spikeState = .shown(neurons: sel.neurons.count)
             // Ticks not simulated yet are not "missing"; only ones the ring no longer holds.
@@ -161,18 +163,16 @@ enum TimelinePickerModel {
     }
 }
 
-/// timeline.csv export rules shared by the panel and the diagnostics.
+/// timeline.csv export rules shared by the panel and the diagnostics. The export is
+/// the snapshot the panel draws, not a fresh read: the spike ring keeps ~2 s and the
+/// lanes keep their own spans, so a later read would silently drop rows still on screen.
 enum TimelineExport {
     /// nil csv + the reason when the lanes no longer belong to the event's brain epoch.
-    static func csv(window w: InteractionWindow, timeline: InteractionTimeline, observer: NeuralObserver,
-                    rootID: (Int) -> String) -> (csv: String?, note: String?) {
-        guard let b = w.baselineWindow, let r = w.responseWindow else { return (nil, nil) }
-        let sel = observer.selection()
-        guard sel.brainEpoch == w.brainEpoch else { return (nil, TimelineSnapshot.epochNote) }
-        let q = max(b.start, 1)...max(r.end, 1)
-        let spikes = w.selectionID != nil && sel.selectionID == w.selectionID
-            ? observer.spikeEvents(start: q.lowerBound, end: q.upperBound).map { (tick: $0.tick, rootID: rootID($0.neuron)) } : []
-        return (TimelineCSV.make(timeline, range: q, spikes: spikes), nil)
+    static func csv(snapshot s: TimelineSnapshot, rootID: (Int) -> String) -> (csv: String?, note: String?) {
+        guard !s.epochMismatch else { return (nil, TimelineSnapshot.epochNote) }
+        let spikes = s.spikes.map { (tick: $0.tick, rootID: rootID(s.spikeNeurons[$0.row])) }
+        return (TimelineCSV.make(eye: s.eye.samples, sensory: s.sensory.samples, motor: s.motor.samples, body: s.body.samples,
+                                 range: max(s.range.lowerBound, 1)...max(s.range.upperBound, 1), spikes: spikes), nil)
     }
 }
 
@@ -348,8 +348,8 @@ final class TimelinePanel: NSStackView {
     }
 
     @objc private func exportCSV() {
-        guard let sim = coordinator?.sim, let w = currentWindow() else { return }
-        let out = TimelineExport.csv(window: w, timeline: sim.timeline, observer: sim.observer) { String(sim.rootIds[$0]) }
+        guard let sim = coordinator?.sim, let snap = view.snapshot else { return }
+        let out = TimelineExport.csv(snapshot: snap) { String(sim.rootIds[$0]) }
         guard let csv = out.csv else {
             if let n = out.note { exportMessage = L("Export refused: ", "내보내기 거부: ") + n; warning.stringValue = exportMessage ?? ""; warning.isHidden = false }
             return

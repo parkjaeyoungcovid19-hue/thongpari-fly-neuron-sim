@@ -364,6 +364,23 @@ func runTimelineTest() {
         } else { check("UI snapshot builds", false) }
     }
 
+    // GUI pass T4: the panel exports what it drew, even after the rings moved on.
+    do {
+        let f = TLFixture()
+        for t in stride(from: 10, through: 1600, by: 10) { f.timeline.recordMotor(tick: t, motor(0.5)) }
+        f.feed(to: 600)
+        f.buffer.noteEvent(id: "X", kind: "touch", source: .physical, appliedTick: 601)
+        f.feed(to: 1600)
+        if let w = f.buffer.window(eventID: "X"), let snap = TimelineSnapshot.make(window: w, timeline: f.timeline, observer: f.observer) {
+            let before = TimelineExport.csv(snapshot: snap) { "r\($0)" }.csv ?? ""
+            for t in 1601...4700 { f.timeline.recordMotor(tick: t, motor(0.2)) }      // evicts every drawn motor sample
+            let after = TimelineExport.csv(snapshot: snap) { "r\($0)" }.csv ?? ""
+            let motorRows = after.split(separator: "\n").filter { $0.hasPrefix("motor,") }.count
+            check("export = the drawn snapshot: its motor rows survive the ring moving on (\(motorRows) rows)",
+                  f.timeline.motorSlice(1...1600).samples.isEmpty && motorRows == snap.motor.samples.count && motorRows > 0 && after == before)
+        } else { check("export fixture builds", false) }
+    }
+
     // ---- V7.6 review fixes -------------------------------------------------------------------------
     // M1 / M4 / L6: epoch and selection decide what the panel and the export may show.
     do {
@@ -374,7 +391,7 @@ func runTimelineTest() {
         f.feed(to: 1600)
         let w = f.buffer.window(eventID: "E")!
         let snap = TimelineSnapshot.make(window: w, timeline: f.timeline, observer: f.observer)
-        let ok = TimelineExport.csv(window: w, timeline: f.timeline, observer: f.observer) { "r\($0)" }
+        let ok = snap.map { TimelineExport.csv(snapshot: $0) { "r\($0)" } } ?? (csv: nil, note: nil)
         check("same epoch and selection: lanes shown, the real selected count (4, though no neuron spiked), export works",
               snap?.epochMismatch == false && snap?.motor.samples.isEmpty == false && snap?.spikeState == .shown(neurons: 4)
                 && snap?.neuronCount == 4 && ok.csv != nil && ok.note == nil)
@@ -389,7 +406,7 @@ func runTimelineTest() {
                 && changed?.labels[2].contains("selection changed") == true && changed?.note != nil && changed?.motor.samples.isEmpty == false)
         f.observer.newEpoch()
         let stale = cache.snapshot(window: w, timeline: f.timeline, observer: f.observer)
-        let refused = TimelineExport.csv(window: w, timeline: f.timeline, observer: f.observer) { "r\($0)" }
+        let refused = stale.map { TimelineExport.csv(snapshot: $0) { "r\($0)" } } ?? (csv: nil, note: nil)
         check("M1: after a brain reset the old event shows no lanes (though the lanes still hold data) and a different-epoch note; cache rebuilt",
               cache.builds == 3 && stale?.epochMismatch == true && stale?.eye.samples.isEmpty == true && stale?.sensory.samples.isEmpty == true
                 && stale?.motor.samples.isEmpty == true && stale?.body.samples.isEmpty == true && stale?.note?.contains("epoch") == true

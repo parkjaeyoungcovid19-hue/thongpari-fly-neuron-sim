@@ -138,6 +138,19 @@ private struct SampleRing<S: TimelineSample> {
         items.removeAll(keepingCapacity: true); head = 0; evictedThrough = 0; lastTick = 0
     }
 
+    /// Overwrites the newest retained sample at `tick` that `matches` (a later
+    /// frame on the same tick wins). False when none is retained.
+    mutating func replaceNewest(tick: Int, where matches: (S) -> Bool, with s: S) -> Bool {
+        guard !items.isEmpty else { return false }
+        var i = items.count < capacity ? items.count - 1 : (head + capacity - 1) % capacity
+        for _ in 0..<items.count {
+            if items[i].tick < tick { return false }
+            if items[i].tick == tick && matches(items[i]) { items[i] = s; return true }
+            i = (i + items.count - 1) % items.count
+        }
+        return false
+    }
+
     func slice(_ range: ClosedRange<Int>, where keep: (S) -> Bool = { _ in true }) -> LaneSlice<S> {
         var out: [S] = []
         for s in items where range.contains(s.tick) && keep(s) { out.append(s) }
@@ -222,8 +235,10 @@ final class InteractionTimeline {
         lock.lock(); defer { lock.unlock() }
         guard let t = usable(tick) else { return false }
         if let last = lastChannelTick[channel], t <= last {
-            if t < last { counters.outOfOrder += 1 }
-            return false
+            if t < last { counters.outOfOrder += 1; return false }
+            // Two frames on one tick: the later one replaces the channel's sample (a falling edge is not lost).
+            return sensory.replaceNewest(tick: t, where: { $0.channel == channel },
+                                         with: SensorySample(tick: t, origin: origin, channel: channel, a: a, b: b, sensoryOn: sensoryOn))
         }
         lastChannelTick[channel] = t
         note(.sensory, evicted: sensory.append(SensorySample(tick: t, origin: origin, channel: channel, a: a, b: b, sensoryOn: sensoryOn)))
@@ -276,8 +291,14 @@ final class InteractionTimeline {
             tick: tick, origin: origin, source: .flygym, x: fb.positionXmm, y: fb.positionYmm, heading: fb.headingRad,
             vx: fb.vx, yawRate: fb.yawRate, contactMean: fb.contactMean), stamp: stamp) else { return }
         if let est = fb.eyeSampleSimTick {
-            if lockstepEndTick != nil {
-                recordEye(tick: est, origin: .sampledAt, loomL: Float(fb.loomLeft), loomR: Float(fb.loomRight))
+            if let end = lockstepEndTick {
+                // A true brain tick is 1…end of this quantum, and newer than the last eye frame
+                // (`recordEye` ignores a repeat and counts an older one); anything else is untimed.
+                if est >= 1 && est <= end {
+                    recordEye(tick: est, origin: .sampledAt, loomL: Float(fb.loomLeft), loomR: Float(fb.loomRight))
+                } else {
+                    lock.lock(); counters.untimed += 1; lock.unlock()
+                }
             } else {
                 recordEye(tick: tickNow, origin: .receivedAt, loomL: Float(fb.loomLeft), loomR: Float(fb.loomRight),
                           stamp: Double(est))
@@ -314,6 +335,15 @@ final class InteractionTimeline {
     }
     func motorSlice(_ r: ClosedRange<Int>) -> LaneSlice<MotorSample> { lock.lock(); defer { lock.unlock() }; return motor.slice(r) }
     func bodySlice(_ r: ClosedRange<Int>) -> LaneSlice<BodySample> { lock.lock(); defer { lock.unlock() }; return body.slice(r) }
+
+    /// Median Δtick per channel (ticks of ONE channel only: channels that share a tick
+    /// would otherwise contribute Δ=0). Channels without a sample are absent; nil = one sample.
+    static func periodsByChannel(_ samples: [SensorySample]) -> [(channel: SensoryChannel, period: Double?, count: Int)] {
+        SensoryChannel.allCases.compactMap { c in
+            let ticks = samples.filter { $0.channel == c }.map(\.tick).sorted()
+            return ticks.isEmpty ? nil : (c, period(of: ticks), ticks.count)
+        }
+    }
 
     /// Median Δtick of ascending ticks; nil below two.
     static func period(of ticks: [Int]) -> Double? {
@@ -380,7 +410,8 @@ struct LaneCoverage {
 
     /// `ticks` ascending. A gap longer than max(4 × period, 64) ticks (also at
     /// either end of the window; 64 covers the one batch whose own sample is
-    /// recorded after its window finalized), an eviction inside the window or a single sample
+    /// recorded after its window finalized), an eviction inside the window, a window that
+    /// starts before tick 1 (`window_truncated_at_tick_1`) or a single sample
     /// (coverage cannot be verified) makes it `partial`; no sample at all is
     /// `unavailable` — never a zero.
     static func of(ticks: [Int], window: TickWindow, evictedThrough: Int) -> LaneCoverage {
@@ -398,6 +429,7 @@ struct LaneCoverage {
             for i in 1..<ticks.count { worst = max(worst, Double(ticks[i] - ticks[i - 1])) }
             worst = max(worst, Double(window.end - ticks[ticks.count - 1]))
             if worst > tolerance { partial = "gap_\(Int(worst))_ticks" }
+            else if window.start < 1 { partial = "window_truncated_at_tick_1" }
         } else {
             partial = "single_sample"
         }

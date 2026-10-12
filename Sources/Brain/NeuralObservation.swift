@@ -366,6 +366,21 @@ final class NeuralObserver {
         return out
     }
 
+    /// The sub-ranges of `start...end` whose ticks are NOT retained in the ring
+    /// (evicted, never recorded, or not yet simulated); empty when all are held.
+    func missingRanges(start: Int, end: Int) -> [ClosedRange<Int>] {
+        lock.lock(); defer { lock.unlock() }
+        guard start <= end else { return [] }
+        var out: [ClosedRange<Int>] = []
+        var from: Int?
+        for t in start...end {
+            if ring.has(t) { if let f = from { out.append(f...(t - 1)); from = nil } }
+            else if from == nil { from = t }
+        }
+        if let f = from { out.append(f...end) }
+        return out
+    }
+
     /// Selected neurons that spiked at `tick` (test hook / future raster).
     func spikes(at tick: Int) -> [Int]? {
         lock.lock(); defer { lock.unlock() }

@@ -1,6 +1,6 @@
 # Virtual Fly Lab V8 — 외부 입출력 모듈 장착 기반
 
-작성: 2026-09-13 · 상태: **PLANNED / NOT IMPLEMENTED BY THIS DOCUMENT UPDATE**
+작성: 2026-09-13 · 상태: **V8.1–8.3 구현 / V8.4–8.7 PLANNED** (갱신 2026-10-12)
 
 선행: **V7 완료 후에만 착수**. 병렬로 다음 버전 기능을 구현하거나 버전 순서를 바꾸지 않는다.
 
@@ -60,6 +60,8 @@ discovered→validated→attached→ready→running→draining→detached; failu
 
 **완료 출력:** 유효/미지원 schema fixture.
 
+**2026-10-12 구현:** [V8.1–8.3 보고서](../reports/V8_1_3_COMPLETION_REPORT.md). `ExternalIOProtocol.swift`(`external_io.v1`), `schemas/external-io.schema.json`, `fixtures/external-io/`, `--externaliotest`.
+
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V8.1` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 
 ### 8.2. 호스트 registry
@@ -68,6 +70,8 @@ discovered→validated→attached→ready→running→draining→detached; failu
 
 **완료 출력:** descriptor에 따른 UI 생성.
 
+**2026-10-12 구현:** 같은 보고서. `ModuleRegistry.swift`, World 페이지 "외부 모듈" 섹션.
+
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V8.2` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 
 ### 8.3. 권한 및 제어권 경계
@@ -75,6 +79,8 @@ discovered→validated→attached→ready→running→draining→detached; failu
 **할 일:** 기본 world와 external_environment 중 출력 대상 한 곳을 선택한다. auxiliary는 관측/자극 채널만 선언대로 연결한다.
 
 **완료 출력:** 동일 몸에 두 controller가 쓰지 않음.
+
+**2026-10-12 구현:** 같은 보고서. `ExternalIOSession.swift`, Coordinator 출력 훅과 `Fly.hold`.
 
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V8.3` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 

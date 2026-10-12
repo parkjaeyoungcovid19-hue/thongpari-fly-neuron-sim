@@ -9,7 +9,7 @@
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS%20·%20Apple%20Silicon-111111?style=flat-square">
   <img alt="Swift" src="https://img.shields.io/badge/frontend-Swift%20%2B%20Metal-F05138?style=flat-square">
   <img alt="FlyGym" src="https://img.shields.io/badge/body-FlyGym%202.1%20%2B%20MuJoCo%203.9-5C7CFA?style=flat-square">
-  <img alt="status" src="https://img.shields.io/badge/V7.5-exact%20observation%20·%20event%20windows-2E8B57?style=flat-square">
+  <img alt="status" src="https://img.shields.io/badge/V8.3-timeline%20·%20explanations%20·%20module%20host-2E8B57?style=flat-square">
 </p>
 
 <p align="center">
@@ -65,7 +65,7 @@ The point is not to fake convincing animal behavior. Every response can be trace
 
 ## Status
 
-**V6.1–V6.7 and V7.1–V7.5 are complete; V7.6–V7.7 are not started.** V7.2 adds exact per-tick spike observation of up to 256 selected neurons, checked tick by tick against an independent CPU reference. V7.3 separates reading from stimulating: a brain click only selects, and current is injected only with the ⚡ switch on. V7.4 adds a functional group registry (`neural_group.v1`), and V7.5 adds pre/post-event windows (`interaction_window.v1`) on the 1 ms simulation tick. All headless suites pass. Each step also had a real-GUI pass. Defects found there were fixed: the V7.4–7.5 fixes were rechecked in the GUI, the V7.2–7.3 fixes only headless. A brain pick of more than 256 neurons was not GUI-tested. See [V7.2–7.3](docs/reports/V7_2_3_COMPLETION_REPORT.md), [V7.4–7.5](docs/reports/V7_4_5_COMPLETION_REPORT.md) and [V7 progress](docs/reports/V7_PROGRESS.md); V6 runtime limits are in the [V6 completion report](docs/reports/V6_COMPLETION_REPORT.md). Deferred independent V5 gates are not retroactively marked passed. Brain flashes are a lossy sample; displayed rates come from exact simulated spike counts.
+**V6.1–V6.7, V7.1–V7.7 and V8.1–V8.3 are implemented; V8.4–V8.7 are not started.** V7.6 puts the event, sensory samples, exact spikes, motor output and body data on one 1 ms simulation-tick timeline. Every sample says whether its tick was measured (`sampled_at`) or is only a receive time (`received_at`), and nothing is interpolated: the ~5 Hz eye stays separate dots. V7.7 writes rule-based explanations from those numbers only (`interaction_explanation.v1`). It separates a body pushed by an applied force from a neural motor change, and shows "still observing", "not enough data", "no response" and "unclear" instead of guessing; it never uses feeling or intent words. V8.1–8.3 add the external I/O host foundation: the strict `external_io.v1` channel contract with schema and fixtures, a registry of installed module descriptors read as data only, and a single owner for body output. Fixtures only — no game modules. V7.6–7.7 and V8.1–8.3 pass headless; their real-GUI pass is partial ([V7 report](docs/reports/V7_COMPLETION_REPORT.md), [V8.1–8.3 report](docs/reports/V8_1_3_COMPLETION_REPORT.md)). V7.2 adds exact per-tick spike observation of up to 256 selected neurons, checked tick by tick against an independent CPU reference. V7.3 separates reading from stimulating: a brain click only selects, and current is injected only with the ⚡ switch on. V7.4 adds a functional group registry (`neural_group.v1`), and V7.5 adds pre/post-event windows (`interaction_window.v1`) on the 1 ms simulation tick. All headless suites pass. Each step also had a real-GUI pass. Defects found there were fixed: the V7.4–7.5 fixes were rechecked in the GUI, the V7.2–7.3 fixes only headless. A brain pick of more than 256 neurons was not GUI-tested. See [V7.2–7.3](docs/reports/V7_2_3_COMPLETION_REPORT.md), [V7.4–7.5](docs/reports/V7_4_5_COMPLETION_REPORT.md) and [V7 progress](docs/reports/V7_PROGRESS.md); V6 runtime limits are in the [V6 completion report](docs/reports/V6_COMPLETION_REPORT.md). Deferred independent V5 gates are not retroactively marked passed. Brain flashes are a lossy sample; displayed rates come from exact simulated spike counts.
 
 | Version | What it added |
 |---|---|
@@ -90,8 +90,11 @@ The point is not to fake convincing animal behavior. Every response can be trace
 | **V7.3** | Read vs stimulate: a brain click selects (read-only); the ⚡ switch stimulates; live injection line |
 | **V7.4** | Functional group registry: 22 groups with sources, dataset-hash binding, no subset for groups over 256 |
 | **V7.5** | Pre/post-event windows: 0.5 s / 1 s on simulation ticks, validity flags, `interaction_window` lines in recordings |
+| **V7.6** | Integrated timeline: eye / sensory / spikes / motor / body lanes on the sim tick, measured vs receive time, no interpolation, `timeline.csv` |
+| **V7.7** | Observation-based explanations: eight rule-based verdicts in English/Korean, force vs neural output kept apart |
+| V8.1–V8.3 | External I/O host foundation: `external_io.v1` contract + schema + fixtures, data-only module registry, single body-output owner |
 
-Per-version evidence lives in [`docs/reports/V5_PROGRESS.md`](docs/reports/V5_PROGRESS.md), [`docs/reports/V6_PROGRESS.md`](docs/reports/V6_PROGRESS.md) and [`notes/validation/`](notes/validation/v5-6-1-2026-09-27/README.md).
+Per-version evidence lives in [`docs/reports/V5_PROGRESS.md`](docs/reports/V5_PROGRESS.md), [`docs/reports/V6_PROGRESS.md`](docs/reports/V6_PROGRESS.md), [`docs/reports/V7_PROGRESS.md`](docs/reports/V7_PROGRESS.md), [`docs/reports/V8_PROGRESS.md`](docs/reports/V8_PROGRESS.md) and [`notes/validation/`](notes/validation/v5-6-1-2026-09-27/README.md).
 
 ---
 
@@ -324,7 +327,7 @@ Use it for **controlled comparisons inside the same model**, not as a claim that
 └── docs/                          guides, plans + roadmap, reports, reference
 ```
 
-Controls and preset values: **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. Bridge internals and protocol: **[flygym_bridge/README.md](flygym_bridge/README.md)**. The **[V4–V14 roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** normally proceeds in order; the documented user exception starts V6.1 while deferring V5 GUI/live acceptance. V6 and V7.1–V7.5 are implemented; V7.6–V14 remain planned. Sandbox contract: **[V5.6.2 spec](docs/plans/VIRTUAL_FLY_LAB_V5_6_2_SANDBOX_SPEC.md)**.
+Controls and preset values: **[Virtual Fly Lab guide](docs/guides/VIRTUAL_FLY_LAB_GUIDE.md)**. Bridge internals and protocol: **[flygym_bridge/README.md](flygym_bridge/README.md)**. The **[V4–V14 roadmap](docs/plans/VIRTUAL_FLY_LAB_ROADMAP.md)** normally proceeds in order; the documented user exception starts V6.1 while deferring V5 GUI/live acceptance. V6, V7 and V8.1–V8.3 are implemented; V8.4–V14 remain planned. Sandbox contract: **[V5.6.2 spec](docs/plans/VIRTUAL_FLY_LAB_V5_6_2_SANDBOX_SPEC.md)**.
 
 ---
 

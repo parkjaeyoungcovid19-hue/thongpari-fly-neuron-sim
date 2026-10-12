@@ -1,6 +1,6 @@
 # Virtual Fly Lab V7 — 정확한 뉴런 관측과 상호작용 타임라인
 
-작성: 2026-09-13 · 갱신: 2026-10-09 · 상태: **V7.1–7.3 구현 / V7.4–7.7 PLANNED**
+작성: 2026-09-13 · 갱신: 2026-10-09 · 상태: **V7.1–7.7 구현 (GUI 일부 미확인)**
 
 선행: **V6 완료 후에만 착수**. 병렬로 다음 버전 기능을 구현하거나 버전 순서를 바꾸지 않는다.
 
@@ -110,6 +110,8 @@ individual_id, event_id, selected groups/neurons, time window. 읽기 전용 조
 
 **완료 출력:** 눈 5Hz를 1kHz 측정처럼 보간하지 않음.
 
+**2026-10-12 구현:** [V7 완료 보고서](../reports/V7_COMPLETION_REPORT.md). `InteractionTimeline.swift`, `interaction_window.v2`, Lab timeline 패널과 `timeline.csv`, `--timelinetest`.
+
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V7.6` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 
 ### 7.7. 관측 기반 설명
@@ -117,6 +119,8 @@ individual_id, event_id, selected groups/neurons, time window. 읽기 전용 조
 **할 일:** 숫자/관측 상태로 규칙 기반 문장을 만든다. 직접 물리 힘과 신경 출력의 효과를 구분한다. 데이터 없는 원인/감정을 생성하지 않는다.
 
 **완료 출력:** 무반응/불명확/관측 중도 사용자에게 보여줌.
+
+**2026-10-12 구현:** 같은 보고서. `InteractionExplanation.swift`(`interaction_explanation.v1`), 설명 카드, `--explaintest`.
 
 **다음 단계 진입 조건:** 이 출력의 정상 사례와 실패/무변경 사례를 확인하고 진행표의 `V7.7` 행에 증거를 남긴다. 검사 실패 시 같은 단계에서 원인을 수정한다.
 
